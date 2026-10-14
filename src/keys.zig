@@ -139,6 +139,18 @@ fn parseAngle(inner: []const u8) ParseError!Key {
     return .{ .code = code, .mods = mods };
 }
 
+/// The first codepoint of `s` and its length in bytes, or null when `s`
+/// is empty or does not start with whole, valid UTF-8. std.unicode's
+/// decoders take exactly one sequence (1 to 4 bytes, the length its first
+/// byte gives); anything else is undefined behavior in release builds.
+pub fn decodeFirst(s: []const u8) ?struct { cp: u21, len: u3 } {
+    if (s.len == 0) return null;
+    const len = std.unicode.utf8ByteSequenceLength(s[0]) catch return null;
+    if (len > s.len) return null;
+    const cp = std.unicode.utf8Decode(s[0..len]) catch return null;
+    return .{ .cp = cp, .len = len };
+}
+
 /// The key a key event names, or null for modifier keys alone.
 pub fn fromEvent(keysym: u32, text: []const u8, ctrl: bool, alt: bool, super: bool, shift: bool) ?Key {
     // Modifiers, Caps Lock, and the like.

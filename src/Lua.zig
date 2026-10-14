@@ -587,9 +587,9 @@ fn fmBookmark(Lq: ?*State) callconv(.c) c_int {
     const self = get(L);
     const k = checkString(L, 1);
     const path = checkString(L, 2);
-    const len = std.unicode.utf8ByteSequenceLength(k[0]) catch lh.argError(L, 1, "a key", .{});
-    const code = std.unicode.utf8Decode(k[0..@min(len, k.len)]) catch lh.argError(L, 1, "a key", .{});
-    self.app.setBookmark(code, path);
+    const d = keys.decodeFirst(k) orelse lh.argError(L, 1, "a key", .{});
+    if (d.len != k.len) lh.argError(L, 1, "a key", .{});
+    self.app.setBookmark(d.cp, path);
     return 0;
 }
 

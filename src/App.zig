@@ -831,11 +831,22 @@ fn loadBookmarks(self: *App) void {
     const data = readAll(self.gpa, path) orelse return;
     defer self.gpa.free(data);
     var it = std.mem.splitScalar(u8, data, '\n');
+    var n: usize = 0;
     while (it.next()) |line| {
-        // "c:/path", the key as UTF-8.
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
-        const key = std.unicode.utf8Decode(line[0..colon]) catch continue;
-        const p = self.gpa.dupe(u8, line[colon + 1 ..]) catch continue;
+        n += 1;
+        if (line.len == 0) continue;
+        // "c:/path": the key (one codepoint, which may be ':' itself or
+        // take several bytes), a colon, and an absolute path. Anything
+        // else is skipped, and said in :messages.
+        const k = keys.decodeFirst(line);
+        const ok = if (k) |x| line.len > x.len + 1 and line[x.len] == ':' and line[x.len + 1] == '/' else false;
+        if (!ok) {
+            var mb: [160]u8 = undefined;
+            self.logMessage(std.fmt.bufPrint(&mb, "Skipped line {d} of the bookmarks file: not a key, a colon, and an absolute path", .{n}) catch "Skipped a line of the bookmarks file", true);
+            continue;
+        }
+        const key = k.?.cp;
+        const p = self.gpa.dupe(u8, line[k.?.len + 1 ..]) catch continue;
         const gop = self.bookmarks.getOrPut(self.gpa, key) catch {
             self.gpa.free(p);
             continue;
@@ -852,8 +863,10 @@ fn saveBookmarks(self: *App) void {
     defer out.deinit(self.gpa);
     var it = self.bookmarks.iterator();
     while (it.next()) |kv| {
+        // A line per bookmark: a path with a line break would not read back.
+        if (std.mem.indexOfScalar(u8, kv.value_ptr.*, '\n') != null) continue;
         var kb: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(@intCast(kv.key_ptr.*), &kb) catch continue;
+        const n = std.unicode.utf8Encode(std.math.cast(u21, kv.key_ptr.*) orelse continue, &kb) catch continue;
         out.appendSlice(self.gpa, kb[0..n]) catch return;
         out.append(self.gpa, ':') catch return;
         out.appendSlice(self.gpa, kv.value_ptr.*) catch return;

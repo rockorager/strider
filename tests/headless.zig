@@ -429,6 +429,48 @@ test "the which-key popup, the command line, and completion" {
     try testing.expect(std.mem.endsWith(u8, h.win.?.message.items, "/work/nowhere"));
 }
 
+test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped, not a crash" {
+    var f: Fixture = .{};
+    try fixture(&f, "bookmarks-file");
+    defer f.remove();
+    for ([_][]const u8{ ".local", ".local/state", ".local/state/strider" }) |d| {
+        if (!f.exists(d)) try f.add(.{ .name = d, .dir = true });
+    }
+    // A bookmark on ':' (which crashed the parser), an empty line, a lone
+    // colon, invalid UTF-8, a truncated sequence, a relative path, and a
+    // key of several bytes.
+    var bb: [512]u8 = undefined;
+    try f.writeFile(".local/state/strider/bookmarks", try std.fmt.bufPrint(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}));
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work"), .state = true });
+    const app = h.app.?;
+    try testing.expectEqualStrings("/tmp/x", app.bookmarks.get(':').?);
+    var eb: [512]u8 = undefined;
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{s}/work/docs", .{f.path}), app.bookmarks.get('é').?);
+    try testing.expectEqual(@as(usize, 2), app.bookmarks.count());
+    // Each malformed line is in :messages.
+    var skipped: usize = 0;
+    for (app.messages.items) |m| {
+        if (std.mem.startsWith(u8, m.text, "Skipped line")) skipped += 1;
+    }
+    try testing.expectEqual(@as(usize, 4), skipped);
+    // ' and é go there; m and ':' sets a bookmark on ':', written as the
+    // file reads it.
+    try h.typeText("'é");
+    try testing.expectEqualStrings("docs", model.basename(h.dir().path));
+    try h.typeText("m:");
+    var rb: [1024]u8 = undefined;
+    const saved = try f.readFile(".local/state/strider/bookmarks", &rb);
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "::{0s}/work/docs\né:{0s}/work/docs\n", .{f.path}), saved);
+    // A bookmark command's argument is one whole key; anything else is an
+    // error, not a read past its end.
+    App.commands.execute(h.win.?, "bookmark-set \xc3", null, true);
+    try testing.expectEqualStrings("A bookmark is one key", h.win.?.message.items);
+    App.commands.execute(h.win.?, "bookmark-jump ab", null, true);
+    try testing.expectEqualStrings("A bookmark is one key", h.win.?.message.items);
+}
+
 test "messages stay until the next key, and :messages lists them" {
     var f: Fixture = .{};
     try fixture(&f, "messages");

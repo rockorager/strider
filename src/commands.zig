@@ -1100,7 +1100,7 @@ fn set(ctx: Ctx) void {
 
 fn bookmarkSet(ctx: Ctx) void {
     if (ctx.args.len != 0) {
-        const k = std.unicode.utf8Decode(ctx.args[0 .. std.unicode.utf8ByteSequenceLength(ctx.args[0]) catch 1]) catch return;
+        const k = bookmarkKey(ctx) orelse return;
         ctx.win.app.setBookmark(k, ctx.win.curDir().path);
         return;
     }
@@ -1108,11 +1108,24 @@ fn bookmarkSet(ctx: Ctx) void {
 }
 fn bookmarkJump(ctx: Ctx) void {
     if (ctx.args.len != 0) {
-        const k = std.unicode.utf8Decode(ctx.args[0 .. std.unicode.utf8ByteSequenceLength(ctx.args[0]) catch 1]) catch return;
+        const k = bookmarkKey(ctx) orelse return;
         if (ctx.win.app.bookmarks.get(k)) |p| return ctx.win.cd(p);
         return ctx.win.notify("No such bookmark", true);
     }
     ctx.win.awaitKey(.bookmark_jump);
+}
+/// A bookmark command's argument: one key, a single codepoint.
+fn bookmarkKey(ctx: Ctx) ?u32 {
+    const a = std.mem.trim(u8, ctx.args, " ");
+    const k = keys.decodeFirst(a) orelse {
+        ctx.win.notify("A bookmark is one key", true);
+        return null;
+    };
+    if (k.len != a.len) {
+        ctx.win.notify("A bookmark is one key", true);
+        return null;
+    }
+    return k.cp;
 }
 fn bookmarkRemove(ctx: Ctx) void {
     ctx.win.awaitKey(.bookmark_remove);
