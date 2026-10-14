@@ -47,6 +47,7 @@ var row_key: u8 = 0;
 pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     col.root = c.siv_stack(txn, parent, null);
     _ = c.siv_set_layout(txn, col.root, &.{ .width = ui.fill(), .height = ui.fill() });
+    _ = c.siv_set_visual(txn, col.root, &.{ .background_token = col.surface() });
     col.view = c.siv_list_view(txn, col.root, &.{
         .label = label.ptr,
         .label_len = label.len,
@@ -56,7 +57,7 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
         .selection = .single,
     });
     _ = c.siv_set_layout(txn, col.view, &.{ .width = ui.fill(), .height = ui.fill() });
-    _ = c.siv_set_visual(txn, col.view, &.{ .background_token = .view_bg, .flags = .{ .clip = true } });
+    _ = c.siv_set_visual(txn, col.view, &.{ .background_token = col.surface(), .flags = .{ .clip = true } });
     _ = c.siv_on(txn, col.view, .select, onSelect, null, col);
     _ = c.siv_on(txn, col.view, .activate, onActivate, null, col);
     col.message = c.siv_text(txn, col.root, "", 0);
@@ -64,6 +65,16 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     _ = c.siv_set_layout(txn, col.message, &.{ .align_x = .center, .padding = .{ .start = 12, .end = 12, .top = 16 } });
     _ = c.siv_set_visual(txn, col.message, &.{ .flags = .{ .no_hit_test = true } });
     _ = c.siv_set_hidden(txn, col.message, true);
+}
+
+/// Each column's surface: the parent most recessed, the current column a
+/// step nearer, and a folder in the preview on the view's own background.
+pub fn surface(col: *const Column) siv.ColorToken {
+    return switch (col.kind) {
+        .parent => .sidebar_bg,
+        .current => .secondary_sidebar_bg,
+        .preview => .view_bg,
+    };
 }
 
 /// Shows `dir` (or nothing), with its cursor; pins it while shown.
@@ -110,8 +121,12 @@ fn applyMessage(col: *Column, txn: Txn) void {
 /// rows around it in view.
 pub fn placeCursor(col: *Column, txn: Txn, i: u32, _: bool) void {
     if (i >= col.shown_count) return;
+    var old: i32 = -1;
+    _ = c.siv_view_get_cursor(col.view, &old);
     _ = c.siv_view_set_cursor(txn, col.view, @intCast(i));
     _ = c.siv_view_set_selected(txn, col.view, i, true);
+    if (old >= 0 and old != i) col.restyle(txn, @intCast(old));
+    col.restyle(txn, i);
     const off = col.win.app.options.scroll_off;
     if (off > 0 and col.kind == .current) {
         const below = @min(i + off, col.shown_count - 1);
@@ -124,6 +139,43 @@ pub fn placeCursor(col: *Column, txn: Txn, i: u32, _: bool) void {
 /// Binds the rows in view again (marks, the register, icons changed).
 pub fn rebind(col: *Column, txn: Txn) void {
     _ = c.siv_view_refresh(txn, col.view);
+}
+
+/// The name's color and weight and the icon: on the cursor's row (the
+/// selection), the selection's text color, so folders' accent and marks'
+/// warning never sit on the selection's own blue.
+fn applyLook(col: *Column, txn: Txn, parts: *RowParts, e: model.Entry, marked: bool, cursor: bool) void {
+    const token: siv.ColorToken = if (cursor) .selection_fg else if (marked) .warning else if (e.kind == .dir) .accent else if (e.hidden) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
+    _ = c.siv_set_text_style(txn, parts.name, &.{
+        .color_token = token,
+        .size_role = .body,
+        // Folders are told apart by their icon and color, not weight;
+        // marked entries are bold as well as colored, so a mark reads
+        // without color too.
+        .weight = if (marked) .bold else .regular,
+        .slant = if (e.link) .italic else .roman,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
+    _ = c.siv_set_text_style(txn, parts.info, &.{ .color_token = if (cursor) .selection_fg else .muted_fg, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true } });
+    if (col.win.app.options.icons) {
+        var ibuf: [512]u8 = undefined;
+        const icon = iconFor(col.win, e, &ibuf);
+        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (cursor) .selection_fg else if (e.kind == .dir) .accent else .view_fg });
+    }
+}
+
+/// Restyles row `i` if it is bound (in view), as the cursor arrives or
+/// leaves.
+fn restyle(col: *Column, txn: Txn, i: u32) void {
+    const d = col.dir orelse return;
+    const row = c.siv_view_get_row(col.view, i);
+    if (row == .null) return;
+    var p: ?*anyopaque = null;
+    if (c.siv_node_get_data(row, &row_key, &p) != .ok or p == null) return;
+    const parts: *RowParts = @ptrCast(@alignCast(p));
+    if (parts.index != i) return;
+    const e = d.entryAt(i) orelse return;
+    col.applyLook(txn, parts, e, d.isMarked(i) or col.win.inVisualRange(col, i), i == d.cursor);
 }
 
 fn rowParts(txn: Txn, row: Node) ?*RowParts {
@@ -170,27 +222,14 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
     _ = c.siv_set_text(txn, parts.name, name.ptr, name.len);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const in_register = app.register.items.len != 0 and if (l.pathOf(&pbuf, e)) |p| app.inRegister(p) else false;
-    const token: siv.ColorToken = if (marked) .warning else if (e.kind == .dir) .accent else if (e.hidden) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
-    _ = c.siv_set_text_style(txn, parts.name, &.{
-        .color_token = token,
-        .size_role = .body,
-        .weight = if (e.kind == .dir or marked) .bold else .regular,
-        .slant = if (e.link) .italic else .roman,
-        .flags = .{ .no_wrap = true, .ellipsize = true },
-    });
+    col.applyLook(txn, parts, e, marked, i == d.cursor);
     // Cut files look struck through until pasted; copied ones underlined.
     if (in_register) {
         const span: siv.TextSpan = .{ .start = 0, .end = @intCast(name.len), .flags = if (app.register_cut) .{ .strikethrough = true } else .{ .underline = true } };
         _ = c.siv_set_text_spans(txn, parts.name, &.{ .spans = @ptrCast(&span), .spans_count = 1 });
     }
 
-    // Icons.
     _ = c.siv_set_hidden(txn, parts.icon, !app.options.icons);
-    if (app.options.icons) {
-        var ibuf: [512]u8 = undefined;
-        const icon = iconFor(col.win, e, &ibuf);
-        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (e.kind == .dir) .accent else .view_fg });
-    }
 
     // Sizes (files) in the current column and folder previews.
     var sbuf: [64]u8 = undefined;
@@ -207,7 +246,6 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
         }
     }
     _ = c.siv_set_text(txn, parts.info, info.ptr, info.len);
-    _ = c.siv_set_text_style(txn, parts.info, &.{ .color_token = .muted_fg, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true } });
     _ = c.siv_set_hidden(txn, parts.info, info.len == 0);
 }
 
