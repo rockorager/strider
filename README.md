@@ -92,6 +92,7 @@ tenth entry.
 | `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
 | `!`, `S` | run a shell command on the selection, a terminal here |
 | `=` | change permissions (`:chmod`); `:chown` changes owners |
+| `w` | the tasks view: running and recent file operations |
 | `J` `K` | scroll the preview |
 | `:` | the command line: Tab completes commands and paths, Up and Down recall history |
 | `q`, `ZZ` | close the tab (the window with the last), quit |
@@ -112,6 +113,15 @@ the filter wants every space-separated word.
 `:group`, by name or number. `-R` goes into folders. Both run as file
 operations, with progress, and work on the visual range, the marked
 entries, or the entry under the cursor.
+
+The tasks view (`w`, `:tasks`) lists running file operations with their
+progress, bytes, items, and current file, then the last 20 finished ones
+with what came of them. In it, `j` and `k` move, `p` or Space pauses and
+resumes (the operation stops at its next file or 4 MiB chunk), `x` or
+`dd` cancels a running one or takes a finished one off the list, and
+Esc, `q`, or `w` closes it. Its keys are a keymap mode of their own
+(`t` in `fm.map`), and `:task-pause` and `:task-cancel` act on the first
+running operation with the view closed.
 
 A file operation that meets a name already taken asks in the status line:
 replace, skip, keep both, or merge folders, Shift for all of them.
@@ -181,7 +191,8 @@ local app = fm.siv_app()
 app:timer_start(1000, function() fm.notify("a second later") end)
 ```
 
-`fm` also has `get`, `cwd`, `hovered`, `selected`, `cd`, `exec` (any
+Modes for `fm.map` and `:map` are `n` (normal), `v` (visual), and `t`
+(the tasks view). `fm` also has `get`, `cwd`, `hovered`, `selected`, `cd`, `exec` (any
 command line), `notify`, and `siv_window`. Every option is also `:set
 name value` while running (`:set hidden!` toggles); `:map` and `:unmap`
 bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
