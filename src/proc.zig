@@ -19,6 +19,7 @@ extern "c" fn close(fd: c_int) c_int;
 extern "c" fn read(fd: c_int, buf: [*]u8, len: usize) isize;
 extern "c" fn open(path: [*:0]const u8, flags: c_int, ...) c_int;
 extern "c" fn kill(pid: c_int, sig: c_int) c_int;
+extern "c" fn setpgid(pid: c_int, pgid: c_int) c_int;
 
 pub const Result = struct {
     /// The exit status, or 128 plus the signal, or 127 if it could not run.
@@ -41,6 +42,11 @@ pub const Options = struct {
     kill_after: ?usize = null,
     /// Standard input from /dev/null rather than this process's.
     null_stdin: bool = true,
+    /// Set from another thread to stop: the program and every process it
+    /// started are killed (it runs in a process group of its own).
+    cancel: ?*const std.atomic.Value(bool) = null,
+    /// Killed the same way after this long.
+    timeout_ms: ?u32 = null,
 };
 
 /// Runs `argv` (searched on $PATH) to completion, collecting what it
@@ -61,7 +67,9 @@ pub fn run(gpa: Allocator, argv: []const []const u8, opts: Options) !Result {
         _ = close(fds[1]);
         return error.Unavailable;
     }
+    const watched = opts.cancel != null or opts.timeout_ms != null;
     if (pid == 0) {
+        if (watched) _ = setpgid(0, 0);
         _ = dup2(fds[1], 1);
         _ = dup2(fds[1], 2);
         if (opts.null_stdin) {
@@ -72,13 +80,28 @@ pub fn run(gpa: Allocator, argv: []const []const u8, opts: Options) !Result {
         _ = execvp(cargv[0].?, cargv.ptr);
         _exit(127);
     }
+    // Both sides set the group, so a kill finds it whichever runs first.
+    if (watched) _ = setpgid(pid, pid);
     _ = close(fds[1]);
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     var truncated = false;
     var total: usize = 0;
     var buf: [16 * 1024]u8 = undefined;
+    const deadline: ?i64 = if (opts.timeout_ms) |t| nowMs() + t else null;
     while (true) {
+        if (watched) {
+            // Wake now and then to see whether to stop.
+            var pfd = [1]linux.pollfd{.{ .fd = fds[0], .events = linux.POLL.IN, .revents = 0 }};
+            const r = linux.poll(&pfd, 1, 100);
+            const stop = (if (opts.cancel) |cf| cf.load(.acquire) else false) or (if (deadline) |d| nowMs() >= d else false);
+            if (stop) {
+                _ = kill(-pid, 9);
+                truncated = true;
+                break;
+            }
+            if (linux.errno(r) == .SUCCESS and r == 0) continue;
+        }
         const n = read(fds[0], &buf, buf.len);
         if (n < 0) {
             if (std.posix.errno(n) == .INTR) continue;
@@ -104,6 +127,12 @@ pub fn run(gpa: Allocator, argv: []const []const u8, opts: Options) !Result {
     return .{ .status = code, .output = try out.toOwnedSlice(gpa), .truncated = truncated };
 }
 
+fn nowMs() i64 {
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.MONOTONIC, &ts);
+    return @as(i64, ts.sec) * 1000 + @divTrunc(ts.nsec, std.time.ns_per_ms);
+}
+
 /// Whether `prog` is an executable on $PATH.
 pub fn onPath(prog: []const u8) bool {
     const S = struct {
@@ -122,6 +151,20 @@ pub fn onPath(prog: []const u8) bool {
         if (linux.errno(linux.faccessat(linux.AT.FDCWD, p, linux.X_OK, 0)) == .SUCCESS) return true;
     }
     return false;
+}
+
+test "a cancelled or timed-out program is killed with what it started" {
+    var cancel: std.atomic.Value(bool) = .init(true);
+    const t0 = nowMs();
+    var r = try run(std.testing.allocator, &.{ "sh", "-c", "sleep 30 & sleep 30" }, .{ .cancel = &cancel });
+    defer r.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u8, 128 + 9), r.status);
+    var t = try run(std.testing.allocator, &.{ "sh", "-c", "sleep 30" }, .{ .timeout_ms = 200 });
+    defer t.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u8, 128 + 9), t.status);
+    // The background sleep held the pipe too: killing only sh would have
+    // waited for it.
+    try std.testing.expect(nowMs() - t0 < 5000);
 }
 
 test "runs a program and collects its output and status" {
