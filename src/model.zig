@@ -356,17 +356,47 @@ pub fn naturalOrder(a_in: []const u8, b_in: []const u8) std.math.Order {
 /// Copies the indices of `order` whose entries match into `out` and
 /// returns how many: hidden entries only with `show_hidden`, and with a
 /// query, names containing it case-insensitively.
-pub fn filter(l: *const Listing, order: []const u32, out: []u32, query: []const u8, show_hidden: bool) usize {
+pub fn filter(l: *const Listing, order: []const u32, out: []u32, query: []const u8, show_hidden: bool, types: ?*const TypeFilter, db: ?*mime.Db) usize {
     var n: usize = 0;
     for (order) |i| {
         const e = l.entries[i];
         if (e.hidden and !show_hidden) continue;
         if (query.len != 0 and !matches(l.base(e), query)) continue;
+        if (types) |t| if (!t.admits(db, l.base(e), e)) continue;
         out[n] = i;
         n += 1;
     }
     return n;
 }
+
+/// A file chooser's filter (the FileChooser portal's): files whose name
+/// matches a glob, ignoring case, or whose type is one of the MIME types
+/// (a subclass counts; "image/*" is every image). Folders always pass,
+/// so the chooser can still go anywhere.
+pub const TypeFilter = struct {
+    /// Lowercased globs.
+    globs: []const []const u8 = &.{},
+    mimes: []const []const u8 = &.{},
+
+    pub fn admits(f: *const TypeFilter, db: ?*mime.Db, nm: []const u8, e: Entry) bool {
+        if (e.kind == .dir) return true;
+        if (f.globs.len == 0 and f.mimes.len == 0) return true;
+        var lb: [256]u8 = undefined;
+        const lower = if (nm.len <= lb.len) std.ascii.lowerString(&lb, nm) else nm;
+        for (f.globs) |g| if (mime.globMatch(g, lower)) return true;
+        const d = db orelse return false;
+        var ab: [16]mime.Id = undefined;
+        for (d.ancestry(e.mime, &ab)) |t| {
+            const tn = d.name(t);
+            for (f.mimes) |m| {
+                if (std.mem.endsWith(u8, m, "/*")) {
+                    if (std.mem.startsWith(u8, tn, m[0 .. m.len - 1])) return true;
+                } else if (std.ascii.eqlIgnoreCase(tn, m)) return true;
+            }
+        }
+        return false;
+    }
+};
 
 /// Whether `name` contains every space-separated word of `query`: in
 /// smart case, as / searches, so a word with a capital letter matches its

@@ -23,7 +23,7 @@ const Dialogs = @This();
 const Node = siv.Node;
 const Txn = siv.Txn;
 
-pub const Kind = enum { delete, empty_trash, conflict, properties };
+pub const Kind = enum { delete, empty_trash, conflict, properties, overwrite };
 
 win: *Window,
 kind: Kind = .delete,
@@ -47,7 +47,7 @@ mode0_len: usize = 0,
 owner0: [128]u8 = undefined,
 owner0_len: usize = 0,
 
-const Action = enum { cancel, delete, empty_trash, replace, skip, keep_both, merge, apply };
+const Action = enum { cancel, delete, empty_trash, replace, skip, keep_both, merge, apply, overwrite };
 
 pub fn init(win: *Window) Dialogs {
     return .{ .win = win };
@@ -142,6 +142,31 @@ pub fn confirmEmptyTrash(d: *Dialogs) void {
     const txn = d.begin(.empty_trash, "Empty the trash?", "Everything in it is deleted permanently; this cannot be undone.") orelse return;
     d.button(txn, "Cancel", 'c', .default, .cancel);
     d.button(txn, "Empty the trash", 'e', .destructive, .empty_trash);
+    _ = ui.commit(txn);
+}
+
+// Saving over files ---------------------------------------------------------------------------
+
+/// The file chooser saving over files that exist (`names`, in `folder`).
+pub fn confirmOverwrite(d: *Dialogs, names: []const []const u8, folder: []const u8) void {
+    var tb: [512]u8 = undefined;
+    var xb: [512]u8 = undefined;
+    var pb: [linux.PATH_MAX]u8 = undefined;
+    const title = if (names.len == 1)
+        std.fmt.bufPrint(&tb, "Replace “{s}”?", .{names[0]}) catch "Replace it?"
+    else
+        std.fmt.bufPrint(&tb, "Replace {d} files?", .{names.len}) catch "Replace them?";
+    const text = std.fmt.bufPrint(&xb, "{s} exist{s} in {s}; saving replaces what {s} hold{s}.", .{ if (names.len == 1) "It" else "They", if (names.len == 1) "s" else "", d.win.shortPathIn(&pb, folder), if (names.len == 1) "it" else "they", if (names.len == 1) "s" else "" }) catch "";
+    const txn = d.begin(.overwrite, title, text) orelse return;
+    if (names.len > 1) {
+        var list: std.ArrayList(u8) = .empty;
+        defer list.deinit(d.win.gpa);
+        for (names[0..@min(names.len, 6)]) |n| list.print(d.win.gpa, "{s}\n", .{n}) catch {};
+        if (names.len > 6) list.print(d.win.gpa, "and {d} more", .{names.len - 6}) catch {};
+        _ = line(txn, d.content(), std.mem.trimEnd(u8, list.items, "\n"), .card_fg);
+    }
+    d.button(txn, "Cancel", 'c', .default, .cancel);
+    d.button(txn, "Replace", 'r', .destructive, .overwrite);
     _ = ui.commit(txn);
 }
 
@@ -408,6 +433,10 @@ fn act(d: *Dialogs, action: Action) void {
             }, all);
         },
         .apply => d.applyProperties(),
+        .overwrite => {
+            d.dismiss();
+            if (d.win.chooser) |ch| ch.overwriteConfirmed();
+        },
     }
 }
 
@@ -423,6 +452,10 @@ fn cancel(d: *Dialogs) void {
         .conflict => if (e) |x| {
             d.win.conflict = null;
             x.answer(.cancel, false);
+        },
+        // Back to the name, to type another.
+        .overwrite => if (d.win.chooser) |ch| {
+            _ = ch.focusName();
         },
         else => {},
     }

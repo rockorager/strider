@@ -28,6 +28,8 @@ order: std.ArrayList(u32) = .empty,
 sorted_by: model.Sort = .{},
 /// The entries shown, in order: the column's row i is entries[visible[i]].
 visible: std.ArrayList(u32) = .empty,
+/// A file chooser's type filter, set by the picker showing this folder.
+types: ?*const model.TypeFilter = null,
 /// What `visible` was filtered with.
 shows_hidden: bool = false,
 filter: std.ArrayList(u8) = .empty,
@@ -415,7 +417,7 @@ fn rebuild(d: *Dir) void {
     }
     d.shows_hidden = cache.show_hidden;
     d.visible.resize(gpa, d.order.items.len) catch return;
-    const n = model.filter(l, d.order.items, d.visible.items, d.filter.items, d.shows_hidden or d.isTrash());
+    const n = model.filter(l, d.order.items, d.visible.items, d.filter.items, d.shows_hidden or d.isTrash(), d.types, if (d.types != null) cache.load_mime(cache.ctx) else null);
     d.visible.shrinkRetainingCapacity(n);
     d.restoreCursor();
 }

@@ -129,6 +129,11 @@ fn installData(b: *std.Build, filemanager1: bool) void {
     const files = [_]struct { std.Build.LazyPath, []const u8 }{
         .{ out.path(b, app_id ++ ".desktop"), "share/applications/" ++ app_id ++ ".desktop" },
         .{ out.path(b, app_id ++ ".service"), "share/dbus-1/services/" ++ app_id ++ ".service" },
+        // The FileChooser portal backend: started by the bus, found by
+        // xdg-desktop-portal (1.20.3 and later search every data dir,
+        // ~/.local/share included).
+        .{ out.path(b, "org.freedesktop.impl.portal.desktop.siv_columns.service"), "share/dbus-1/services/org.freedesktop.impl.portal.desktop.siv_columns.service" },
+        .{ b.path("data/" ++ program ++ ".portal"), "share/xdg-desktop-portal/portals/" ++ program ++ ".portal" },
         .{ b.path("data/" ++ app_id ++ ".svg"), "share/icons/hicolor/scalable/apps/" ++ app_id ++ ".svg" },
         .{ b.path("data/" ++ app_id ++ ".metainfo.xml"), "share/metainfo/" ++ app_id ++ ".metainfo.xml" },
         .{ b.path("data/init.lua"), "share/doc/" ++ program ++ "/init.lua" },

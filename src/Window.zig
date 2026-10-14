@@ -14,6 +14,7 @@ const Dir = @import("Dir.zig");
 const Column = @import("Column.zig");
 const Preview = @import("Preview.zig");
 const Picker = @import("Picker.zig");
+const Chooser = @import("Chooser.zig");
 pub const Menu = @import("Menu.zig");
 pub const Dialogs = @import("Dialogs.zig");
 const keys = @import("keys.zig");
@@ -89,6 +90,8 @@ picker: Picker,
 menu: Menu,
 /// The dialog showing, if any.
 dialogs: Dialogs,
+/// The FileChooser portal request this window serves, if it is one.
+chooser: ?*Chooser = null,
 parent_box: Node = .null,
 preview_box: Node = .null,
 current_box: Node = .null,
@@ -158,6 +161,16 @@ rows_pending: bool = false,
 var input_clock: u64 = 0;
 
 pub fn create(app: *App, path: []const u8) !*Window {
+    return createWith(app, path, null);
+}
+
+/// A window for a file chooser request: its title, its caller's window
+/// as the parent, and the chooser's bar.
+pub fn createChooser(app: *App, path: []const u8, ch: *Chooser) !*Window {
+    return createWith(app, path, ch);
+}
+
+fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
     const gpa = app.gpa;
     const self = try gpa.create(Window);
     errdefer gpa.destroy(self);
@@ -170,6 +183,7 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .picker = undefined,
         .menu = undefined,
         .dialogs = undefined,
+        .chooser = chooser,
     };
     self.parent_col.win = self;
     self.current.win = self;
@@ -177,8 +191,9 @@ pub fn create(app: *App, path: []const u8) !*Window {
     self.picker = Picker.init(self);
     self.menu = Menu.init(self);
     self.dialogs = Dialogs.init(self);
+    const parent: []const u8 = if (chooser) |ch| ch.parent_window else "";
     self.window = try siv.windowCreate(app.app, .{
-        .title = "Columns",
+        .title = if (chooser) |ch| ch.windowTitle() else "Columns",
         .app_id = App.app_id,
         .width = app.opts.window_width,
         .height = app.opts.window_height,
@@ -187,7 +202,12 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .user_data = self,
         .on_event = onWindowEvent,
         .destroy = onWindowDestroyed,
+        // A chooser belongs to its caller's window, modal unless asked
+        // otherwise; "x11:" parents and none leave it a plain window.
+        .parent_handle = parent,
+        .flags = .{ .modal = chooser != null and chooser.?.modal and parent.len != 0 },
     });
+    if (chooser) |ch| ch.win = self;
     var size: siv.Size = .{};
     if (c.siv_window_get_size(self.window, &size) == .ok) self.width = size.width;
     try self.build();
@@ -196,6 +216,7 @@ pub fn create(app: *App, path: []const u8) !*Window {
     self.active = 0;
     self.showTab();
     _ = c.siv_node_focus(self.current.view);
+    if (chooser) |ch| ch.shown();
     return self;
 }
 
@@ -216,7 +237,10 @@ fn onWindowEvent(ud: ?*anyopaque, _: siv.Window, ev: *const siv.WindowEvent) cal
         },
         .presented => {
             self.frames += 1;
-            if (self.first_frame_ns == 0) self.first_frame_ns = ev.commit_ns;
+            if (self.first_frame_ns == 0) {
+                self.first_frame_ns = ev.commit_ns;
+                if (self.chooser) |ch| ch.firstFrame(ev.commit_ns);
+            }
             if (self.rows_pending) {
                 self.rows_pending = false;
                 if (self.rows_frame_ns == 0) self.rows_frame_ns = ev.commit_ns;
@@ -234,6 +258,11 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     self.closing = true;
     if (self.whichkey_timer != .null) _ = c.siv_timer_cancel(self.whichkey_timer);
     if (self.probing) |pr| pr.win = null;
+    // Closed by the user: the request is cancelled.
+    if (self.chooser) |ch| {
+        self.chooser = null;
+        ch.windowGone();
+    }
     if (self.conflict) |e| e.answer(.cancel, false);
     self.preview.deinit();
     self.picker.deinit();
@@ -314,6 +343,7 @@ fn build(self: *Window) !void {
     self.preview_box = c.siv_box(txn, cols);
     self.preview.build(txn, self.preview_box);
     self.applyRatioTxn(txn);
+    if (self.chooser) |ch| ch.build(txn, main);
     const drop_mimes = "text/uri-list";
     _ = c.siv_set_drop_target(txn, self.current_box, &.{ .mimes = drop_mimes, .mimes_len = drop_mimes.len, .actions = .{ .copy = true, .move = true }, .preferred = .copy });
     _ = c.siv_on(txn, self.current_box, .drop, onDrop, null, self);
@@ -716,6 +746,7 @@ fn onTabPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
 
 /// Shows the active tab: its folder, the parent, and the preview.
 pub fn showTab(self: *Window) void {
+    if (self.chooser) |ch| ch.applyTypes(self);
     const t = self.tab();
     const d = t.dir;
     _ = d.sync();
@@ -737,7 +768,8 @@ pub fn showTab(self: *Window) void {
     self.applyHeader(txn);
     self.applyStatus(txn);
     _ = commit(txn);
-    _ = c.siv_window_set_title(self.window, d.path.ptr, d.path.len);
+    const title = if (self.chooser) |ch| ch.windowTitle() else d.path;
+    _ = c.siv_window_set_title(self.window, title.ptr, title.len);
 }
 
 fn updatePreviewTxn(self: *Window, txn: Txn) void {
@@ -1155,6 +1187,7 @@ pub fn selectAfterLoad(self: *Window, path: []const u8) void {
 
 /// l: enter the folder under the cursor, or open the file.
 pub fn enter(self: *Window) void {
+    if (self.chooser) |ch| return ch.enter(self);
     const d = self.curDir();
     const e = d.current() orelse return;
     var pbuf: [linux.PATH_MAX]u8 = undefined;
@@ -1260,6 +1293,24 @@ pub fn targets(self: *Window) ![][]u8 {
     return out.toOwnedSlice(self.gpa);
 }
 
+/// The shown indices commands act on: the visual range, else the marks,
+/// else the cursor's.
+pub fn selectedIndices(self: *Window, gpa: Allocator) ![]u32 {
+    const d = self.curDir();
+    if (self.mode == .visual) {
+        const lo = @min(self.visual_anchor, d.cursor);
+        const hi = @max(self.visual_anchor, d.cursor);
+        const out = try gpa.alloc(u32, hi - lo + 1);
+        for (out, 0..) |*x, i| x.* = lo + @as(u32, @intCast(i));
+        return out;
+    }
+    if (d.mark_count != 0) return d.markedIndices(gpa);
+    if (d.count() == 0) return gpa.alloc(u32, 0);
+    const out = try gpa.alloc(u32, 1);
+    out[0] = d.cursor;
+    return out;
+}
+
 /// After acting on the targets: visual mode ends and marks clear.
 pub fn consumeTargets(self: *Window) void {
     const d = self.curDir();
@@ -1280,6 +1331,11 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     self.last_input = input_clock;
     if (self.prompt != null or self.tabs.items.len == 0 or self.dialogs.isOpen()) return .pass;
     const m = ev.modifiers;
+    // A chooser's name field takes its keys; Tab goes to it.
+    if (self.chooser) |ch| {
+        if (ch.nameFocused()) return .pass;
+        if (ev.keysym == .tab and !m.ctrl and !m.alt and !m.shift and !m.super and ch.focusName()) return .handled;
+    }
     const text = if (ev.text) |t| t[0..ev.text_len] else "";
     const keysym: u32 = @bitCast(@intFromEnum(ev.keysym));
     const k = keys.fromEvent(keysym, text, m.ctrl, m.alt, m.super, m.shift) orelse return .pass;

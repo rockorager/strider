@@ -527,3 +527,502 @@ const Owned = struct {
         x.state = s;
     }
 };
+
+// The FileChooser portal --------------------------------------------------------------------
+
+const portal_name = "org.freedesktop.impl.portal.desktop.siv_columns";
+
+/// A FileChooser call as xdg-desktop-portal makes it, and its answer.
+const Chosen = struct {
+    done: bool = false,
+    err: [128]u8 = undefined,
+    err_len: usize = 0,
+    response: u32 = 99,
+    uris: [8][512]u8 = undefined,
+    uri_lens: [8]usize = @splat(0),
+    n_uris: usize = 0,
+    choices: [4][2][64]u8 = undefined,
+    choice_lens: [4][2]usize = undefined,
+    n_choices: usize = 0,
+    filter: [64]u8 = undefined,
+    filter_len: usize = 0,
+
+    fn uri(x: *const Chosen, i: usize) []const u8 {
+        return x.uris[i][0..x.uri_lens[i]];
+    }
+
+    fn choice(x: *const Chosen, id: []const u8) []const u8 {
+        for (0..x.n_choices) |i| if (std.mem.eql(u8, x.choices[i][0][0..x.choice_lens[i][0]], id)) return x.choices[i][1][0..x.choice_lens[i][1]];
+        return "";
+    }
+
+    fn readStr(r: siv.DbusReader, buf: []u8) usize {
+        var len: usize = 0;
+        if (c.siv_dbus_reader_read_string(r, buf.ptr, buf.len, &len) != .ok) return 0;
+        return @min(len, buf.len);
+    }
+
+    fn next(r: siv.DbusReader) u8 {
+        var t: u8 = 0;
+        _ = c.siv_dbus_reader_read_type(r, &t);
+        return t;
+    }
+
+    fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader) callconv(.c) void {
+        const x: *Chosen = @ptrCast(@alignCast(ud.?));
+        x.done = true;
+        const e = str(info.error_name, info.error_name_len);
+        @memcpy(x.err[0..e.len], e);
+        x.err_len = e.len;
+        if (e.len != 0) return;
+        var v: i64 = 0;
+        _ = c.siv_dbus_reader_read_int(r, &v);
+        x.response = @intCast(v);
+        if (c.siv_dbus_reader_read_enter(r) != .ok) return;
+        while (next(r) == '{') {
+            _ = c.siv_dbus_reader_read_enter(r);
+            var kb: [64]u8 = undefined;
+            const key = kb[0..readStr(r, &kb)];
+            _ = c.siv_dbus_reader_read_enter(r); // the variant
+            if (std.mem.eql(u8, key, "uris")) {
+                _ = c.siv_dbus_reader_read_enter(r);
+                while (next(r) == 's' and x.n_uris < x.uris.len) : (x.n_uris += 1) x.uri_lens[x.n_uris] = readStr(r, &x.uris[x.n_uris]);
+                _ = c.siv_dbus_reader_read_exit(r);
+            } else if (std.mem.eql(u8, key, "choices")) {
+                _ = c.siv_dbus_reader_read_enter(r);
+                while (next(r) == '(' and x.n_choices < x.choices.len) : (x.n_choices += 1) {
+                    _ = c.siv_dbus_reader_read_enter(r);
+                    x.choice_lens[x.n_choices][0] = readStr(r, &x.choices[x.n_choices][0]);
+                    x.choice_lens[x.n_choices][1] = readStr(r, &x.choices[x.n_choices][1]);
+                    _ = c.siv_dbus_reader_read_exit(r);
+                }
+                _ = c.siv_dbus_reader_read_exit(r);
+            } else if (std.mem.eql(u8, key, "current_filter")) {
+                _ = c.siv_dbus_reader_read_enter(r);
+                x.filter_len = readStr(r, &x.filter);
+                _ = c.siv_dbus_reader_read_exit(r);
+            }
+            _ = c.siv_dbus_reader_read_exit(r);
+            _ = c.siv_dbus_reader_read_exit(r);
+        }
+    }
+};
+
+/// Writes a request's options.
+const Options = *const fn (m: siv.DbusMessage, f: *const Fixture) void;
+
+fn writeBytePath(m: siv.DbusMessage, p: []const u8) void {
+    open(m, 'a', "y");
+    for (p) |b| c.siv_dbus_message_write_int(m, 'y', b);
+    c.siv_dbus_message_write_int(m, 'y', 0);
+    close(m);
+}
+
+fn folderOption(m: siv.DbusMessage, f: *const Fixture, rel: []const u8) void {
+    var buf: [512]u8 = undefined;
+    entry(m, "current_folder", "ay");
+    writeBytePath(m, f.sub(&buf, rel));
+    endEntry(m);
+}
+
+fn boolOption(m: siv.DbusMessage, name: []const u8, v: bool) void {
+    entry(m, name, "b");
+    c.siv_dbus_message_write_int(m, 'b', @intFromBool(v));
+    endEntry(m);
+}
+
+var request_serial: u32 = 0;
+var handle_buf: [128]u8 = undefined;
+
+/// Calls `member` on the portal backend and returns at once; `out` gets
+/// the answer. The request's handle is in `handle_buf`.
+fn callChooser(conn: siv.Dbus, member: []const u8, f: *const Fixture, title: []const u8, opts: Options, out: *Chosen) ![]const u8 {
+    request_serial += 1;
+    const handle = try std.fmt.bufPrint(&handle_buf, "/org/freedesktop/portal/desktop/request/1_42/t{d}", .{request_serial});
+    const path = "/org/freedesktop/portal/desktop";
+    const iface = "org.freedesktop.impl.portal.FileChooser";
+    var m: siv.DbusMessage = .null;
+    try siv.check(c.siv_dbus_new_call(conn, &.{ .destination = portal_name, .destination_len = portal_name.len, .path = path, .path_len = path.len, .interface = iface, .interface_len = iface.len, .member = member.ptr, .member_len = member.len }, &m));
+    writeStr(m, 'o', handle);
+    writeStr(m, 's', "org.example.Editor");
+    writeStr(m, 's', "wayland:caller-handle");
+    writeStr(m, 's', title);
+    open(m, 'a', "{sv}");
+    opts(m, f);
+    close(m);
+    try siv.check(c.siv_dbus_message_call(m, 0, Chosen.onReply, null, out));
+    return handle;
+}
+
+/// Waits for the chooser window and makes it the one keys go to.
+fn chooserWindow(h: *Harness) !*App.Window {
+    try h.waitFor(h, struct {
+        fn ok(x: *Harness) bool {
+            for (x.app.?.windows.items) |w| if (w.chooser != null) return true;
+            return false;
+        }
+    }.ok);
+    for (h.app.?.windows.items) |w| if (w.chooser != null) {
+        h.win = w;
+        return w;
+    };
+    unreachable;
+}
+
+/// Waits for the answer; keys go to the main window again.
+fn answered(h: *Harness, main: *App.Window, out: *Chosen) !void {
+    try h.waitFor(out, struct {
+        fn ok(x: *Chosen) bool {
+            return x.done;
+        }
+    }.ok);
+    h.win = main;
+    try testing.expectEqualStrings("", out.err[0..out.err_len]);
+    // The chooser's window went with the answer.
+    for (h.app.?.windows.items) |w| try testing.expect(w.chooser == null);
+}
+
+fn fileUri(buf: []u8, f: *const Fixture, rel: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "file://{s}/{s}", .{ f.path, rel }) catch unreachable;
+}
+
+fn chooserFixture(f: *Fixture, name: []const u8) !void {
+    try f.create(name, &.{
+        .{ .name = "home", .dir = true },
+        .{ .name = "work", .dir = true },
+        .{ .name = "work/src", .dir = true },
+        .{ .name = "work/photo.png", .size = 30 },
+        .{ .name = "work/scan.jpg", .size = 30 },
+        .{ .name = "work/notes.txt", .size = 3 },
+        .{ .name = "work/report.txt", .size = 3 },
+        .{ .name = "work/build.zig", .size = 3 },
+    });
+}
+
+test "FileChooser: open one file and several, choose folders, by keys and by double clicks" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-open");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    var ub: [512]u8 = undefined;
+
+    // One file: the folder asked for, the accept label without its
+    // mnemonic mark, Enter on a file picks it.
+    var one: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "Insert a picture", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            entry(m, "accept_label", "s");
+            writeStr(m, 's', "_Insert");
+            endEntry(m);
+        }
+    }.w, &one);
+    const win = try chooserWindow(&h);
+    try testing.expect(std.mem.endsWith(u8, h.dir().path, "/work"));
+    _ = try h.expect(.button, "Insert");
+    _ = try h.expect(.button, "Cancel");
+    try testing.expectEqualStrings("Insert a picture", win.chooser.?.windowTitle());
+    try h.typeText("fph");
+    try h.expectGolden(h.window(), "chooser-open");
+    // Enter on a folder goes in; h comes back.
+    try h.typeText("fsr\nh");
+    try testing.expect(std.mem.endsWith(u8, h.dir().path, "/work"));
+    try h.typeText("fph\n");
+    try answered(&h, main, &one);
+    try testing.expectEqual(@as(u32, 0), one.response);
+    try testing.expectEqual(@as(usize, 1), one.n_uris);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/photo.png"), one.uri(0));
+
+    // Several: marks pick them; the next chooser starts where this one
+    // picked.
+    var several: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, _: *const Fixture) void {
+            boolOption(m, "multiple", true);
+        }
+    }.w, &several);
+    _ = try chooserWindow(&h);
+    try testing.expect(std.mem.endsWith(u8, h.dir().path, "/work"));
+    try h.typeText("fno fsc \n");
+    try answered(&h, main, &several);
+    try testing.expectEqual(@as(u32, 0), several.response);
+    try testing.expectEqual(@as(usize, 2), several.n_uris);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/notes.txt"), several.uri(0));
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/scan.jpg"), several.uri(1));
+
+    // Folders: Enter picks the folder under the cursor, l goes in, and on
+    // a file it is the folder shown.
+    var folder: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            boolOption(m, "directory", true);
+        }
+    }.w, &folder);
+    _ = try chooserWindow(&h);
+    _ = try h.expect(.button, "Choose");
+    try h.typeText("fsr\n");
+    try answered(&h, main, &folder);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src"), folder.uri(0));
+
+    // The mouse: a double click on a file picks it.
+    var clicked: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+        }
+    }.w, &clicked);
+    _ = try chooserWindow(&h);
+    const row = try h.expect(.list_item, "build.zig 3 B");
+    try h.click(h.window(), row, .primary);
+    try h.click(h.window(), row, .primary);
+    try answered(&h, main, &clicked);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/build.zig"), clicked.uri(0));
+}
+
+test "FileChooser: filters hide other files but not folders; choices come back" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-filters");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "work"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    var ub: [512]u8 = undefined;
+    var x: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            // Images: a glob and a MIME type; Text: a glob.
+            entry(m, "filters", "a(sa(us))");
+            open(m, 'a', "(sa(us))");
+            open(m, 'r', "");
+            writeStr(m, 's', "Images");
+            open(m, 'a', "(us)");
+            open(m, 'r', "");
+            c.siv_dbus_message_write_int(m, 'u', 0);
+            writeStr(m, 's', "*.PNG");
+            close(m);
+            open(m, 'r', "");
+            c.siv_dbus_message_write_int(m, 'u', 1);
+            writeStr(m, 's', "image/jpeg");
+            close(m);
+            close(m);
+            close(m);
+            open(m, 'r', "");
+            writeStr(m, 's', "Text");
+            open(m, 'a', "(us)");
+            open(m, 'r', "");
+            c.siv_dbus_message_write_int(m, 'u', 0);
+            writeStr(m, 's', "*.txt");
+            close(m);
+            close(m);
+            close(m);
+            close(m);
+            endEntry(m);
+            // A combo box and a check box.
+            entry(m, "choices", "a(ssa(ss)s)");
+            open(m, 'a', "(ssa(ss)s)");
+            open(m, 'r', "");
+            writeStr(m, 's', "size");
+            writeStr(m, 's', "Size");
+            open(m, 'a', "(ss)");
+            for ([_][2][]const u8{ .{ "small", "Small" }, .{ "large", "Large" } }) |o| {
+                open(m, 'r', "");
+                writeStr(m, 's', o[0]);
+                writeStr(m, 's', o[1]);
+                close(m);
+            }
+            close(m);
+            writeStr(m, 's', "large");
+            close(m);
+            open(m, 'r', "");
+            writeStr(m, 's', "link");
+            writeStr(m, 's', "_Link instead of copying");
+            open(m, 'a', "(ss)");
+            close(m);
+            writeStr(m, 's', "false");
+            close(m);
+            close(m);
+            endEntry(m);
+        }
+    }.w, &x);
+    const win = try chooserWindow(&h);
+    // Images: the folder and the two pictures (*.PNG ignores case).
+    try testing.expectEqual(@as(u32, 3), h.dir().count());
+    try testing.expect(h.reads("photo.png 30 B") and h.reads("scan.jpg 30 B") and h.reads("src"));
+    try testing.expect(!h.reads("notes.txt 3 B"));
+    _ = try h.expect(.combo_box, "Filter");
+    _ = try h.expect(.combo_box, "Size");
+    try h.expectGolden(h.window(), "chooser-filters");
+    // Another filter: the text files.
+    win.chooser.?.setFilter(1);
+    try h.settle();
+    try testing.expectEqual(@as(u32, 3), h.dir().count());
+    try testing.expect(h.reads("notes.txt 3 B") and h.reads("report.txt 3 B"));
+    // The main window shows the same folder unfiltered once the chooser is
+    // done; the check box by a click.
+    try h.click(h.window(), try h.expect(.checkbox, "Link instead of copying"), .primary);
+    try h.typeText("fno\n");
+    try answered(&h, main, &x);
+    try testing.expectEqual(@as(u32, 0), x.response);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/notes.txt"), x.uri(0));
+    try testing.expectEqualStrings("large", x.choice("size"));
+    try testing.expectEqualStrings("true", x.choice("link"));
+    try testing.expectEqualStrings("Text", x.filter[0..x.filter_len]);
+    try testing.expectEqual(@as(u32, 6), h.dir().count());
+}
+
+test "FileChooser: save with a name, asking before replacing; save several into a folder" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-save");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    var ub: [512]u8 = undefined;
+
+    // A new name: the name field has the keys, its stem selected.
+    var fresh: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "Save the report", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            entry(m, "current_name", "s");
+            writeStr(m, 's', "report.txt");
+            endEntry(m);
+        }
+    }.w, &fresh);
+    const win = try chooserWindow(&h);
+    try testing.expect(win.chooser.?.nameFocused());
+    _ = try h.expect(.button, "Save");
+    try h.expectGolden(h.window(), "chooser-save");
+    try h.typeText("summary\n");
+    try answered(&h, main, &fresh);
+    try testing.expectEqual(@as(u32, 0), fresh.response);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/summary.txt"), fresh.uri(0));
+
+    // A name that exists asks first; Cancel keeps the chooser, Replace
+    // answers.
+    var over: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            var buf: [512]u8 = undefined;
+            entry(m, "current_file", "ay");
+            writeBytePath(m, fx.sub(&buf, "work/report.txt"));
+            endEntry(m);
+        }
+    }.w, &over);
+    const win2 = try chooserWindow(&h);
+    try testing.expectEqualStrings("report.txt", h.hovered());
+    try h.typeText("\n");
+    try testing.expect(win2.dialogs.isOpen());
+    _ = try h.expect(.button, "Replace");
+    try h.key(.escape, .{}, "");
+    try testing.expect(!win2.dialogs.isOpen() and !over.done);
+    // Enter on the file in the columns saves over it, asking again.
+    try h.typeText("\x1b");
+    try testing.expect(!over.done);
+    try h.typeText("\n");
+    try testing.expect(win2.dialogs.isOpen());
+    try h.click(h.window(), try h.expect(.button, "Replace"), .primary);
+    try answered(&h, main, &over);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/report.txt"), over.uri(0));
+
+    // Several files: a folder, the names in it.
+    var many: Chosen = .{};
+    _ = try callChooser(client, "SaveFiles", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            entry(m, "files", "aay");
+            open(m, 'a', "ay");
+            writeBytePath(m, "a.txt");
+            writeBytePath(m, "b.txt");
+            close(m);
+            endEntry(m);
+        }
+    }.w, &many);
+    _ = try chooserWindow(&h);
+    try h.typeText("fsr\n");
+    try answered(&h, main, &many);
+    try testing.expectEqual(@as(usize, 2), many.n_uris);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src/a.txt"), many.uri(0));
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src/b.txt"), many.uri(1));
+}
+
+test "FileChooser: Escape and q cancel; the caller's Close ends it" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-cancel");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    const none = struct {
+        fn w(_: siv.DbusMessage, _: *const Fixture) void {}
+    }.w;
+    // Escape clears the marks first, then cancels.
+    var esc: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", none, &esc);
+    _ = try chooserWindow(&h);
+    try h.typeText(" ");
+    try testing.expectEqual(@as(u32, 1), h.dir().mark_count);
+    try h.key(.escape, .{}, "");
+    try testing.expect(!esc.done);
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &esc);
+    try testing.expectEqual(@as(u32, 1), esc.response);
+    try testing.expectEqual(@as(usize, 0), esc.n_uris);
+    // q cancels too; the Cancel button too.
+    var q: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "", none, &q);
+    _ = try chooserWindow(&h);
+    try h.click(h.window(), try h.expect(.button, "Cancel"), .primary);
+    try answered(&h, main, &q);
+    try testing.expectEqual(@as(u32, 1), q.response);
+    // Close on the request object: response 2, the window goes.
+    var closed: Chosen = .{};
+    const handle = try callChooser(client, "OpenFile", &f, "", none, &closed);
+    _ = try chooserWindow(&h);
+    var m: siv.DbusMessage = .null;
+    const iface = "org.freedesktop.impl.portal.Request";
+    try siv.check(c.siv_dbus_new_call(client, &.{ .destination = portal_name, .destination_len = portal_name.len, .path = handle.ptr, .path_len = handle.len, .interface = iface, .interface_len = iface.len, .member = "Close", .member_len = 5 }, &m));
+    var close_reply: Called = .{};
+    try siv.check(c.siv_dbus_message_call(m, 0, Called.onReply, null, &close_reply));
+    try answered(&h, main, &closed);
+    try testing.expectEqual(@as(u32, 2), closed.response);
+    try h.waitFor(&close_reply, struct {
+        fn ok(x: *Called) bool {
+            return x.done;
+        }
+    }.ok);
+    try testing.expectEqualStrings("", close_reply.err[0..close_reply.err_len]);
+    try testing.expectEqual(@as(usize, 1), h.app.?.windows.items.len);
+}

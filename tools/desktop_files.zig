@@ -51,6 +51,12 @@ pub fn main(init: std.process.Init) !void {
             \\Exec={s} --service
             \\
         , .{ app_id, bin }) },
+        .{ "org.freedesktop.impl.portal.desktop.siv_columns.service", try std.fmt.allocPrint(arena,
+            \\[D-BUS Service]
+            \\Name=org.freedesktop.impl.portal.desktop.siv_columns
+            \\Exec={s} --service
+            \\
+        , .{bin}) },
         .{ "org.freedesktop.FileManager1.service", try std.fmt.allocPrint(arena,
             \\[D-BUS Service]
             \\Name=org.freedesktop.FileManager1

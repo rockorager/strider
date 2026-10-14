@@ -214,6 +214,7 @@ fn enter(ctx: Ctx) void {
     ctx.win.enter();
 }
 fn open(ctx: Ctx) void {
+    if (ctx.win.chooser) |ch| return ch.open(ctx.win);
     ctx.win.openTargets();
     ctx.win.consumeTargets();
 }
@@ -367,7 +368,10 @@ fn escape(ctx: Ctx) void {
     if (d.mark_count != 0) {
         d.clearMarks();
         win.rebindCurrent();
+        return;
     }
+    // Nothing to clear: a file chooser is cancelled.
+    if (win.chooser) |ch| ch.finish(1);
 }
 
 // The register -------------------------------------------------------------------------------
@@ -1325,6 +1329,7 @@ fn newWindow(ctx: Ctx) void {
     _ = ctx.win.app.newWindow(ctx.win.curDir().path) catch {};
 }
 fn quit(ctx: Ctx) void {
+    if (ctx.win.chooser) |ch| return ch.finish(1);
     ctx.win.closeTab();
 }
 fn quitAll(ctx: Ctx) void {

@@ -27,6 +27,8 @@ pub const ui = @import("ui.zig");
 pub const Lua = @import("Lua.zig");
 pub const UDisks = @import("UDisks.zig");
 pub const FileManager1 = @import("FileManager1.zig");
+pub const Portal = @import("Portal.zig");
+pub const Chooser = @import("Chooser.zig");
 pub const commands = @import("commands.zig");
 
 const App = @This();
@@ -133,6 +135,10 @@ ops: std.ArrayList(*OpEntry) = .empty,
 ops_timer: siv.Timer = .null,
 udisks: ?*UDisks = null,
 file_manager1: ?*FileManager1 = null,
+/// The FileChooser portal backend.
+portal: ?*Portal = null,
+/// Where the last file chooser picked, where the next one starts.
+last_chooser_folder: ?[]u8 = null,
 drives_arena: std.heap.ArenaAllocator,
 
 const PendingOpen = struct { win: *Window, paths: [][]u8, ask: bool };
@@ -243,6 +249,8 @@ pub fn destroy(self: *App) void {
     if (self.ops_timer != .null) _ = c.siv_timer_cancel(self.ops_timer);
     if (self.udisks) |u| u.destroy();
     if (self.file_manager1) |f| f.destroy();
+    if (self.portal) |p| p.destroy();
+    if (self.last_chooser_folder) |p| gpa.free(p);
     for (self.pending_opens.items) |p| freePaths(gpa, p.paths);
     self.pending_opens.deinit(gpa);
     // Lua holds keymap references: the keymap goes first.
@@ -291,9 +299,29 @@ fn freePathList(gpa: Allocator, list: *std.ArrayList([]u8)) void {
     list.deinit(gpa);
 }
 
-/// Starts the services on the session bus: org.freedesktop.FileManager1.
+/// Starts the services on the session bus: org.freedesktop.FileManager1
+/// and the FileChooser portal backend.
 pub fn startServices(self: *App) void {
+    if (self.portal == null) self.portal = Portal.create(self) catch null;
     if (self.file_manager1 == null) self.file_manager1 = FileManager1.create(self) catch null;
+}
+
+/// A file chooser request: its window, in the folder it asked for, else
+/// where the last one picked, else home.
+pub fn openChooser(self: *App, ch: *Chooser) void {
+    const start = if (ch.folder.len != 0) ch.folder else self.last_chooser_folder orelse self.home;
+    const w = Window.createChooser(self, start, ch) catch return ch.finish(2);
+    self.windows.append(self.gpa, w) catch {
+        w.close();
+        return;
+    };
+    if (ch.select.len != 0) w.curDir().selectName(ch.select);
+}
+
+pub fn setChooserFolder(self: *App, path: []const u8) void {
+    const copy = self.gpa.dupe(u8, path) catch return;
+    if (self.last_chooser_folder) |p| self.gpa.free(p);
+    self.last_chooser_folder = copy;
 }
 
 // Windows ----------------------------------------------------------------------------------
@@ -325,13 +353,14 @@ pub fn windowClosed(self: *App, w: *Window) void {
     if (self.windows.items.len == 0) if (self.opts.on_last_window_closed) |f| f(self);
 }
 
-/// The window input went to last, for activations.
+/// The window input went to last, for activations; file choosers are
+/// their callers', not the app's.
 pub fn lastWindow(self: *App) ?*Window {
-    if (self.windows.items.len == 0) return null;
-    var best = self.windows.items[0];
-    for (self.windows.items) |w| if (w.last_input > best.last_input) {
-        best = w;
-    };
+    var best: ?*Window = null;
+    for (self.windows.items) |w| {
+        if (w.chooser != null) continue;
+        if (best == null or w.last_input > best.?.last_input) best = w;
+    }
     return best;
 }
 

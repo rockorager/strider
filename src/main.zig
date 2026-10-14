@@ -214,7 +214,7 @@ fn onActivate(ud: ?*anyopaque, _: siv.App, act: *const siv.Activation) callconv(
     }
     // A plain launch: a window, a new one when asked or when another
     // instance asked for one.
-    if (app.windows.items.len == 0 or s.new_window or act.source == .remote) {
+    if (app.lastWindow() == null or s.new_window or act.source == .remote) {
         const cwd = currentDir(app);
         const w = app.newWindow(cwd) catch return;
         _ = c.siv_window_activate(w.window, token.ptr, token.len);
