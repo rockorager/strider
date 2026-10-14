@@ -291,7 +291,7 @@ fn build(self: *Window) !void {
     const path_box = c.siv_flex(txn, self.header, &.{ .axis = .row, .align_items = .center });
     _ = c.siv_set_layout(txn, path_box, &.{ .grow = 1, .basis = px(0), .direction = .ltr });
     self.path_dir = c.siv_text(txn, path_box, "", 0);
-    _ = c.siv_set_text_style(txn, self.path_dir, &.{ .color_token = .info, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_text_style(txn, self.path_dir, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true, .ellipsize = true } });
     _ = c.siv_set_layout(txn, self.path_dir, &.{ .shrink = 1 });
     _ = c.siv_set_semantics(txn, self.path_dir, &.{ .role = .heading, .level = 1 });
     self.path_name = c.siv_text(txn, path_box, "", 0);

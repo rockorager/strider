@@ -211,7 +211,7 @@ fn render(p: *Picker) void {
         _ = c.siv_set_semantics(txn, row, &.{ .role = .list_item, .label = text.ptr, .label_len = text.len, .selected = if (selected) .on else .off, .position = @intCast(i + 1), .set_size = @intCast(p.matches.items.len) });
         const t = c.siv_text(txn, row, text.ptr, text.len);
         const dir = std.mem.endsWith(u8, text, "/") or p.kind == .folders;
-        _ = c.siv_set_text_style(txn, t, &.{ .color_token = if (selected) .selection_fg else if (dir) .info else .card_fg, .size_role = .body, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        _ = c.siv_set_text_style(txn, t, &.{ .color_token = if (selected) .selection_fg else if (dir) .accent else .card_fg, .size_role = .body, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
         // The matched characters stand out.
         pos.clearRetainingCapacity();
         _ = fuzzy.score(text, p.query.items, &pos, gpa);

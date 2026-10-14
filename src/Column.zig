@@ -146,10 +146,10 @@ pub fn rebind(col: *Column, txn: Txn) void {
 }
 
 /// The name's color and weight and the icon: on the cursor's row (the
-/// selection), the selection's text color, so folders' blue (info) and marks'
+/// selection), the selection's text color, so folders' accent and marks'
 /// warning never sit on the selection's own blue.
 fn applyLook(col: *Column, txn: Txn, parts: *RowParts, e: model.Entry, marked: bool, cursor: bool) void {
-    const token: siv.ColorToken = if (cursor) .selection_fg else if (marked) .warning else if (e.kind == .dir) .info else if (e.hidden) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
+    const token: siv.ColorToken = if (cursor) .selection_fg else if (marked) .warning else if (e.kind == .dir) .accent else if (e.hidden) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
     _ = c.siv_set_text_style(txn, parts.name, &.{
         .color_token = token,
         .size_role = .body,
@@ -164,7 +164,7 @@ fn applyLook(col: *Column, txn: Txn, parts: *RowParts, e: model.Entry, marked: b
     if (col.win.app.options.icons) {
         var ibuf: [512]u8 = undefined;
         const icon = iconFor(col.win, e, &ibuf);
-        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (cursor) .selection_fg else if (e.kind == .dir) .info else .view_fg });
+        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (cursor) .selection_fg else if (e.kind == .dir) .accent else .view_fg });
     }
 }
 

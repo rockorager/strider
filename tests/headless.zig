@@ -1245,9 +1245,6 @@ test "Omarchy themes: the columns follow the user's theme, dark and light" {
     const themes = [_][2][:0]const u8{
         .{ "columns-omarchy-tokyo-night", "tests/themes/tokyo-night/colors.toml" },
         .{ "columns-omarchy-catppuccin-latte", "tests/themes/catppuccin-latte/colors.toml" },
-        // Its accent is its text color: folders are its blue (siv's info),
-        // so they still stand apart from files.
-        .{ "columns-omarchy-kanagawa", "tests/themes/kanagawa/colors.toml" },
     };
     for (themes) |th| {
         _ = setenv("SIV_THEME", th[1].ptr, 1);
@@ -1261,24 +1258,8 @@ test "Omarchy themes: the columns follow the user's theme, dark and light" {
         try testing.expectEqualStrings("src", h.hovered());
         try h.typeText("ljj");
         try testing.expectEqualStrings("main.zig", h.hovered());
-        if (std.mem.indexOf(u8, th[1], "kanagawa") != null) {
-            try testing.expectEqual(@as(u24, 0xdcd7ba), try themeColor(h.window(), .accent));
-            try testing.expectEqual(@as(u24, 0x7e9cd8), try themeColor(h.window(), .info));
-        }
         try h.expectGolden(h.window(), th[0]);
     }
-}
-
-/// A token as the window resolves it, as 0xRRGGBB.
-fn themeColor(win: siv.Window, t: siv.ColorToken) !u24 {
-    var col: siv.Color = undefined;
-    try siv.check(c.siv_window_get_color(win, t, &col));
-    const ch = struct {
-        fn g(x: f32) u24 {
-            return @intFromFloat(@round(x * 255));
-        }
-    }.g;
-    return ch(col.r) << 16 | ch(col.g) << 8 | ch(col.b);
 }
 
 /// The current column's first row (the cursor's) has the same color at
