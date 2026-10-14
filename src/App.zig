@@ -279,15 +279,28 @@ pub fn showPaths(self: *App, paths: []const []const u8, new_window: bool, token:
     _ = c.siv_window_activate(win.?.window, token.ptr, token.len);
 }
 
-/// FileManager1's ShowItems: each item under the cursor in its folder.
+/// FileManager1's ShowItems: each item (folders too) under the cursor in
+/// its folder, a tab each.
 pub fn showItems(self: *App, paths: []const []const u8, token: []const u8) void {
-    self.showPaths(paths, false, token);
+    var win = self.lastWindow();
+    for (paths) |p| {
+        var buf: [linux.PATH_MAX]u8 = undefined;
+        const target = model.normalize(&buf, p);
+        if (win) |w| {
+            w.newTabSelecting(target);
+        } else {
+            win = self.newWindow(model.parent(target)) catch return;
+            win.?.selectAfterLoad(target);
+            win.?.showTab();
+        }
+    }
+    if (win) |w| _ = c.siv_window_activate(w.window, token.ptr, token.len);
 }
 
 /// FileManager1's ShowItemProperties: the item under the cursor, its
 /// details in the preview.
 pub fn showProperties(self: *App, paths: []const []const u8, token: []const u8) void {
-    self.showPaths(paths, false, token);
+    self.showItems(paths, token);
 }
 
 // Directories -----------------------------------------------------------------------------
