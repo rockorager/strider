@@ -35,10 +35,10 @@ pub const Fixture = struct {
 
     pub const Item = struct { name: []const u8, size: usize = 0, dir: bool = false, mtime: i64 = 1_791_900_300, mode: u32 = 0o644 };
 
-    /// Makes /tmp/siv-columns-test/NAME afresh: a fixed path, so that
+    /// Makes /tmp/strider-test/NAME afresh: a fixed path, so that
     /// captures showing it are the same on every run.
     pub fn create(f: *Fixture, name: []const u8, items: []const Item) !void {
-        const p = try std.fmt.bufPrintSentinel(&f.buf, "/tmp/siv-columns-test/{s}", .{name}, 0);
+        const p = try std.fmt.bufPrintSentinel(&f.buf, "/tmp/strider-test/{s}", .{name}, 0);
         var cmd: [512]u8 = undefined;
         const z = try std.fmt.bufPrintSentinel(&cmd, "rm -rf '{s}' && mkdir -p '{s}'", .{ p, p }, 0);
         if (system(z.ptr) != 0) return error.Unexpected;
@@ -165,7 +165,7 @@ pub const Harness = struct {
             .log_errors = false,
             .window_width = s.width,
             .window_height = s.height,
-            .state_dir = if (s.state) try std.fmt.bufPrint(&h.state_buf, "{s}/.local/state/siv-columns", .{home}) else null,
+            .state_dir = if (s.state) try std.fmt.bufPrint(&h.state_buf, "{s}/.local/state/strider", .{home}) else null,
         });
         const app = h.app.?;
         if (s.which_key_now) app.options.which_key_delay = 0;

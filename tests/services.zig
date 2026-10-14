@@ -530,7 +530,7 @@ const Owned = struct {
 
 // The FileChooser portal --------------------------------------------------------------------
 
-const portal_name = "org.freedesktop.impl.portal.desktop.siv_columns";
+const portal_name = "org.freedesktop.impl.portal.desktop.strider";
 
 /// A FileChooser call as xdg-desktop-portal makes it, and its answer.
 const Chosen = struct {

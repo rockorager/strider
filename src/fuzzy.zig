@@ -320,7 +320,7 @@ test "filter ranks, breaks ties by length, and narrows a previous result" {
 test "walks breadth first, skipping .git and hidden entries, in batches" {
     const gpa = testing.allocator;
     var tmp_buf: [256]u8 = undefined;
-    const root = try std.fmt.bufPrint(&tmp_buf, "/tmp/siv-columns-fuzzy-{d}", .{linux.getpid()});
+    const root = try std.fmt.bufPrint(&tmp_buf, "/tmp/strider-fuzzy-{d}", .{linux.getpid()});
     var cmd: [512]u8 = undefined;
     const S = struct {
         extern "c" fn system(c: [*:0]const u8) c_int;

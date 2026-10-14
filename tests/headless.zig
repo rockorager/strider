@@ -91,7 +91,7 @@ test "three columns: the parent, the folder, and a preview" {
     try h.typeText("ljj");
     try testing.expectEqualStrings("main.zig", h.hovered());
     try testing.expectEqual(App.Window.PreviewMode.text, h.win.?.preview.applied);
-    try h.expectGolden(h.window(), "columns-light");
+    try h.expectGolden(h.window(), "strider-light");
 }
 
 test "keys: counts, gg and G, search, find, and history" {
@@ -1050,7 +1050,7 @@ test "column handles: dragging, < and >, z= to reset, and widths kept across sta
         try siv.check(c.siv_test_resize(h.window(), 1000, 560));
         try h.settle();
         try testing.expectApproxEqAbs(@as(f32, 278), widthOf(w.parent_box), 1);
-        try testing.expectEqualStrings("0.2780 0.2400\n", try readFile(&f, "work/.local/state/siv-columns/columns", &lb));
+        try testing.expectEqualStrings("0.2780 0.2400\n", try readFile(&f, "work/.local/state/strider/columns", &lb));
     }
     {
         // The next start keeps them; z= goes back to the ratio and
@@ -1064,7 +1064,7 @@ test "column handles: dragging, < and >, z= to reset, and widths kept across sta
         try h.typeText("z=");
         try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
         try testing.expectEqual(@as(f32, 375), widthOf(w.current_box));
-        try testing.expectError(error.FileNotFound, readFile(&f, "work/.local/state/siv-columns/columns", &lb));
+        try testing.expectError(error.FileNotFound, readFile(&f, "work/.local/state/strider/columns", &lb));
     }
     {
         // Right to left, the parent is on the right: dragging its
@@ -1214,9 +1214,9 @@ test "themes and right to left" {
     try fixture(&f, "themes");
     defer f.remove();
     const looks = [_]struct { []const u8, siv.ColorScheme, siv.Contrast, bool }{
-        .{ "columns-dark", .dark, .follow, false },
-        .{ "columns-high-contrast", .light, .high, false },
-        .{ "columns-rtl", .light, .follow, true },
+        .{ "strider-dark", .dark, .follow, false },
+        .{ "strider-high-contrast", .light, .high, false },
+        .{ "strider-rtl", .light, .follow, true },
     };
     for (looks) |l| {
         var h: Harness = .{};
@@ -1243,8 +1243,8 @@ test "Omarchy themes: the columns follow the user's theme, dark and light" {
     // As siv finds ~/.local/state/omarchy/current/theme/colors.toml on a
     // display (siv's D29); the headless backend reads SIV_THEME's file.
     const themes = [_][2][:0]const u8{
-        .{ "columns-omarchy-tokyo-night", "tests/themes/tokyo-night/colors.toml" },
-        .{ "columns-omarchy-catppuccin-latte", "tests/themes/catppuccin-latte/colors.toml" },
+        .{ "strider-omarchy-tokyo-night", "tests/themes/tokyo-night/colors.toml" },
+        .{ "strider-omarchy-catppuccin-latte", "tests/themes/catppuccin-latte/colors.toml" },
     };
     for (themes) |th| {
         _ = setenv("SIV_THEME", th[1].ptr, 1);

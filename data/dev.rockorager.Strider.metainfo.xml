@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.siv.Columns</id>
-  <name>Columns</name>
+  <id>dev.rockorager.Strider</id>
+  <name>Strider</name>
   <summary>A keyboard-driven file manager in Miller columns</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <launchable type="desktop-id">org.siv.Columns.desktop</launchable>
+  <launchable type="desktop-id">dev.rockorager.Strider.desktop</launchable>
   <provides>
     <dbus type="user">org.freedesktop.FileManager1</dbus>
   </provides>

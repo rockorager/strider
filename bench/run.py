@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""siv-columns against GNOME Files (Nautilus), measured from outside the
+"""Strider against GNOME Files (Nautilus), measured from outside the
 programs on a real sway session. See bench/README.md for the method.
 
-    sudo python3 bench/run.py [--runs N] [--apps columns,nautilus] [--out DIR]
+    sudo python3 bench/run.py [--runs N] [--apps strider,nautilus] [--out DIR]
                               [--backend drm|headless] [--screenshots DIR]
 
 Runs as root (sway on the KMS device, dropping the page cache); the file
@@ -38,10 +38,10 @@ REFRESH_NS = 1e9 / 60.003
 # folder's rows are, how to go to a folder by typing, how to start
 # filtering, and where the pointer rests to scroll. The rectangles come
 # from screenshots at 1280x800: Nautilus's list right of the sidebar and
-# below the column headers; siv-columns's middle (current folder) column.
+# below the column headers; Strider's middle (current folder) column.
 APPS = {
-    "columns": {
-        "cmd": [os.environ.get("BENCH_COLUMNS", "/opt/siv-columns/bin/siv-columns"), "--light"],
+    "strider": {
+        "cmd": [os.environ.get("BENCH_STRIDER", "/opt/strider/bin/strider"), "--light"],
         "rows": (168, 32, 640, 772),
         "goto": lambda path: [f"typeburst 15 :cd {path}"],
         "filter": ["key z", "key f"],
@@ -434,7 +434,7 @@ class Run:
         self.s = Session(args.backend, args.user)
         self.inj = Injector(self.s.root_env)
         # The pointer rests where neither app shows a hover: below
-        # Nautilus's sidebar items, in siv-columns's parent column under
+        # Nautilus's sidebar items, in Strider's parent column under
         # its two entries.
         self.inj.send("move 120 780")
         self.fixtures = os.path.join(self.s.user.pw_dir, "fixtures")
@@ -645,7 +645,7 @@ class Run:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=5)
-    ap.add_argument("--apps", default="columns,nautilus")
+    ap.add_argument("--apps", default="strider,nautilus")
     ap.add_argument("--out", default=os.path.join(HERE, "raw"))
     ap.add_argument("--backend", default="drm")
     ap.add_argument("--user", default="fmbench")

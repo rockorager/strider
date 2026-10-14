@@ -1,4 +1,4 @@
-# Columns (siv-columns)
+# Strider
 
 A fully keyboard-driven file manager for Linux on Wayland in the style of
 ranger and yazi, built on [siv](https://github.com/rockorager/siv): the
@@ -6,10 +6,10 @@ parent folder, the current folder, and a live preview of the entry under
 the cursor, side by side; vim keys; a command line; and Lua for
 configuration. The mouse works, but nothing needs it.
 
-![The three columns: the parent folder, src, and main.zig previewed with syntax coloring](tests/golden/columns-light.png)
+![The three columns: the parent folder, src, and main.zig previewed with syntax coloring](tests/golden/strider-light.png)
 
-The name is a placeholder (program `siv-columns`, app id
-`org.siv.Columns`); see [FRICTION.md](FRICTION.md).
+Strider is Aragorn's name as a ranger. The program is `strider`, the
+app id `dev.rockorager.Strider`.
 
 ## Design principle
 
@@ -37,7 +37,7 @@ catppuccin-latte themes, which it follows live (headless captures).
 | ![gf: files below, ranked as you type](docs/screenshots/picker.png) | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png) |
 | ![A program's start in hex](docs/screenshots/hex.png) | ![The context menu, its keys beside each command](docs/screenshots/menu.png) |
 | ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png) |
-| ![Omarchy's tokyo-night theme](tests/golden/columns-omarchy-tokyo-night.png) | ![Omarchy's catppuccin-latte theme](tests/golden/columns-omarchy-catppuccin-latte.png) |
+| ![Omarchy's tokyo-night theme](tests/golden/strider-omarchy-tokyo-night.png) | ![Omarchy's catppuccin-latte theme](tests/golden/strider-omarchy-catppuccin-latte.png) |
 
 ## Install
 
@@ -55,24 +55,24 @@ comes with pacman.) siv is a private repository pinned as a git
 submodule, so clone with your GitHub credentials and the submodule:
 
 ```sh
-git clone --recurse-submodules https://ampcode.com/@rockorager/siv-columns
-cd siv-columns
+git clone --recurse-submodules https://ampcode.com/@rockorager/siv-columns strider
+cd strider
 zig build run                         # try it from zig-out
 zig build install --prefix ~/.local   # install for yourself
 ```
 
-`zig build install --prefix ~/.local` installs `bin/siv-columns` (one
+`zig build install --prefix ~/.local` installs `bin/strider` (one
 program: libsiv and its Lua binding are linked in), the desktop file
-`share/applications/org.siv.Columns.desktop`, the icon, AppStream
-metadata, a D-Bus service file for `org.siv.Columns`, and an example
-configuration in `share/doc/siv-columns/init.lua`. `-Dfilemanager1=true`
+`share/applications/dev.rockorager.Strider.desktop`, the icon, AppStream
+metadata, a D-Bus service file for `dev.rockorager.Strider`, and an example
+configuration in `share/doc/strider/init.lua`. `-Dfilemanager1=true`
 also installs a service file for `org.freedesktop.FileManager1`, so other
 applications' "Show in folder" starts it (only one file manager should).
-`xdg-mime default org.siv.Columns.desktop inode/directory` makes it the
+`xdg-mime default dev.rockorager.Strider.desktop inode/directory` makes it the
 default for folders.
 
 ```
-siv-columns [FOLDER or FILE ...] [--new-window] [--hidden]
+strider [FOLDER or FILE ...] [--new-window] [--hidden]
             [--dark | --light] [--rtl] [--clean] [--config FILE]
 ```
 
@@ -219,7 +219,7 @@ read folders.
 
 ## Configuration
 
-`$XDG_CONFIG_HOME/siv-columns/init.lua` (`~/.config/siv-columns/init.lua`)
+`$XDG_CONFIG_HOME/strider/init.lua` (`~/.config/strider/init.lua`)
 runs at startup in Lua 5.5, through siv's Lua binding. Nothing is
 required; [data/init.lua](data/init.lua) is an annotated example.
 
@@ -269,7 +269,7 @@ multiply; `:column-wider parent` and `:column-narrower parent` for the
 parent); room comes from the preview, and no column gets narrower than
 80 px. Chosen widths are shares of the window, win over `ratio` and
 `fit_parent` until `z=` (`:column-reset`), still give way to
-`narrow_width`, and are kept in `$XDG_STATE_HOME/siv-columns/columns`.
+`narrow_width`, and are kept in `$XDG_STATE_HOME/strider/columns`.
 
 Column widths start from `ratio`, the shares of the parent, current, and
 preview columns (ranger's `column_ratios`; 0 hides a column). With
@@ -279,7 +279,7 @@ narrower than `narrow_width` (640 logical pixels) hides the parent
 column, and one narrower than two thirds of that the preview too.
 
 Bookmarks and the command history persist in
-`$XDG_STATE_HOME/siv-columns/`.
+`$XDG_STATE_HOME/strider/`.
 
 ## Desktop integration
 
@@ -326,7 +326,7 @@ Bookmarks and the command history persist in
 
 ## The desktop's file chooser
 
-siv-columns can be every application's Open and Save dialog: an
+Strider can be every application's Open and Save dialog: an
 xdg-desktop-portal FileChooser backend (`OpenFile`, `SaveFile`,
 `SaveFiles`), like xdg-desktop-portal-termfilechooser does for ranger
 and yazi, but native. A request opens a chooser window in the running
@@ -382,15 +382,15 @@ The chooser is the same three columns, with every key, preview, search,
   and a narrow chooser keeps the parent column longer than the preview.
 - Its least size is 800x500 (less if `chooser_size` is less), and
   Hyprland opens it at that, not at `chooser_size`. Its app id is
-  `org.siv.Columns.Chooser`, for compositor rules; a rule sets another
+  `dev.rockorager.Strider.Chooser`, for compositor rules; a rule sets another
   size: in
-  Omarchy's Lua configuration `o.window("org.siv.Columns.Chooser", {
+  Omarchy's Lua configuration `o.window("dev.rockorager.Strider.Chooser", {
   size = { 960, 640 } })`, in hyprland.conf `windowrule = size 960 640,
-  match:class org.siv.Columns.Chooser` (older Hyprland: `windowrule =
-  size 960 640, class:^(org\.siv\.Columns\.Chooser)$`).
+  match:class dev.rockorager.Strider.Chooser` (older Hyprland: `windowrule =
+  size 960 640, class:^(dev\.rockorager\.Strider\.Chooser)$`).
 
 Set it up once, after `zig build install --prefix ~/.local` (which puts
-`siv-columns.portal` in `~/.local/share/xdg-desktop-portal/portals` and
+`strider.portal` in `~/.local/share/xdg-desktop-portal/portals` and
 its D-Bus service in `~/.local/share/dbus-1/services`):
 
 1. Name it in `[preferred]` of your portals.conf. On Hyprland (Omarchy
@@ -402,18 +402,21 @@ its D-Bus service in `~/.local/share/dbus-1/services`):
    ```ini
    [preferred]
    default=hyprland;gtk
-   org.freedesktop.impl.portal.FileChooser=siv-columns
+   org.freedesktop.impl.portal.FileChooser=strider
    ```
 
-2. Quit siv-columns if it runs (an older build does not serve the
+   The value is the portal file's name, `strider` since the rename
+   (it was `siv-columns`).
+
+2. Quit Strider if it runs (an older build does not serve the
    portal), and restart the portal: `systemctl --user restart
    xdg-desktop-portal`.
 
 xdg-desktop-portal 1.20.3 and later (Arch has 1.22) find portals in
 `~/.local/share`. With an older one, copy the portal file where it
-looks: `sudo install -Dm644 ~/.local/share/xdg-desktop-portal/portals/siv-columns.portal
-/usr/share/xdg-desktop-portal/portals/siv-columns.portal`, or install
-system-wide with `--prefix /usr`. The bus starts siv-columns with its
+looks: `sudo install -Dm644 ~/.local/share/xdg-desktop-portal/portals/strider.portal
+/usr/share/xdg-desktop-portal/portals/strider.portal`, or install
+system-wide with `--prefix /usr`. The bus starts Strider with its
 activation environment, which needs `WAYLAND_DISPLAY`: Omarchy, GNOME,
 and KDE set it; under other compositors run `dbus-update-activation-environment
 --systemd WAYLAND_DISPLAY` at login. `/usr/lib/xdg-desktop-portal -r -v`
@@ -477,7 +480,7 @@ renderer stopped making a 16 MiB path mask step and an unused 8 MiB
 color glyph atlas. Method, caveats, and every number:
 [bench/README.md](bench/README.md).
 
-| | siv-columns | Nautilus |
+| | Strider | Nautilus |
 | --- | --- | --- |
 | Warm start to the folder's rows on screen (cold) | 48 ms (116 ms) | 228 ms (498 ms) |
 | Memory after starting: RSS, PSS | 61, 43 MiB | 106, 82 MiB |
@@ -491,4 +494,4 @@ color glyph atlas. Method, caveats, and every number:
 
 ## License
 
-MIT. siv and what it contains: `share/licenses/siv-columns/`.
+MIT. siv and what it contains: `share/licenses/strider/`.

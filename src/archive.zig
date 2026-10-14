@@ -262,8 +262,8 @@ test "lists a zip and a tarball made by the system's tools" {
     if (!proc.onPath("tar") or !proc.onPath("gzip")) return error.SkipZigTest;
     var r = try proc.run(testing.allocator, &.{ "sh", "-c",
         \\set -e
-        \\rm -rf /tmp/siv-columns-archive-test && mkdir -p /tmp/siv-columns-archive-test/src/sub
-        \\cd /tmp/siv-columns-archive-test
+        \\rm -rf /tmp/strider-archive-test && mkdir -p /tmp/strider-archive-test/src/sub
+        \\cd /tmp/strider-archive-test
         \\printf 'hello' > src/a.txt
         \\printf 'x' > src/sub/b.txt
         \\tar -czf t.tar.gz src
@@ -272,10 +272,10 @@ test "lists a zip and a tarball made by the system's tools" {
     defer r.deinit(testing.allocator);
     try testing.expectEqual(@as(u8, 0), r.status);
     defer {
-        var rm = proc.run(testing.allocator, &.{ "rm", "-rf", "/tmp/siv-columns-archive-test" }, .{}) catch unreachable;
+        var rm = proc.run(testing.allocator, &.{ "rm", "-rf", "/tmp/strider-archive-test" }, .{}) catch unreachable;
         rm.deinit(testing.allocator);
     }
-    for ([_]struct { []const u8, Kind }{ .{ "/tmp/siv-columns-archive-test/t.tar.gz", .tar_gz }, .{ "/tmp/siv-columns-archive-test/t.tar", .tar } }) |t| {
+    for ([_]struct { []const u8, Kind }{ .{ "/tmp/strider-archive-test/t.tar.gz", .tar_gz }, .{ "/tmp/strider-archive-test/t.tar", .tar } }) |t| {
         var l = try list(testing.allocator, t[0], t[1], 100);
         defer l.deinit();
         var found_a = false;

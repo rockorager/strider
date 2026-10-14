@@ -186,7 +186,7 @@ fn timed(r: *Run, comptime label: []const u8, keys_text: []const u8) !void {
 pub fn main() !void {
     if (builtin.mode == .debug) report("warning: a Debug build; use -Doptimize=safe or fast", .{});
     var dir_buf: [128]u8 = undefined;
-    const base = try std.fmt.bufPrintSentinel(&dir_buf, "/tmp/siv-columns-bench-{d}", .{linux.getpid()}, 0);
+    const base = try std.fmt.bufPrintSentinel(&dir_buf, "/tmp/strider-bench-{d}", .{linux.getpid()}, 0);
     _ = linux.mkdirat(linux.AT.FDCWD, base, 0o755);
     defer removeFolder(base);
     var root_buf: [160]u8 = undefined;

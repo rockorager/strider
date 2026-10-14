@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepares a fresh Amp orb (Debian) to build and test siv-columns.
+# Prepares a fresh Amp orb (Debian) to build and test Strider.
 # Idempotent: a warm orb skips downloads and package installs.
 set -euo pipefail
 

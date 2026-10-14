@@ -1,4 +1,4 @@
-//! The Lua configuration: $XDG_CONFIG_HOME/siv-columns/init.lua, run in a
+//! The Lua configuration: $XDG_CONFIG_HOME/strider/init.lua, run in a
 //! Lua 5.5 state from siv's Lua binding (libsiv-lua, linked in). Lua
 //! reaches the file manager through require("fm") — keymaps, options,
 //! commands, previewers, and events — and siv itself through

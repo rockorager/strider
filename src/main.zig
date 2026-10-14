@@ -1,7 +1,7 @@
-//! siv-columns: a keyboard-driven, ranger-style file manager for Wayland,
+//! strider: a keyboard-driven, ranger-style file manager for Wayland,
 //! built on siv.
 //!
-//!     siv-columns [FOLDER or FILE ...] [--new-window] [--hidden]
+//!     strider [FOLDER or FILE ...] [--new-window] [--hidden]
 //!         [--dark | --light] [--rtl] [--clean]
 //!
 //! One instance serves every window: a second launch hands its folders to
@@ -29,14 +29,14 @@ fn env(name: [*:0]const u8) ?[]const u8 {
 }
 
 const usage =
-    \\usage: siv-columns [FOLDER or FILE ...] [options]
+    \\usage: strider [FOLDER or FILE ...] [options]
     \\
     \\  --new-window      open a new window even if one is open
     \\  --hidden          show hidden files
     \\  --dark, --light   choose the style instead of following the desktop
     \\  --rtl             lay out right to left
     \\  --clean           do not run init.lua
-    \\  --config FILE     run FILE instead of $XDG_CONFIG_HOME/siv-columns/init.lua
+    \\  --config FILE     run FILE instead of $XDG_CONFIG_HOME/strider/init.lua
     \\  --service         started by D-Bus activation
     \\  --version         print the version
     \\
@@ -79,7 +79,7 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--config")) {
             i += 1;
             if (i >= args.len) {
-                std.debug.print("siv-columns: --config needs a file\n", .{});
+                std.debug.print("strider: --config needs a file\n", .{});
                 return 2;
             }
             config_override = args[i];
@@ -88,13 +88,13 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--service") or std.mem.eql(u8, a, "--gapplication-service")) {
             service = true;
         } else if (std.mem.eql(u8, a, "--version")) {
-            std.debug.print("siv-columns 0.1.0\n", .{});
+            std.debug.print("strider 0.1.0\n", .{});
             return 0;
         } else if (std.mem.eql(u8, a, "--help") or std.mem.eql(u8, a, "-h")) {
             std.debug.print("{s}", .{usage});
             return 0;
         } else if (std.mem.startsWith(u8, a, "--")) {
-            std.debug.print("siv-columns: unknown option {s}\n{s}", .{ a, usage });
+            std.debug.print("strider: unknown option {s}\n{s}", .{ a, usage });
             return 2;
         } else {
             try paths.append(arena, a);
@@ -133,9 +133,9 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     var sapp: siv.App = .null;
-    var r = c.siv_app_create(&.{ .flags = flags, .name = "Columns", .name_len = 7, .app_id = App.app_id, .app_id_len = App.app_id.len }, &sapp);
+    var r = c.siv_app_create(&.{ .flags = flags, .name = "Strider", .name_len = 7, .app_id = App.app_id, .app_id_len = App.app_id.len }, &sapp);
     if (r != .ok) {
-        std.debug.print("siv-columns: cannot start: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        std.debug.print("strider: cannot start: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     defer _ = c.siv_app_destroy(sapp);
@@ -158,7 +158,7 @@ pub fn main(init: std.process.Init) !u8 {
         .config_file = config_file,
         .state_dir = try std.fmt.allocPrint(arena, "{s}/" ++ App.program, .{state_home}),
     }) catch |err| {
-        std.debug.print("siv-columns: cannot start: {s}\n", .{@errorName(err)});
+        std.debug.print("strider: cannot start: {s}\n", .{@errorName(err)});
         return 1;
     };
     defer app.destroy();
@@ -178,14 +178,14 @@ pub fn main(init: std.process.Init) !u8 {
         .idle_timeout_ms = if (service) 30_000 else 0,
     });
     if (r != .ok) {
-        std.debug.print("siv-columns: cannot launch: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        std.debug.print("strider: cannot launch: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     // The application's services on the session bus.
     app.startServices();
     r = c.siv_app_run(sapp);
     if (r != .ok) {
-        std.debug.print("siv-columns: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        std.debug.print("strider: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     return 0;
@@ -240,7 +240,7 @@ fn onNewWindowAction(ud: ?*anyopaque, _: *const siv.ActionEvent) callconv(.c) vo
     _ = app.newWindow(app.home) catch {};
 }
 
-/// share/siv-columns/icons beside the executable's bin directory.
+/// share/strider/icons beside the executable's bin directory.
 fn iconDir(buf: []u8) ?[]const u8 {
     var exe: [4096]u8 = undefined;
     const n = linux.readlink("/proc/self/exe", &exe, exe.len);

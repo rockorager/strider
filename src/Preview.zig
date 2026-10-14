@@ -608,7 +608,7 @@ const Job = struct {
     }
 
     /// A PDF's first page or a video's frame, at the preview's width, as
-    /// a PNG in $XDG_CACHE_HOME/siv-columns/previews/<hash>.png (by path,
+    /// a PNG in $XDG_CACHE_HOME/strider/previews/<hash>.png (by path,
     /// time, and width).
     fn renderPage(j: *Job, r: Renderer) void {
         var h = std.hash.Wyhash.init(0);

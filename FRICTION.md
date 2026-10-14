@@ -73,12 +73,15 @@ what this project does about it, and its status:
 
 ## Decided
 
-8. **The application's name and id are placeholders** (decided: they
-   stay until the user picks names): "Columns",
-   `org.siv.Columns`, program `siv-columns`, Lua module `fm`, config in
-   `$XDG_CONFIG_HOME/siv-columns/`. Renaming touches `App.app_id` and
-   `App.program`, `build.zig`, `tools/desktop_files.zig`, `data/`, and
-   the README. (siv-files' name is open too.)
+8. **The application's name** (decided by the user): Strider, Aragorn's
+   name as a ranger. Program `strider`, app id `dev.rockorager.Strider`
+   (chooser windows `dev.rockorager.Strider.Chooser`), portal backend
+   `org.freedesktop.impl.portal.desktop.strider` (`strider.portal`),
+   config, state, and cache in `strider/`, environment variables
+   `STRIDER_*`; the Lua module stays `fm`. It was "Columns" (siv-columns,
+   org.siv.Columns) until then, with no fallback to the old paths. The
+   repository and Amp project keep their old name until the user
+   renames them. (siv-files' name is open.)
 
 9. **`f` closes as soon as one name matches** (decided: as ranger
    does), so the letters typed after the match run as commands (`fpho`
@@ -265,7 +268,7 @@ what this project does about it, and its status:
       that size is kept (state file `chooser`) and wins until
       `:set chooser_size`. A resize counts as the user's when it comes
       half a second after the first frame or later. App id
-      `org.siv.Columns.Chooser`, with a hidden desktop entry for its
+      `dev.rockorager.Strider.Chooser`, with a hidden desktop entry for its
       name and icon, which it also sets (xdg-toplevel-icon).
     - The filter applies to the folder shown only (not the parent
       column or a previewed folder), and, like `zf`, it is the folder's:

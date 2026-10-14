@@ -19,7 +19,7 @@ const Chooser = @import("Chooser.zig");
 
 const Portal = @This();
 
-pub const name = "org.freedesktop.impl.portal.desktop.siv_columns";
+pub const name = "org.freedesktop.impl.portal.desktop.strider";
 pub const path = "/org/freedesktop/portal/desktop";
 pub const interface = "org.freedesktop.impl.portal.FileChooser";
 const request_interface = "org.freedesktop.impl.portal.Request";

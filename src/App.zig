@@ -33,10 +33,10 @@ pub const commands = @import("commands.zig");
 
 const App = @This();
 
-pub const app_id = "org.siv.Columns";
+pub const app_id = "dev.rockorager.Strider";
 /// File chooser windows' app id, for compositor rules (Hyprland's, say).
-pub const chooser_app_id = "org.siv.Columns.Chooser";
-pub const program = "siv-columns";
+pub const chooser_app_id = "dev.rockorager.Strider.Chooser";
+pub const program = "strider";
 
 pub const Options = struct {
     /// Thread-safe: jobs allocate on worker threads.
@@ -111,7 +111,7 @@ history: std.ArrayList([]u8) = .empty,
 /// Column widths the user chose by dragging a handle or with < and >:
 /// the parent's and the current column's shares of the window's width.
 /// They win over `ratio` and `fit_parent` until `column-reset`, and
-/// persist in $XDG_STATE_HOME/siv-columns/columns.
+/// persist in $XDG_STATE_HOME/strider/columns.
 widths: ?[2]f32 = null,
 /// The size the user last gave a file chooser window, kept across starts.
 chooser_size: ?[2]u32 = null,

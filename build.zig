@@ -1,7 +1,7 @@
-//! siv-columns: a keyboard-driven, ranger-style file manager for Wayland,
+//! Strider: a keyboard-driven, ranger-style file manager for Wayland,
 //! built on siv.
 //!
-//!   zig build                  bin/siv-columns and its desktop files in zig-out
+//!   zig build                  bin/strider and its desktop files in zig-out
 //!   zig build run -- [ARGS]    run it from zig-out
 //!   zig build install --prefix ~/.local   install for one user (or
 //!                              sudo zig build install --prefix /usr/local)
@@ -21,8 +21,8 @@
 
 const std = @import("std");
 
-const app_id = "org.siv.Columns";
-const program = "siv-columns";
+const app_id = "dev.rockorager.Strider";
+const program = "strider";
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -133,7 +133,7 @@ fn installData(b: *std.Build, filemanager1: bool) void {
         // The FileChooser portal backend: started by the bus, found by
         // xdg-desktop-portal (1.20.3 and later search every data dir,
         // ~/.local/share included).
-        .{ out.path(b, "org.freedesktop.impl.portal.desktop.siv_columns.service"), "share/dbus-1/services/org.freedesktop.impl.portal.desktop.siv_columns.service" },
+        .{ out.path(b, "org.freedesktop.impl.portal.desktop.strider.service"), "share/dbus-1/services/org.freedesktop.impl.portal.desktop.strider.service" },
         .{ b.path("data/" ++ program ++ ".portal"), "share/xdg-desktop-portal/portals/" ++ program ++ ".portal" },
         .{ b.path("data/" ++ app_id ++ ".svg"), "share/icons/hicolor/scalable/apps/" ++ app_id ++ ".svg" },
         .{ b.path("data/" ++ app_id ++ ".metainfo.xml"), "share/metainfo/" ++ app_id ++ ".metainfo.xml" },

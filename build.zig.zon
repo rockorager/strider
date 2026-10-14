@@ -1,7 +1,7 @@
 .{
-    .name = .siv_columns,
+    .name = .strider,
     .version = "0.1.0",
-    .fingerprint = 0x1fa8ee58b5294b15, // Changing this has security and trust implications.
+    .fingerprint = 0xfc3cbd375e885756, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         // siv is a private repository, which `zig fetch` cannot

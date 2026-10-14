@@ -120,14 +120,14 @@ pub fn now() u64 {
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 
-/// With SIV_COLUMNS_TIMING set: how long the call took to show, and when
+/// With STRIDER_TIMING set: how long the call took to show, and when
 /// (the wall clock, to compare with the caller's).
 pub fn firstFrame(ch: *const Chooser, commit_ns: u64) void {
-    if (getenv("SIV_COLUMNS_TIMING") == null) return;
+    if (getenv("STRIDER_TIMING") == null) return;
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     const ms = @as(f64, @floatFromInt(commit_ns -| ch.called_ns)) / std.time.ns_per_ms;
-    std.debug.print("siv-columns: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n", .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) });
+    std.debug.print("strider: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n", .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) });
 }
 
 // Reading the request ---------------------------------------------------------------------

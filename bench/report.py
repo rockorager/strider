@@ -13,7 +13,7 @@ import statistics
 import sys
 
 DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "raw")
-APPS = [("columns", "siv-columns"), ("nautilus", "Nautilus")]
+APPS = [("strider", "Strider"), ("nautilus", "Nautilus")]
 runs = {a: [json.load(open(p)) for p in sorted(glob.glob(os.path.join(DIR, f"{a}-*.json")))] for a, _ in APPS}
 for a in runs:
     runs[a] = [r for r in runs[a] if "error" not in r]

@@ -7,7 +7,7 @@
 
 const std = @import("std");
 
-const app_id = "org.siv.Columns";
+const app_id = "dev.rockorager.Strider";
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -22,12 +22,12 @@ pub fn main(init: std.process.Init) !void {
     const cwd = if (std.os.linux.errno(cwd_len) == .SUCCESS) std.mem.sliceTo(&cwd_buf, 0) else "/";
     const trimmed = std.mem.trimEnd(u8, prefix, "/");
     const abs = if (std.mem.startsWith(u8, trimmed, "/")) trimmed else try std.fmt.allocPrint(arena, "{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
-    const bin = try std.fmt.allocPrint(arena, "{s}/bin/siv-columns", .{abs});
+    const bin = try std.fmt.allocPrint(arena, "{s}/bin/strider", .{abs});
     const files = [_]struct { []const u8, []const u8 }{
         .{ app_id ++ ".desktop", try std.fmt.allocPrint(arena,
             \\[Desktop Entry]
             \\Type=Application
-            \\Name=Columns
+            \\Name=Strider
             \\GenericName=File Manager
             \\Comment=Browse and organize files from the keyboard, in Miller columns
             \\Icon={s}
@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
         .{ app_id ++ ".Chooser.desktop", try std.fmt.allocPrint(arena,
             \\[Desktop Entry]
             \\Type=Application
-            \\Name=Columns File Chooser
+            \\Name=Strider File Chooser
             \\Comment=The desktop's file chooser, in Miller columns
             \\Icon={s}
             \\Exec={s} --service
@@ -64,9 +64,9 @@ pub fn main(init: std.process.Init) !void {
             \\Exec={s} --service
             \\
         , .{ app_id, bin }) },
-        .{ "org.freedesktop.impl.portal.desktop.siv_columns.service", try std.fmt.allocPrint(arena,
+        .{ "org.freedesktop.impl.portal.desktop.strider.service", try std.fmt.allocPrint(arena,
             \\[D-BUS Service]
-            \\Name=org.freedesktop.impl.portal.desktop.siv_columns
+            \\Name=org.freedesktop.impl.portal.desktop.strider
             \\Exec={s} --service
             \\
         , .{bin}) },

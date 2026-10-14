@@ -1,6 +1,6 @@
--- An example configuration for siv-columns.
+-- An example configuration for Strider.
 --
--- Copy it to $XDG_CONFIG_HOME/siv-columns/init.lua (~/.config/...) and
+-- Copy it to $XDG_CONFIG_HOME/strider/init.lua (~/.config/...) and
 -- change what you like; without one, these defaults apply anyway. The
 -- file runs once at startup in Lua 5.5. require("fm") is the file manager;
 -- require("siv") is the siv toolkit's own Lua binding, for timers, jobs,

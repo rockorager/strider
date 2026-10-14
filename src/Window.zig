@@ -219,7 +219,7 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
     // 1366x768 screen, unless `chooser_size` asks for less.
     const least = [2]u32{ @min(800, app.options.chooser_size[0]), @min(500, app.options.chooser_size[1]) };
     self.window = try siv.windowCreate(app.app, .{
-        .title = if (chooser) |ch| ch.windowTitle() else "Columns",
+        .title = if (chooser) |ch| ch.windowTitle() else "Strider",
         .app_id = if (chooser != null) App.chooser_app_id else App.app_id,
         .width = if (chooser != null) size[0] else app.opts.window_width,
         .height = if (chooser != null) size[1] else app.opts.window_height,
