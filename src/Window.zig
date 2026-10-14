@@ -121,6 +121,9 @@ message_error: bool = false,
 
 whichkey_timer: siv.Timer = .null,
 last_input: u64 = 0,
+/// cd's look at a path on a worker, and which cd is the newest.
+probing: ?*Probe = null,
+probe_gen: u64 = 0,
 /// The window's logical width (0 before the first configure).
 width: f32 = 0,
 /// What the parent column's names need, in logical pixels (0: unknown).
@@ -204,6 +207,7 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     self.window = .null;
     self.closing = true;
     if (self.whichkey_timer != .null) _ = c.siv_timer_cancel(self.whichkey_timer);
+    if (self.probing) |pr| pr.win = null;
     if (self.conflict) |e| e.answer(.cancel, false);
     self.preview.deinit();
     if (self.parent_col.dir) |d| d.pins -= 1;
@@ -787,13 +791,16 @@ pub fn cdSelect(self: *Window, path_in: []const u8, select: ?[]const u8, record:
     var ebuf: [linux.PATH_MAX]u8 = undefined;
     const expanded = self.expandPath(&ebuf, path_in);
     const path = model.normalize(&nbuf, expanded);
-    if (!isDirPath(path) and !std.mem.eql(u8, path, self.app.places.trash_files)) {
-        // A file: go to its folder and put the cursor on it.
-        if (isPath(path)) return self.cdSelect(model.parent(path), model.basename(path), record);
-        var mbuf: [linux.PATH_MAX + 32]u8 = undefined;
-        self.notify(std.fmt.bufPrint(&mbuf, "No such folder: {s}", .{path}) catch "No such folder", true);
-        return;
-    }
+    // A folder the cache holds is a folder; anything else is looked at
+    // on a worker, so a slow or hung file system never holds the keys.
+    if (std.mem.eql(u8, path, self.app.places.trash_files) or self.app.cache.dirs.get(path) != null)
+        return self.cdKnown(path, select, record);
+    self.probe(path, select, record);
+}
+
+/// Shows `path`, a folder (a listing or the cache said so).
+pub fn cdKnown(self: *Window, path: []const u8, select: ?[]const u8, record: bool) void {
+    self.probe_gen +%= 1; // a pending probe is overtaken
     const t = self.tab();
     const old = t.dir;
     const d = self.app.cache.get(path, self.app.options.stale_ms) orelse return;
@@ -813,6 +820,61 @@ pub fn cdSelect(self: *Window, path_in: []const u8, select: ?[]const u8, record:
     }
     self.showTab();
     if (self.app.lua) |l| l.emit("cd", d.path);
+}
+
+/// What a path is (folder, file, nothing), found on a worker; the newest
+/// cd wins.
+const Probe = struct {
+    win: ?*Window,
+    gpa: std.mem.Allocator,
+    gen: u64,
+    path: []u8,
+    select: ?[]u8,
+    record: bool,
+    kind: enum { dir, file, missing } = .missing,
+
+    fn work(ud: ?*anyopaque) callconv(.c) void {
+        const pr: *Probe = @ptrCast(@alignCast(ud.?));
+        pr.kind = if (isDirPath(pr.path)) .dir else if (isPath(pr.path)) .file else .missing;
+    }
+
+    fn done(ud: ?*anyopaque) callconv(.c) void {
+        const pr: *Probe = @ptrCast(@alignCast(ud.?));
+        const w = pr.win orelse return;
+        if (w.probing == pr) w.probing = null;
+        if (pr.gen != w.probe_gen or w.tabs.items.len == 0) return;
+        switch (pr.kind) {
+            .dir => w.cdKnown(pr.path, pr.select, pr.record),
+            // A file: its folder, with the cursor on it.
+            .file => w.cdSelect(model.parent(pr.path), model.basename(pr.path), pr.record),
+            .missing => {
+                var mbuf: [linux.PATH_MAX + 32]u8 = undefined;
+                w.notify(std.fmt.bufPrint(&mbuf, "No such folder: {s}", .{pr.path}) catch "No such folder", true);
+            },
+        }
+    }
+
+    fn destroy(ud: ?*anyopaque) callconv(.c) void {
+        const pr: *Probe = @ptrCast(@alignCast(ud.?));
+        if (pr.win) |w| if (w.probing == pr) {
+            w.probing = null;
+        };
+        pr.gpa.free(pr.path);
+        if (pr.select) |x| pr.gpa.free(x);
+        pr.gpa.destroy(pr);
+    }
+};
+
+fn probe(self: *Window, path: []const u8, select: ?[]const u8, record: bool) void {
+    const gpa = self.gpa;
+    self.probe_gen +%= 1;
+    const pr = gpa.create(Probe) catch return;
+    pr.* = .{ .win = self, .gpa = gpa, .gen = self.probe_gen, .path = gpa.dupe(u8, path) catch return gpa.destroy(pr), .select = null, .record = record };
+    if (select) |x| pr.select = gpa.dupe(u8, x) catch null;
+    if (self.probing) |old| old.win = null;
+    self.probing = pr;
+    // The destroy-notify runs if the job cannot start.
+    _ = c.siv_job_start(self.app.app, .{}, Probe.work, Probe.done, Probe.destroy, pr);
 }
 
 fn pushHistory(self: *Window, t: *Tab, path: []const u8) void {
@@ -889,7 +951,7 @@ pub fn enter(self: *Window) void {
     const e = d.current() orelse return;
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = d.pathAt(&pbuf, d.cursor) orelse return;
-    if (e.kind == .dir) return self.cd(p);
+    if (e.kind == .dir) return self.cdKnown(p, null, true);
     self.openTargets();
 }
 
@@ -898,7 +960,7 @@ pub fn leave(self: *Window) void {
     const d = self.curDir();
     if (d.isTrash()) return self.cd(self.app.home);
     if (std.mem.eql(u8, d.path, "/")) return;
-    self.cd(model.parent(d.path));
+    self.cdKnown(model.parent(d.path), null, true);
 }
 
 /// Opens the targets with their default applications.
@@ -906,7 +968,17 @@ pub fn openTargets(self: *Window) void {
     const paths = self.targets() catch return;
     defer App.freePaths(self.gpa, paths);
     if (paths.len == 0) return;
-    if (paths.len == 1 and isDirPath(paths[0])) return self.cd(paths[0]);
+    // One folder: go in (the listing knows it is one; a path from
+    // elsewhere is looked at off this thread).
+    if (paths.len == 1) {
+        const d = self.curDir();
+        var pbuf: [linux.PATH_MAX]u8 = undefined;
+        if (d.current()) |e| if (d.pathAt(&pbuf, d.cursor)) |cp| if (std.mem.eql(u8, cp, paths[0])) {
+            if (e.kind == .dir) return self.cdKnown(cp, null, true);
+            return self.app.openPaths(self, toConst(paths), null);
+        };
+        if (isDirPath(paths[0])) return self.cd(paths[0]);
+    }
     self.app.openPaths(self, toConst(paths), null);
 }
 

@@ -78,6 +78,13 @@ pub const Cache = struct {
     /// Coalesces bursts of changes before re-reading.
     change_timer: siv.Timer = .null,
 
+    /// Whether a cached folder other than `except` holds watch `wd`.
+    fn watchShared(cache: *Cache, wd: i32, except: ?*Dir) bool {
+        var it = cache.dirs.valueIterator();
+        while (it.next()) |o| if (o.* != except and o.*.wd == wd) return true;
+        return false;
+    }
+
     /// Watches cached folders for changes from now on.
     pub fn startWatching(cache: *Cache) void {
         if (cache.watcher != null) return;
@@ -137,11 +144,6 @@ pub const Cache = struct {
             d.destroy();
             return null;
         };
-        // The trash's listing is every trash's: its own folder is not
-        // all that changes it.
-        if (cache.watcher) |w| if (!d.isTrash()) {
-            d.wd = w.add(d.path);
-        };
         d.reload();
         return d;
     }
@@ -186,14 +188,9 @@ pub const Cache = struct {
 
 fn destroy(d: *Dir) void {
     const gpa = d.cache.gpa;
-    if (d.cache.watcher) |w| if (d.wd >= 0) {
-        // Two paths to one folder (a symlink and its target) share a
-        // watch descriptor; the watch goes with the last of them.
-        var shared = false;
-        var it = d.cache.dirs.valueIterator();
-        while (it.next()) |o| shared = shared or (o.* != d and o.*.wd == d.wd);
-        if (!shared) w.remove(d.wd);
-    };
+    // Two paths to one folder (a symlink and its target) share a watch
+    // descriptor; the watch goes with the last of them.
+    if (d.cache.watcher) |w| if (d.wd >= 0 and !d.cache.watchShared(d.wd, d)) w.remove(d.wd);
     if (d.loading) |l| l.dir = null;
     if (d.listing) |*l| l.deinit();
     if (d.trash_info) |*t| t.deinit();
@@ -232,10 +229,16 @@ pub const Load = struct {
     info: ?trash.Info = null,
     order: []u32 = &.{},
     taken: bool = false,
+    /// The inotify instance to add the folder to before reading it (-1:
+    /// none, or watched already), and the watch it got.
+    inotify: i32 = -1,
+    wd: i32 = -1,
 
     fn work(ud: ?*anyopaque) callconv(.c) void {
         const l: *Load = @ptrCast(@alignCast(ud.?));
         if (l.cancelled.load(.acquire)) return;
+        // Watched before reading, so no change falls between the two.
+        if (l.inotify >= 0) l.wd = Watcher.add(l.inotify, l.path);
         const db = l.cache.load_mime(l.cache.ctx);
         if (l.trash_view) {
             var info: trash.Info = undefined;
@@ -260,6 +263,10 @@ pub const Load = struct {
         const d = l.dir orelse return;
         if (d.loading != l) return;
         d.loading = null;
+        if (l.wd >= 0 and d.wd < 0) {
+            d.wd = l.wd;
+            l.wd = -1;
+        }
         if (l.cancelled.load(.acquire)) return;
         l.taken = true;
         d.finish(l);
@@ -267,6 +274,8 @@ pub const Load = struct {
 
     fn destroy(ud: ?*anyopaque) callconv(.c) void {
         const l: *Load = @ptrCast(@alignCast(ud.?));
+        // A watch no folder took (it went while this read ran).
+        if (l.wd >= 0) if (l.cache.watcher) |w| if (!l.cache.watchShared(l.wd, null)) w.remove(l.wd);
         if (!l.taken) {
             if (l.result) |*listing| listing.deinit() else |_| {}
             if (l.info) |*i| i.deinit();
@@ -291,6 +300,11 @@ pub fn reload(d: *Dir) void {
         return;
     };
     l.* = .{ .dir = d, .gpa = gpa, .cache = d.cache, .path = p, .sort = d.cache.sort, .trash_view = d.isTrash() };
+    // The trash's listing is every trash's: its own folder is not all
+    // that changes it.
+    if (d.wd < 0 and !l.trash_view) if (d.cache.watcher) |w| {
+        l.inotify = w.inotify;
+    };
     d.loading = l;
     d.dirty = false;
     // The destroy-notify runs if the job cannot start.

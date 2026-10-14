@@ -412,6 +412,12 @@ test "the which-key popup, the command line, and completion" {
     // Unknown commands say so.
     try h.typeText(":frobnicate\n");
     try testing.expectEqualStrings("Unknown command: frobnicate", h.win.?.message.items);
+    // Paths the cache does not know are looked at on a worker: a file
+    // goes to its folder with the cursor on it; nothing says so.
+    try h.typeText(":cd ../work/README.md\n");
+    try testing.expectEqualStrings("README.md", h.hovered());
+    try h.typeText(":cd nowhere\n");
+    try testing.expect(std.mem.endsWith(u8, h.win.?.message.items, "/work/nowhere"));
 }
 
 test "messages stay until the next key, and :messages lists them" {

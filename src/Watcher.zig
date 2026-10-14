@@ -34,14 +34,16 @@ pub fn destroy(w: *Watcher) void {
     w.gpa.destroy(w);
 }
 
-/// Starts watching `path`; returns the watch descriptor, or -1 (no such
-/// folder, or the user's inotify limit reached).
-pub fn add(w: *Watcher, path: []const u8) i32 {
+/// Starts watching `path` on inotify instance `inotify`; returns the
+/// watch descriptor, or -1 (no such folder, or the user's inotify limit
+/// reached). Any thread: a folder's read job adds its watch, so a slow
+/// file system holds a worker rather than the UI thread.
+pub fn add(inotify: i32, path: []const u8) i32 {
     var buf: [linux.PATH_MAX]u8 = undefined;
     const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{path}, 0) catch return -1;
     const mask = linux.IN.CREATE | linux.IN.DELETE | linux.IN.MOVED_FROM | linux.IN.MOVED_TO |
         linux.IN.CLOSE_WRITE | linux.IN.ATTRIB | linux.IN.DELETE_SELF | linux.IN.MOVE_SELF | linux.IN.ONLYDIR;
-    const r = linux.inotify_add_watch(w.inotify, z, mask);
+    const r = linux.inotify_add_watch(inotify, z, mask);
     return if (linux.errno(r) == .SUCCESS) @intCast(r) else -1;
 }
 
