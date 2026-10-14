@@ -161,6 +161,43 @@ test "keys: counts, gg and G, search, find, and history" {
 
 const model = App.model;
 
+test "zf filters the folder as you type, in smart case, apart from / search" {
+    var f: Fixture = .{};
+    try fixture(&f, "filter");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const all = h.dir().count();
+    try h.typeText("zfre");
+    try testing.expectEqual(@as(u32, 2), h.dir().count());
+    try testing.expectEqualStrings("README.md", h.hovered());
+    try h.expectGolden(h.window(), "filter");
+    // A capital letter matches its case only.
+    try h.key(.backspace, .{}, "");
+    try h.key(.backspace, .{}, "");
+    try h.typeText("RE");
+    try testing.expectEqual(@as(u32, 1), h.dir().count());
+    // Enter keeps the filter; keys work on what it shows.
+    try h.typeText("\n");
+    try testing.expect(h.win.?.prompt == null);
+    try testing.expect(h.reads("filter: RE   1/1"));
+    // Search looks in what the filter shows.
+    try h.typeText("/run\n");
+    try testing.expectEqualStrings("No match", h.win.?.message.items);
+    // Escape clears it.
+    try h.typeText("\x1b");
+    try testing.expectEqual(all, h.dir().count());
+    try h.typeText("/run\n");
+    try testing.expectEqualStrings("run.sh", h.hovered());
+    // Escape in the prompt cancels it, back to every entry.
+    try h.typeText("zfzzz");
+    try testing.expectEqual(@as(u32, 0), h.dir().count());
+    try h.typeText("\x1b");
+    try testing.expectEqual(all, h.dir().count());
+    try testing.expectEqualStrings("run.sh", h.hovered());
+}
+
 fn countIn(f: *const Fixture, rel: []const u8) usize {
     var buf: [512]u8 = undefined;
     const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;

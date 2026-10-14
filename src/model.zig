@@ -359,11 +359,18 @@ pub fn filter(l: *const Listing, order: []const u32, out: []u32, query: []const 
     return n;
 }
 
-/// Whether `name` contains every space-separated word of `query`,
-/// ignoring ASCII case.
+/// Whether `name` contains every space-separated word of `query`: in
+/// smart case, as / searches, so a word with a capital letter matches its
+/// case exactly and others ignore ASCII case.
 pub fn matches(nm: []const u8, query: []const u8) bool {
     var it = std.mem.tokenizeScalar(u8, query, ' ');
-    while (it.next()) |word| if (std.ascii.findIgnoreCase(nm, word) == null) return false;
+    while (it.next()) |word| {
+        const exact = for (word) |ch| {
+            if (std.ascii.isUpper(ch)) break true;
+        } else false;
+        const found = if (exact) std.mem.indexOf(u8, nm, word) != null else std.ascii.findIgnoreCase(nm, word) != null;
+        if (!found) return false;
+    }
     return true;
 }
 
@@ -476,6 +483,9 @@ test "matching words" {
     try testing.expect(matches("Holiday Photo 2024.jpg", "photo 24"));
     try testing.expect(!matches("Holiday Photo 2024.jpg", "photo 25"));
     try testing.expect(matches("anything", ""));
+    try testing.expect(matches("README.md", "read"));
+    try testing.expect(!matches("README.md", "Read"));
+    try testing.expect(matches("Holiday Photo.jpg", "Photo jpg"));
 }
 
 test "sizes, times, and modes" {
