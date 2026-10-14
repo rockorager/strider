@@ -1,0 +1,14 @@
+# A small shared-mime-info database for the tests.
+50:text/plain:*.txt
+50:text/markdown:*.md
+50:text/x-zig:*.zig
+50:text/x-csrc:*.c
+50:image/png:*.png
+50:image/jpeg:*.jpg
+50:image/jpeg:*.jpeg
+50:application/pdf:*.pdf
+50:application/x-compressed-tar:*.tar.gz
+50:application/gzip:*.gz
+50:audio/mpeg:*.mp3
+50:video/mp4:*.mp4
+10:text/x-makefile:makefile

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Image Viewer
+Exec=true %U
+Icon=image-x-generic
+MimeType=image/png;image/jpeg;

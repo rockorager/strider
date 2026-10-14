@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Markdown Writer
+Exec=true %f
+MimeType=text/markdown;

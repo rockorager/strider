@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Text Editor
+Exec=true %F
+Icon=text-x-generic
+MimeType=text/plain;
