@@ -283,8 +283,10 @@ Bookmarks and the command history persist in
   open windows change), or `~/.config/siv/theme.toml`, siv's own format
   (color tokens by name, with `[light]` and `[dark]` tables; see siv's
   theming chapter). The columns take the theme's surfaces, folders its
-  accent, executables and syntax its named colors; high contrast stays
-  siv's. `SIV_THEME=none` turns user themes off. `--dark` and `--light`
+  blue (siv's `info`, `info = "#…"` in theme.toml; not the accent, which
+  kanagawa makes its text color), executables and syntax its named
+  colors; high contrast stays siv's. Folder icons come from the icon
+  theme, else a bundled symbolic folder in the folder color. `SIV_THEME=none` turns user themes off. `--dark` and `--light`
   pick a variant, and a theme for the other one gives way to siv's.
 - Fonts come from Fontconfig: the file names in `sans-serif`, previews
   and permission fields in `monospace`, so `omarchy font set` (or any

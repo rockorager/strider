@@ -239,6 +239,19 @@ what this project does about it, and its status:
     so a stray click keeps them. The right button there still opens the
     folder's menu.
 
+29. **Folders are the theme's blue, not its accent** (siv's new `info`
+    token, siv 4709810). Omarchy's kanagawa makes its accent its
+    text color, so folders looked like files. `info` is an Omarchy
+    theme's `blue` (mixed toward its text where needed to read at 4.5:1
+    on all three column surfaces: rose pine, catppuccin latte, lupine,
+    miasma), `info` in theme.toml, and the default accent in siv's
+    compiled palettes, so folders look as before there and no longer
+    follow a desktop accent. Decide: today's dark folder blue
+    (`#2563eb`) is 3.3 to 3.9:1 on the dark surfaces, under the 4.5:1
+    text guideline; siv's `#3b82f6` would be 4.6 to 5.4:1 (light's is
+    4.4 to 5.2:1). White's blue is `#1a1a1a`, so its folders differ from
+    files by their icons only.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
