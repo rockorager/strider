@@ -215,10 +215,13 @@ fn writeKey(w: *std.Io.Writer, k: Key) !void {
 pub const Mode = enum {
     normal,
     visual,
+    /// The tasks view (w) is open.
+    tasks,
 
     pub fn parse(s: []const u8) ?Mode {
         if (std.mem.eql(u8, s, "n") or std.mem.eql(u8, s, "normal")) return .normal;
         if (std.mem.eql(u8, s, "v") or std.mem.eql(u8, s, "visual")) return .visual;
+        if (std.mem.eql(u8, s, "t") or std.mem.eql(u8, s, "tasks")) return .tasks;
         return null;
     }
 };

@@ -122,6 +122,11 @@ pub const list = [_]Command{
     .{ .name = "lua", .desc = "Run Lua", .run = luaCmd },
     .{ .name = "help", .desc = "Every key and command", .run = help },
     .{ .name = "messages", .desc = "Recent messages, newest first", .run = messages },
+    .{ .name = "tasks", .desc = "Open or close the tasks view", .run = tasks },
+    .{ .name = "task-down", .desc = "The next task", .run = taskDown },
+    .{ .name = "task-up", .desc = "The previous task", .run = taskUp },
+    .{ .name = "task-pause", .desc = "Pause or resume the task", .run = taskPause },
+    .{ .name = "task-cancel", .desc = "Cancel the task, or remove it when done", .run = taskCancel },
     .{ .name = "command", .desc = "Open the command line", .run = commandLine },
     .{ .name = "new-window", .desc = "A new window here", .run = newWindow },
     .{ .name = "quit", .desc = "Close the tab, or the window", .run = quit },
@@ -1165,7 +1170,11 @@ fn help(ctx: Ctx) void {
             .command => |cmd| cmd,
             .lua => "(Lua)",
         };
-        out.print(gpa, "{s}{s: <10} {s: <24} {s}\n", .{ if (b.mode == .visual) "v " else "  ", ks, what, b.desc }) catch return;
+        out.print(gpa, "{s}{s: <10} {s: <24} {s}\n", .{ switch (b.mode) {
+            .normal => "  ",
+            .visual => "v ",
+            .tasks => "t ",
+        }, ks, what, b.desc }) catch return;
     }
     out.appendSlice(gpa, "\nCOMMANDS (type : and Tab completes)\n\n") catch return;
     for (list) |cmd| out.print(gpa, "  {s: <18} {s}\n", .{ cmd.name, cmd.desc }) catch return;
@@ -1200,6 +1209,43 @@ fn messages(ctx: Ctx) void {
         out.append(gpa, '\n') catch return;
     }
     win.preview.showOutput("Messages", out.items, spans.items);
+}
+
+// Tasks -------------------------------------------------------------------------------------
+
+fn tasks(ctx: Ctx) void {
+    if (ctx.win.mode == .tasks) ctx.win.closeTasks() else ctx.win.openTasks();
+}
+fn taskDown(ctx: Ctx) void {
+    ctx.win.moveTaskCursor(@intCast(ctx.n()));
+}
+fn taskUp(ctx: Ctx) void {
+    ctx.win.moveTaskCursor(-@as(i32, @intCast(ctx.n())));
+}
+
+/// The task the view selects; with the view closed, the first running.
+fn selectedTask(win: *Window) ?App.Task {
+    if (win.mode == .tasks) return win.app.taskAt(win.task_cursor);
+    return win.app.taskAt(0);
+}
+
+fn taskPause(ctx: Ctx) void {
+    const t = selectedTask(ctx.win) orelse return ctx.win.notify("No task is running", false);
+    switch (t) {
+        .running => |e| e.op.setPaused(!e.op.isPaused()),
+        .finished => return ctx.win.notify("That task is done", false),
+    }
+    ctx.win.app.updateOps();
+}
+
+fn taskCancel(ctx: Ctx) void {
+    const win = ctx.win;
+    const t = selectedTask(win) orelse return win.notify("No task is running", false);
+    switch (t) {
+        .running => |e| e.op.requestCancel(),
+        .finished => if (win.mode == .tasks) win.app.removeRecent(win.task_cursor - win.app.ops.items.len),
+    }
+    win.app.updateOps();
 }
 
 fn commandLine(ctx: Ctx) void {

@@ -751,6 +751,73 @@ fn widthOf(n: siv.Node) f32 {
     return r.width;
 }
 
+/// p, then `keys` as soon as the paste (which reads the clipboard
+/// first) has started its copy.
+fn pasteAndThen(h: *Harness, keys: []const u8) !void {
+    try siv.check(c.siv_test_type(h.window(), "p", 1));
+    var i: usize = 0;
+    while (h.app.?.ops.items.len == 0) : (i += 1) {
+        if (i > 2000) return error.Timeout;
+        try siv.check(c.siv_app_dispatch(h.sapp, 1));
+    }
+    try siv.check(c.siv_test_type(h.window(), keys.ptr, keys.len));
+    try dispatchFor(h, 100);
+}
+
+fn dispatchFor(h: *Harness, ms: usize) !void {
+    for (0..ms / 10) |_| try siv.check(c.siv_app_dispatch(h.sapp, 10));
+}
+
+test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
+    var f: Fixture = .{};
+    try fixture(&f, "tasks");
+    defer f.remove();
+    var cmd: [512]u8 = undefined;
+    // 256 MiB: 64 of the copy's 4 MiB chunks, so a pause lands mid-copy.
+    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "truncate -s 256M '{s}/work/big.bin'", .{f.path}, 0)).ptr));
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const app = h.app.?;
+    // Nothing yet.
+    try h.typeText("w");
+    try testing.expectEqual(App.keys.Mode.tasks, h.win.?.mode);
+    try testing.expect(h.reads("No file operations yet"));
+    try h.typeText("\x1b");
+    try testing.expectEqual(App.keys.Mode.normal, h.win.?.mode);
+    // Copy big.bin into docs, and pause it from the tasks view at once.
+    try h.typeText("fbi");
+    try h.typeText("yyfdocl");
+    try pasteAndThen(&h, "wp");
+    try testing.expectEqual(@as(usize, 1), app.ops.items.len);
+    const op = app.ops.items[0].op;
+    try testing.expect(op.isPaused());
+    try testing.expect(h.reads("Copying “big.bin” to docs"));
+    const at = op.done_bytes.load(.monotonic);
+    try dispatchFor(&h, 300);
+    try testing.expectEqual(at, op.done_bytes.load(.monotonic));
+    try testing.expect(at < op.total_bytes.load(.monotonic));
+    // Resume: it finishes, and stays listed as done.
+    try h.typeText("p");
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqual(@as(usize, 1), app.recent.items.len);
+    try testing.expectEqualStrings("Copied “big.bin”", app.recent.items[0].result);
+    // A second copy, cancelled from the view.
+    try h.typeText("\x1bhfbiyyfasl");
+    try pasteAndThen(&h, "wpx");
+    try h.waitFor(&h, opsDone);
+    try testing.expect(app.recent.items[0].canceled);
+    try testing.expect(!f.exists("work/assets/big.bin"));
+    try testing.expectEqual(App.keys.Mode.tasks, h.win.?.mode);
+    try h.expectGolden(h.window(), "tasks");
+    // x on a finished task takes it off the list; j and k move.
+    try h.typeText("jx");
+    try testing.expectEqual(@as(usize, 1), app.recent.items.len);
+    try testing.expect(app.recent.items[0].canceled);
+    try h.typeText("q");
+    try testing.expectEqual(App.keys.Mode.normal, h.win.?.mode);
+}
+
 test "column widths: the ratio, the parent fitted to its names, narrow windows" {
     var f: Fixture = .{};
     try fixture(&f, "ratio");

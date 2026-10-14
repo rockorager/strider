@@ -338,24 +338,24 @@ fn optString(L: *State, i: c_int) ?[]const u8 {
     return checkString(L, i);
 }
 
-fn modesOf(L: *State, i: c_int, out: *[2]keys.Mode) []keys.Mode {
+fn modesOf(L: *State, i: c_int, out: *[3]keys.Mode) []keys.Mode {
     if (lc.lua_type(L, i) == lh.ttable) {
         var n: usize = 0;
         const len = lc.luaL_len(L, i);
         var k: c_int = 1;
-        while (k <= len and n < 2) : (k += 1) {
+        while (k <= len and n < 3) : (k += 1) {
             _ = lc.lua_rawgeti(L, i, k);
             const s = lh.toString(L, -1) orelse "";
             if (keys.Mode.parse(s)) |m| {
                 out[n] = m;
                 n += 1;
-            } else lh.raise(L, "unknown mode '{s}' (n or v)", .{s});
+            } else lh.raise(L, "unknown mode '{s}' (n, v, or t)", .{s});
             lh.pop(L, 1);
         }
         return out[0..n];
     }
     const s = checkString(L, i);
-    out[0] = keys.Mode.parse(s) orelse lh.raise(L, "unknown mode '{s}' (n or v)", .{s});
+    out[0] = keys.Mode.parse(s) orelse lh.raise(L, "unknown mode '{s}' (n, v, or t)", .{s});
     return out[0..1];
 }
 
@@ -363,7 +363,7 @@ fn modesOf(L: *State, i: c_int, out: *[2]keys.Mode) []keys.Mode {
 fn fmMap(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
-    var mbuf: [2]keys.Mode = undefined;
+    var mbuf: [3]keys.Mode = undefined;
     const modes = modesOf(L, 1, &mbuf);
     const spec = checkString(L, 2);
     const desc = optString(L, 4) orelse "";
@@ -388,7 +388,7 @@ fn fmMap(Lq: ?*State) callconv(.c) c_int {
 fn fmUnmap(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
-    var mbuf: [2]keys.Mode = undefined;
+    var mbuf: [3]keys.Mode = undefined;
     const modes = modesOf(L, 1, &mbuf);
     const spec = checkString(L, 2);
     var any = false;

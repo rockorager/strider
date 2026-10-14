@@ -101,6 +101,8 @@ config_error: ?[]u8 = null,
 bookmarks: std.AutoArrayHashMapUnmanaged(u32, []u8) = .empty,
 /// Command lines entered, oldest first.
 history: std.ArrayList([]u8) = .empty,
+/// File operations that finished, newest first, for the tasks view.
+recent: std.ArrayList(Finished) = .empty,
 /// The status line's recent messages, oldest first (`:messages`).
 messages: std.ArrayList(Message) = .empty,
 /// What yy and dd took: paths, and whether pasting moves them.
@@ -122,6 +124,40 @@ file_manager1: ?*FileManager1 = null,
 drives_arena: std.heap.ArenaAllocator,
 
 const PendingOpen = struct { win: *Window, paths: [][]u8, ask: bool };
+
+/// A finished file operation, as the tasks view lists it.
+pub const Finished = struct {
+    title: []u8,
+    /// What came of it, as the status line said.
+    result: []u8,
+    failed: bool,
+    canceled: bool,
+};
+
+/// How many finished operations the tasks view keeps.
+pub const max_recent = 20;
+
+/// A row of the tasks view: running operations first, in the order they
+/// started, then finished ones, newest first.
+pub const Task = union(enum) { running: *OpEntry, finished: *const Finished };
+
+pub fn taskCount(self: *const App) usize {
+    return self.ops.items.len + self.recent.items.len;
+}
+
+pub fn taskAt(self: *const App, i: usize) ?Task {
+    if (i < self.ops.items.len) return .{ .running = self.ops.items[i] };
+    const k = i - self.ops.items.len;
+    if (k < self.recent.items.len) return .{ .finished = &self.recent.items[k] };
+    return null;
+}
+
+/// Takes a finished operation off the tasks view.
+pub fn removeRecent(self: *App, k: usize) void {
+    const f = self.recent.orderedRemove(k);
+    self.gpa.free(f.title);
+    self.gpa.free(f.result);
+}
 
 pub const Message = struct {
     /// Wall clock, in seconds since the epoch.
@@ -209,6 +245,11 @@ pub fn destroy(self: *App) void {
     self.history.deinit(gpa);
     for (self.messages.items) |m| gpa.free(m.text);
     self.messages.deinit(gpa);
+    for (self.recent.items) |f| {
+        gpa.free(f.title);
+        gpa.free(f.result);
+    }
+    self.recent.deinit(gpa);
     freePathList(gpa, &self.register);
     if (self.config_error) |e| gpa.free(e);
     if (self.mime_db) |db| {
@@ -850,7 +891,10 @@ fn onOpsTimer(ud: ?*anyopaque) callconv(.c) void {
 }
 
 pub fn updateOps(self: *App) void {
-    for (self.windows.items) |w| w.updateStatus();
+    for (self.windows.items) |w| {
+        w.updateStatus();
+        w.refreshTasks();
+    }
 }
 
 pub fn cancelOps(self: *App) void {
@@ -864,6 +908,7 @@ fn opFinished(self: *App, e: *OpEntry) void {
     };
     e.app = null;
     const op = e.op;
+    self.recordFinished(op);
     if (e.undoable and !(if (op.result) |err| err == error.Canceled else false)) self.undo.pushOp(op);
     // A cut is pasted once.
     if (op.kind == .move and self.register_cut) self.setRegister(&.{}, false);
@@ -873,6 +918,24 @@ fn opFinished(self: *App, e: *OpEntry) void {
     // Folders the operation touched read again now (inotify would, a
     // moment later, and not at all without it).
     self.reloadAffected(op);
+}
+
+fn recordFinished(self: *App, op: *const fsops.Op) void {
+    const gpa = self.gpa;
+    var tbuf: [512]u8 = undefined;
+    var sbuf: [512]u8 = undefined;
+    const msg, const failed = op.summary(&sbuf);
+    const canceled = if (op.result) |err| err == error.Canceled else false;
+    const title = gpa.dupe(u8, op.title(&tbuf)) catch return;
+    const result = gpa.dupe(u8, if (msg.len != 0) msg else "Done") catch {
+        gpa.free(title);
+        return;
+    };
+    if (self.recent.items.len >= max_recent) self.removeRecent(self.recent.items.len - 1);
+    self.recent.insert(gpa, 0, .{ .title = title, .result = result, .failed = failed, .canceled = canceled }) catch {
+        gpa.free(title);
+        gpa.free(result);
+    };
 }
 
 fn reloadAffected(self: *App, op: *const fsops.Op) void {

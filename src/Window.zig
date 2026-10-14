@@ -120,6 +120,10 @@ message: std.ArrayList(u8) = .empty,
 message_error: bool = false,
 
 whichkey_timer: siv.Timer = .null,
+/// The tasks view (w): file operations running and done; open in mode
+/// tasks, with this row selected.
+tasks: Node = .null,
+task_cursor: usize = 0,
 last_input: u64 = 0,
 /// cd's look at a path on a worker, and which cd is the newest.
 probing: ?*Probe = null,
@@ -341,6 +345,19 @@ fn build(self: *Window) !void {
     _ = c.siv_set_visual(txn, self.whichkey, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
     _ = c.siv_set_semantics(txn, self.whichkey, &.{ .role = .group, .label = "Keys", .label_len = 4 });
     _ = c.siv_set_hidden(txn, self.whichkey, true);
+
+    // The tasks view, over the middle of the columns.
+    self.tasks = c.siv_flex(txn, self.root, &.{ .axis = .column, .gap = 6 });
+    _ = c.siv_set_layout(txn, self.tasks, &.{
+        .align_x = .center,
+        .align_y = .center,
+        .width = ui.fill(),
+        .max_width = 720,
+        .padding = .{ .start = 16, .end = 16, .top = 12, .bottom = 12 },
+    });
+    _ = c.siv_set_visual(txn, self.tasks, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
+    _ = c.siv_set_semantics(txn, self.tasks, &.{ .role = .list, .label = "Tasks", .label_len = 5 });
+    _ = c.siv_set_hidden(txn, self.tasks, true);
     try siv.txnCommit(txn);
 }
 
@@ -642,7 +659,11 @@ fn applyStatus(self: *Window, txn: Txn) void {
     const d = self.curDir();
     const app = self.app;
     // The mode badge.
-    const mode_text: []const u8 = if (self.mode == .visual) "VISUAL" else if (self.prompt != null) "" else "";
+    const mode_text: []const u8 = switch (self.mode) {
+        .visual => "VISUAL",
+        .tasks => "TASKS",
+        .normal => "",
+    };
     _ = c.siv_set_text(txn, self.status_mode, mode_text.ptr, mode_text.len);
     _ = c.siv_set_hidden(txn, self.status_mode, mode_text.len == 0);
     // Left: a message, the question being asked, or the entry's details.
@@ -651,6 +672,17 @@ fn applyStatus(self: *Window, txn: Txn) void {
     var left_token: siv.ColorToken = .muted_fg;
     if (self.await_key != .none) {
         left = self.questionText(&lbuf);
+        left_token = .window_fg;
+    } else if (self.mode == .tasks and self.message.items.len == 0) {
+        // The selected task, for screen readers (the status line is a
+        // live region) and at a glance.
+        if (app.taskAt(self.task_cursor)) |t| {
+            var tb: [512]u8 = undefined;
+            left = switch (t) {
+                .running => |e| std.fmt.bufPrint(&lbuf, "{s}: {s}", .{ e.op.title(&tb), taskState(e) }) catch "",
+                .finished => |f| std.fmt.bufPrint(&lbuf, "{s}: {s}", .{ f.title, f.result }) catch "",
+            };
+        } else left = "No file operations yet";
         left_token = .window_fg;
     } else if (self.message.items.len != 0) {
         left = self.message.items;
@@ -689,7 +721,9 @@ fn applyStatus(self: *Window, txn: Txn) void {
         const done = op.done_bytes.load(.monotonic);
         const verb = fsops.doing(op.kind);
         const items = op.total_items.load(.monotonic);
-        if (op.asking.load(.acquire)) {
+        if (op.isPaused()) {
+            w.print("{s}: paused   ", .{verb}) catch {};
+        } else if (op.asking.load(.acquire)) {
             w.print("{s}: waiting   ", .{verb}) catch {};
         } else if (total > 0) {
             w.print("{s} {d}%   ", .{ verb, done * 100 / total }) catch {};
@@ -1224,6 +1258,128 @@ pub fn hideWhichKey(self: *Window) void {
     if (!self.isWhichKeyShown()) return;
     const txn = self.begin() orelse return;
     _ = c.siv_set_hidden(txn, self.whichkey, true);
+    _ = commit(txn);
+}
+
+// The tasks view ----------------------------------------------------------------------------
+
+pub fn openTasks(self: *Window) void {
+    self.endVisual();
+    self.resetPending();
+    self.mode = .tasks;
+    self.task_cursor = 0;
+    if (self.begin()) |txn| {
+        _ = c.siv_set_hidden(txn, self.tasks, false);
+        _ = commit(txn);
+    }
+    self.refreshTasks();
+    self.updateStatus();
+}
+
+pub fn closeTasks(self: *Window) void {
+    if (self.mode != .tasks) return;
+    self.mode = .normal;
+    if (self.begin()) |txn| {
+        _ = c.siv_set_hidden(txn, self.tasks, true);
+        ui.clear(txn, self.tasks);
+        _ = commit(txn);
+    }
+    self.updateStatus();
+}
+
+pub fn moveTaskCursor(self: *Window, delta: i32) void {
+    const n = self.app.taskCount();
+    if (n == 0) return;
+    const to = @as(i64, @intCast(self.task_cursor)) + delta;
+    self.task_cursor = @intCast(std.math.clamp(to, 0, @as(i64, @intCast(n - 1))));
+    self.refreshTasks();
+    self.updateStatus();
+}
+
+/// "45%", "Paused", "Counting…": where a running task is.
+fn taskState(e: *const App.OpEntry) []const u8 {
+    const S = struct {
+        threadlocal var buf: [32]u8 = undefined;
+    };
+    const op = e.op;
+    if (op.isPaused()) return "Paused";
+    if (e.asking) return "Waiting for an answer";
+    if (op.scanning.load(.acquire)) return "Counting…";
+    return std.fmt.bufPrint(&S.buf, "{d}%", .{taskPercent(op)}) catch "";
+}
+
+fn taskPercent(op: *const fsops.Op) u64 {
+    const total = op.total_bytes.load(.monotonic);
+    if (total > 0) return @min(100, op.done_bytes.load(.monotonic) * 100 / total);
+    const items = op.total_items.load(.monotonic);
+    if (items > 0) return @min(100, @as(u64, op.done_items.load(.monotonic)) * 100 / items);
+    return 0;
+}
+
+/// Builds the tasks view's rows again (while it is open): each running
+/// task's title, state, progress, and current file; each finished one's
+/// title and what came of it.
+pub fn refreshTasks(self: *Window) void {
+    if (self.mode != .tasks) return;
+    const app = self.app;
+    const n = app.taskCount();
+    if (self.task_cursor >= n) self.task_cursor = n -| 1;
+    const txn = self.begin() orelse return;
+    ui.clear(txn, self.tasks);
+    const head = c.siv_text(txn, self.tasks, "Tasks", 5);
+    _ = c.siv_set_text_style(txn, head, &.{ .color_token = .card_fg, .size_role = .heading, .weight = .bold });
+    _ = c.siv_set_semantics(txn, head, &.{ .role = .heading, .level = 2 });
+    if (n == 0) _ = ui.text(txn, self.tasks, "No file operations yet: copies, moves, and deletes show here.", .muted_fg, .body);
+    for (0..n) |i| {
+        const t = app.taskAt(i).?;
+        const selected = i == self.task_cursor;
+        var tb: [512]u8 = undefined;
+        const title = switch (t) {
+            .running => |e| e.op.title(&tb),
+            .finished => |f| f.title,
+        };
+        const row = c.siv_flex(txn, self.tasks, &.{ .axis = .column, .gap = 4 });
+        _ = c.siv_set_layout(txn, row, &.{ .width = ui.fill(), .padding = .{ .start = 10, .end = 10, .top = 6, .bottom = 6 } });
+        _ = c.siv_set_visual(txn, row, &.{ .background_token = if (selected) .selection_bg else .none, .radius = .{ .top_start = 6, .top_end = 6, .bottom_start = 6, .bottom_end = 6 } });
+        _ = c.siv_set_semantics(txn, row, &.{ .role = .list_item, .label = title.ptr, .label_len = title.len, .selected = if (selected) .on else .off, .position = @intCast(i + 1), .set_size = @intCast(n) });
+        const line = c.siv_flex(txn, row, &.{ .axis = .row, .gap = 12, .align_items = .center });
+        _ = c.siv_set_layout(txn, line, &.{ .width = ui.fill() });
+        const tt = c.siv_text(txn, line, title.ptr, title.len);
+        _ = c.siv_set_layout(txn, tt, &.{ .grow = 1, .basis = px(0) });
+        _ = c.siv_set_text_style(txn, tt, &.{ .color_token = if (selected) .selection_fg else .card_fg, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        switch (t) {
+            .running => |e| {
+                const st = taskState(e);
+                const sn = ui.text(txn, line, st, if (e.op.isPaused()) .warning else .accent, .caption);
+                _ = c.siv_set_layout(txn, sn, &.{ .flags = .{ .no_shrink = true } });
+                const bar = c.siv_progress_bar(txn, row, &.{ .label = title.ptr, .label_len = title.len, .min = 0, .max = 100, .value = @floatFromInt(taskPercent(e.op)) });
+                _ = c.siv_set_layout(txn, bar, &.{ .width = ui.fill() });
+                var db: [512]u8 = undefined;
+                var w: std.Io.Writer = .fixed(&db);
+                var b1: [32]u8 = undefined;
+                var b2: [32]u8 = undefined;
+                const total = e.op.total_bytes.load(.monotonic);
+                if (total > 0) w.print("{s} of {s}   ", .{ model.formatSize(&b1, e.op.done_bytes.load(.monotonic)), model.formatSize(&b2, total) }) catch {};
+                const items = e.op.total_items.load(.monotonic);
+                if (items > 0) w.print("{d} of {d} items   ", .{ e.op.done_items.load(.monotonic), items }) catch {};
+                var cb: [256]u8 = undefined;
+                w.writeAll(e.op.currentName(&cb)) catch {};
+                const detail = w.buffered();
+                const dn = c.siv_text(txn, row, detail.ptr, detail.len);
+                _ = c.siv_set_text_style(txn, dn, &.{ .color_token = if (selected) .selection_fg else .muted_fg, .size_role = .caption, .flags = .{ .no_wrap = true, .ellipsize = true } });
+            },
+            .finished => |f| {
+                const label: []const u8 = if (f.failed) "Failed" else if (f.canceled) "Canceled" else "Done";
+                const sn = ui.text(txn, line, label, if (f.failed) .destructive else .muted_fg, .caption);
+                _ = c.siv_set_layout(txn, sn, &.{ .flags = .{ .no_shrink = true } });
+                const dn = c.siv_text(txn, row, f.result.ptr, f.result.len);
+                _ = c.siv_set_text_style(txn, dn, &.{ .color_token = if (f.failed) .destructive else if (selected) .selection_fg else .muted_fg, .size_role = .caption, .flags = .{ .no_wrap = true, .ellipsize = true } });
+            },
+        }
+    }
+    const hint = "j k move   p pause or resume   x cancel, or remove a finished task   Esc close";
+    const hn = ui.text(txn, self.tasks, hint, .muted_fg, .caption);
+    _ = c.siv_set_layout(txn, hn, &.{ .padding = .{ .top = 4 } });
     _ = commit(txn);
 }
 
