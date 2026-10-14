@@ -1389,6 +1389,60 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
 }
 
+test "terminals in folders: S, :terminal, o on a folder, and the menus, with a token" {
+    var f: Fixture = .{};
+    try fixture(&f, "terminal");
+    defer f.remove();
+    // A terminal that records where it started, the activation token it
+    // was given, and its arguments.
+    try f.add(.{ .name = "bin", .dir = true });
+    try f.add(.{ .name = "bin/fake-term", .mode = 0o755 });
+    try f.writeFile("bin/fake-term", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; printf 'token=%s\\n' \"$XDG_ACTIVATION_TOKEN\"; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
+    var saved: [4096]u8 = undefined;
+    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    var nb: [4096]u8 = undefined;
+    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    defer _ = setenv("PATH", saved_path.ptr, 1);
+    // $TERMINAL as many set it, with the flag it takes before a command,
+    // which a terminal by itself leaves out.
+    _ = setenv("TERMINAL", "fake-term --title x -e", 1);
+    defer _ = unsetenv("TERMINAL");
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    var rb: [2048]u8 = undefined;
+    var eb: [2048]u8 = undefined;
+    // S: in the folder shown, with a token so that it takes focus.
+    try h.typeText("S");
+    const out = try recorded(&h, &f, &rb);
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{s}/work\n", .{f.path}), out[0 .. std.mem.indexOfScalar(u8, out, '\n').? + 1]);
+    try testing.expect(std.mem.indexOf(u8, out, "\ntoken=headless-token-") != null);
+    try testing.expect(std.mem.endsWith(u8, out, "\n--title\nx\n"));
+    // :terminal with a folder, relative to this one.
+    try h.typeText(":terminal docs\n");
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/docs\n", .{f.path})));
+    // o on a folder: the terminal comes first, as 1.
+    try h.typeText("fsr");
+    try testing.expectEqualStrings("src", h.hovered());
+    try h.typeText("o");
+    try testing.expect(menuHas(&h, "Terminal"));
+    try h.typeText("1");
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/src\n", .{f.path})));
+    try testing.expectEqualStrings("work", model.basename(h.dir().path));
+    // The right-click menus: on a folder, in it; on empty space, here.
+    try rightClick(&h, h.window(), try h.expect(.list_item, "docs"));
+    try choose(&h, "Open terminal here");
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/docs\n", .{f.path})));
+    const files = try h.expect(.list, "Files");
+    var below = files;
+    below.bounds.y = files.bounds.y + files.bounds.height - 40;
+    below.bounds.height = 20;
+    try rightClick(&h, h.window(), below);
+    try choose(&h, "Open terminal here");
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work\n", .{f.path})));
+}
+
 /// Whether keyboard focus is in the current column.
 fn inCurrent(h: *Harness) bool {
     const focused = h.find(h.window(), .{ .flags = .{ .focused = true } }) orelse return false;

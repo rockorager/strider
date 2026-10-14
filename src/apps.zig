@@ -465,6 +465,29 @@ fn terminal(arena: Allocator, out: *std.ArrayList([]const u8)) !void {
     try out.appendSlice(arena, &.{ "xterm", "-e" });
 }
 
+/// The user's terminal by itself, to open in a folder: the `terminal`
+/// option ("foot", "kitty --"), else $TERMINAL, else xdg-terminal-exec,
+/// else the first common terminal on $PATH, each without the flag it
+/// takes before a command. Copied into `arena`.
+pub fn terminalAlone(arena: Allocator, option: []const u8) ![]const []const u8 {
+    const S = struct {
+        extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
+    };
+    var out: std.ArrayList([]const u8) = .empty;
+    const given: []const u8 = if (option.len != 0) option else if (S.getenv("TERMINAL")) |t| std.mem.span(t) else "";
+    if (given.len != 0) {
+        for (try splitExec(arena, given)) |x| {
+            // What follows is the command it would run.
+            if (std.mem.eql(u8, x, "--") or std.mem.eql(u8, x, "-e") or std.mem.eql(u8, x, "-x") or std.mem.eql(u8, x, "start")) break;
+            try out.append(arena, try arena.dupe(u8, x));
+        }
+        if (out.items.len != 0) return out.items;
+    }
+    if (onPath("xdg-terminal-exec")) return arena.dupe([]const u8, &.{"xdg-terminal-exec"});
+    for (known_terminals) |k| if (onPath(k[0])) return arena.dupe([]const u8, &.{k[0]});
+    return arena.dupe([]const u8, &.{"xterm"});
+}
+
 pub fn onPath(prog: []const u8) bool {
     const S = struct {
         extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;

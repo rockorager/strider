@@ -99,7 +99,7 @@ pub const list = [_]Command{
     .{ .name = "chown", .desc = "Owner: chown [-R] user, user:group, :group", .run = chown },
     .{ .name = "shell", .desc = "Run a shell command (-t in a terminal)", .run = shell, .complete = .path },
     .{ .name = "shell-prompt", .desc = "Type a shell command", .run = shellPrompt },
-    .{ .name = "terminal", .desc = "A terminal in this folder", .run = terminal },
+    .{ .name = "terminal", .desc = "A terminal in this folder", .run = terminal, .complete = .dir },
     .{ .name = "reload", .desc = "Read the folders again", .run = reload },
     .{ .name = "toggle-hidden", .desc = "Show or hide hidden files", .run = toggleHidden },
     .{ .name = "toggle-preview", .desc = "Show or hide the preview", .run = togglePreview },
@@ -844,19 +844,13 @@ pub fn terminalCommand(app: *App) TermCmd {
     return .{ .arena = arena, .items = &.{ "xterm", "-e" } };
 }
 
+/// :terminal [folder]: the user's terminal in the folder shown (or
+/// that one), taking focus.
 fn terminal(ctx: Ctx) void {
     const win = ctx.win;
-    const term = terminalCommand(win.app);
-    defer term.deinit();
-    // The terminal alone, without its "run this" option.
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(win.gpa);
-    for (term.items) |t| {
-        if (std.mem.eql(u8, t, "--") or std.mem.eql(u8, t, "-e") or std.mem.eql(u8, t, "start")) break;
-        argv.append(win.gpa, t) catch return;
-    }
-    if (argv.items.len == 0) return;
-    apps.spawn(win.gpa, argv.items, win.curDir().path, "") catch win.notify("Could not start a terminal", true);
+    if (win.curDir().isTrash() and ctx.args.len == 0) return win.notify("No terminal in the trash", true);
+    var buf: [linux.PATH_MAX]u8 = undefined;
+    win.app.openTerminal(win, if (ctx.args.len != 0) win.expandPath(&buf, unquote(ctx.args)) else win.curDir().path);
 }
 
 // Bulk rename ------------------------------------------------------------------------------

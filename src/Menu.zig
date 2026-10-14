@@ -85,6 +85,8 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
                 list.appendSlice(a, &.{
                     .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
                     .{ .label = "Open in a new tab", .command = std.fmt.allocPrint(a, "tab-new {s}", .{paths[0]}) catch return },
+                    .{ .label = "Open terminal here", .command = std.fmt.allocPrint(a, "terminal {s}", .{paths[0]}) catch return, .icon = "utilities-terminal-symbolic" },
+                    .{ .label = "Open with…", .command = "open-with" },
                 }) catch return;
             } else list.appendSlice(a, &.{
                 .{ .label = "Open", .command = "open", .icon = "document-open-symbolic" },
@@ -131,7 +133,7 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
                 .{ .label = "Paste here", .command = "paste", .disabled = !paste_ok, .icon = "edit-paste-symbolic" },
                 .{ .label = "Select everything", .command = "mark-all", .icon = "edit-select-all-symbolic" },
                 sep,
-                .{ .label = "A terminal here", .command = "terminal", .icon = "utilities-terminal-symbolic" },
+                .{ .label = "Open terminal here", .command = "terminal", .icon = "utilities-terminal-symbolic" },
                 .{ .label = "Run a shell command…", .command = "shell-prompt" },
                 sep,
                 .{ .label = "Hidden files", .command = "toggle-hidden", .checked = app.options.show_hidden },

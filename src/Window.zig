@@ -19,6 +19,7 @@ pub const Menu = @import("Menu.zig");
 pub const Dialogs = @import("Dialogs.zig");
 const keys = @import("keys.zig");
 const model = @import("model.zig");
+const mime = @import("mime.zig");
 const fsops = @import("fsops.zig");
 const uri = @import("uri.zig");
 const ui = @import("ui.zig");
@@ -2221,22 +2222,26 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
     const db = self.app.apps_db orelse return self.notify("No applications found", true);
     const types = self.app.loadMimeDb() orelse return;
     const t = model.typeOfPath(types, paths[0]);
+    // A folder opens in a terminal first, then in what handles folders.
+    const folder = t == mime.directory;
     var list = db.appsFor(self.gpa, types, t) catch return;
-    if (list.len == 0) {
+    if (list.len == 0 and !folder) {
         self.gpa.free(list);
         list = db.allApps(self.gpa) catch return;
     }
     defer self.gpa.free(list);
-    if (list.len == 0) return self.notify("No applications found", true);
+    if (list.len == 0 and !folder) return self.notify("No applications found", true);
     const state = self.gpa.create(OpenWith) catch return;
-    state.* = .{ .win = self, .apps = self.gpa.dupe(*const @import("apps.zig").App, list) catch {
+    state.* = .{ .win = self, .terminal = folder, .apps = self.gpa.dupe(*const @import("apps.zig").App, list) catch {
         self.gpa.destroy(state);
         return;
     }, .paths = .empty };
     for (paths) |p| state.paths.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
     const txn = self.begin() orelse return state.free();
     const menu = c.siv_menu(txn, self.root, &.{ .label = "Open with", .label_len = 9 });
-    for (list, 0..) |app, i| {
+    const first: usize = @intFromBool(folder);
+    if (folder) _ = c.siv_menu_item(txn, menu, &.{ .label = "Terminal", .label_len = 8, .shortcut = "1", .shortcut_len = 1, .mnemonic = '1', .icon = "utilities-terminal", .icon_len = 18 });
+    for (list, first..) |app, i| {
         var sb: [8]u8 = undefined;
         const shortcut = if (i < 9) std.fmt.bufPrint(&sb, "{d}", .{i + 1}) catch "" else "";
         _ = c.siv_menu_item(txn, menu, &.{ .label = app.name.ptr, .label_len = app.name.len, .shortcut = shortcut.ptr, .shortcut_len = shortcut.len, .mnemonic = if (i < 9) @intCast('1' + i) else 0, .icon = app.icon.ptr, .icon_len = app.icon.len });
@@ -2249,6 +2254,8 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
 
 const OpenWith = struct {
     win: *Window,
+    /// Item 0 is the terminal (a folder).
+    terminal: bool = false,
     apps: []*const @import("apps.zig").App,
     paths: std.ArrayList([]u8),
 
@@ -2267,7 +2274,10 @@ const OpenWith = struct {
 
     fn onSelect(ud: ?*anyopaque, menu: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
         const s: *OpenWith = @ptrCast(@alignCast(ud.?));
-        if (ev.index < s.apps.len) s.win.app.launch(s.win, s.apps[ev.index], @ptrCast(s.paths.items));
+        const first: usize = @intFromBool(s.terminal);
+        if (s.terminal and ev.index == 0) {
+            if (s.paths.items.len != 0) s.win.app.openTerminal(s.win, s.paths.items[0]);
+        } else if (ev.index >= first and ev.index - first < s.apps.len) s.win.app.launch(s.win, s.apps[ev.index - first], @ptrCast(s.paths.items));
         // The menu is done with.
         if (s.win.begin()) |txn| {
             _ = c.siv_remove(txn, menu);

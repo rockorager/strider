@@ -600,6 +600,29 @@ pub fn launch(self: *App, win: *Window, app: *const apps.App, paths: []const []c
     _ = c.siv_window_request_activation_token(win.window, Launch.tokenReady, Launch.free, l);
 }
 
+/// Starts `argv` in `cwd`, with an activation token from the window so
+/// that it may take focus; `name` is for the error message.
+pub fn launchArgv(self: *App, win: *Window, argv: []const []const u8, cwd: []const u8, name: []const u8) void {
+    if (argv.len == 0) return;
+    const l = self.gpa.create(Launch) catch return;
+    l.* = .{ .app = self, .arena = .init(self.gpa), .lines = &.{}, .cwd = "", .name = "" };
+    const a = l.arena.allocator();
+    const copy = a.alloc([]const u8, argv.len) catch return Launch.free(l);
+    for (argv, copy) |x, *y| y.* = a.dupe(u8, x) catch return Launch.free(l);
+    l.lines = a.dupe([]const []const u8, &.{copy}) catch return Launch.free(l);
+    l.cwd = a.dupe(u8, cwd) catch return Launch.free(l);
+    l.name = a.dupe(u8, name) catch "";
+    _ = c.siv_window_request_activation_token(win.window, Launch.tokenReady, Launch.free, l);
+}
+
+/// The user's terminal, in `folder`.
+pub fn openTerminal(self: *App, win: *Window, folder: []const u8) void {
+    var arena: std.heap.ArenaAllocator = .init(self.gpa);
+    defer arena.deinit();
+    const argv = apps.terminalAlone(arena.allocator(), self.options.terminal) catch return;
+    self.launchArgv(win, argv, folder, "a terminal");
+}
+
 // Drives ----------------------------------------------------------------------------------
 
 /// Drives from the mount table: what is mounted where users mount things.
