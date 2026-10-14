@@ -75,34 +75,31 @@ what this project does about it, and its status:
    `:messages` lists the last 200, newest first. The status line is a
    polite live region, so screen readers announce each one.
 
-## Decide
+9. **Column widths** (decided: as they are). The parent column widens
+   to its longest name up to a quarter of the window (`fit_parent`),
+   taking the room from the preview, never the current column; under
+   640 logical pixels (`narrow_width`) the parent column hides, and
+   under two thirds of that the preview too. ranger instead keeps every
+   column and truncates; yazi keeps its fixed ratio.
 
-These are defaults this project chose; each works now, and each is one
-line to change.
+10. **The filter stays on `zf`** (decided: it matches ranger). yazi
+    filters with `f`, but `f` is ranger's find here (item 7); `zf` is
+    free of conflicts, and the filter and `/` search stay separate. A
+    filter stays on its folder until Esc (the status line says so), as
+    ranger's does.
 
-9. **Column widths.** The parent column widens to its longest name up to
-   a quarter of the window (`fit_parent`), taking the room from the
-   preview, never the current column; under 640 logical pixels
-   (`narrow_width`) the parent column hides, and under two thirds of
-   that the preview too. ranger instead keeps every column and
-   truncates; yazi keeps its fixed ratio.
+11. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`**
+    (decided). Undo reverses what moved, not attributes; reversing them
+    would mean recording every file's old mode and owner first.
 
-10. **The filter stays on `zf`.** yazi filters with `f`, but `f` is
-   ranger's find here (item 7); `zf` is free of conflicts, and the
-   filter and `/` search stay separate. A filter stays on its folder
-   until Esc (the status line says so), as ranger's does.
-
-11. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`.**
-    Undo reverses what moved, not attributes; reversing them would mean
-    recording every file's old mode and owner first.
-
-12. **The tasks view is `w`, as in ranger,** and an overlay rather than a
-    column: it lists running operations, then the last 20 finished ones
-    (kept in memory, not across restarts). Pausing stops an operation at
+12. **The tasks view is `w`, as in ranger** (decided), and an overlay
+    rather than a column: it lists running operations, then the last 20
+    finished ones (kept in memory, not across restarts). Pausing stops an operation at
     its next file or 4 MiB chunk; a copy paused mid-file keeps its
     partial target until it resumes or is cancelled (which removes it).
 
-13. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used.** yazi
+13. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used** (decided:
+    they fit the `z` toggle prefix). yazi
     binds `z` and `Z`, but `z` is the prefix for toggles here (`zh`,
     `zf`, `zp`); `g` is "go" (`gh`, `gd`). The built-in finder walks
     100 000 entries in about 50 ms and scores a keystroke in a few
@@ -111,16 +108,19 @@ line to change.
     same way without the live list), so it would not clearly help.
     `.gitignore` is not read; hidden entries follow `zh`.
 
-## Noted
+14. **Image previews read on siv's workers, outside the app's limit**
+    (decided: fine, since superseded loads are cancelled). siv decodes
+    images (`siv_image_load`) on its own threads, so the two-job limit
+    on previews covers text, archives, renderers, and previewers but not
+    images. Moving the cursor cancels the image load in flight
+    (`siv_image_request_cancel` in `Preview.cancel`, which every new
+    preview goes through), so only a decode already blocked in a read
+    on a hung mount keeps one of siv's threads until the mount answers.
+    Folder reads use siv's blocking lane (8 threads): previewing many
+    folders on a hung mount can fill it. Neither has happened in
+    testing; a per-application lane in siv would close both.
 
-14. **Image previews read on siv's workers, outside the app's limit.**
-  siv decodes images (`siv_image_load`) on its own threads, so the
-  two-job limit on previews covers text, archives, renderers, and
-  previewers but not images; an image on a hung mount holds one of
-  siv's decode threads until the mount answers. Folder reads use siv's
-  blocking lane (8 threads): previewing many folders on a hung mount can
-  fill it. Neither has happened in testing; a per-application lane in
-  siv would close both.
+## Noted
 
 15. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
    a git submodule (`deps/siv`) and a path dependency; clone with
