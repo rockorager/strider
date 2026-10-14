@@ -55,7 +55,7 @@ comes with pacman.) siv is a private repository pinned as a git
 submodule, so clone with your GitHub credentials and the submodule:
 
 ```sh
-git clone --recurse-submodules https://ampcode.com/@rockorager/siv-columns strider
+git clone --recurse-submodules https://ampcode.com/@rockorager/strider
 cd strider
 zig build run                         # try it from zig-out
 zig build install --prefix ~/.local   # install for yourself
