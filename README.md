@@ -99,7 +99,7 @@ tenth entry.
 | `Space`, `v`, `Ctrl+a`, `Esc` | mark and move down, visual selection, mark all, cancel and unmark |
 | `yy` `dd` `p` `P` | copy, cut, paste, paste replacing |
 | `yp` `yn` `yd` | copy the paths, the names, the folder's path |
-| `dT` `Del`, `dD` `Shift+Del`, `u` | move to the trash, delete permanently (a dialog asks), undo |
+| `D` `dT` `Del`, `dD` `Shift+Del`, `u` | move to the trash, delete permanently (a dialog asks), undo |
 | `r` `A` `I`, `R` | rename (the name without its extension selected, at the end, at the start), bulk rename in `$EDITOR` |
 | `a` | new file, or folder with a trailing `/` (`a/b/c/` makes them all) |
 | `zh`, `zp`, `zi` | hidden files, the preview, icons |
@@ -122,7 +122,12 @@ tenth entry.
 | `q`, `ZZ` | close the tab (the window with the last), quit |
 
 What commands act on: the visual range, else the marked entries, else the
-entry under the cursor. Copies and cuts go to the clipboard too (as GNOME
+entry under the cursor. In visual mode operators act on the range at once
+and leave visual mode, as in vim: `y` copies, `d` and `x` cut, `D`, `X`,
+and `Del` move to the trash, `Shift+Del` deletes permanently (the range
+stays marked if you cancel), and `yy`, `dd`, `dT`, and `dD` still work.
+A key that is bound to nothing says so in the status line ("Q isn't
+bound in normal mode") instead of doing nothing silently. Copies and cuts go to the clipboard too (as GNOME
 and KDE file managers put them), and `p` pastes what other file managers
 copied. Files drag out of the current column, and drop into it or onto a
 folder's row.
@@ -174,8 +179,9 @@ marks, as in other file managers.
 
 Dialogs come up where a dialog beats the status line, and work from the
 keyboard: each button and check box has an underlined key that presses
-it (with Alt while typing in a field), Enter takes the default, Escape
-cancels.
+it (with Alt while typing in a field), Enter presses the focused button
+(Cancel when the dialog opens, so Enter alone destroys nothing; Tab
+moves to the others), Escape cancels.
 - Deleting permanently and emptying the trash, which cannot be undone.
 - A name already taken in an operation of several items or a folder:
   both files compared, replace, skip, keep both, or merge, and a check

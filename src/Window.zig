@@ -138,6 +138,9 @@ visual_anchor: u32 = 0,
 pending: [keys.max_keys]keys.Key = undefined,
 pending_len: usize = 0,
 count: ?u32 = null,
+/// A visual-mode y or d that just ran: the next key may finish the
+/// two-key form (yy, dd, dT, dD) on the same files.
+visual_op: u32 = 0,
 await_key: Await = .none,
 conflict: ?*App.OpEntry = null,
 /// What a delete confirmation will delete.
@@ -1590,6 +1593,7 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
         self.resetPending();
         return true;
     }
+    if (self.visualFollowup(k)) return true;
     // Counts.
     if (self.pending_len == 0 and k.isChar() and k.code >= '0' and k.code <= '9' and (k.code != '0' or self.count != null)) {
         const digit: u32 = k.code - '0';
@@ -1604,8 +1608,11 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
     if (match.exact) |b| if (!match.prefix) {
         const count = self.count;
         const action = b.action;
+        // A visual operator that takes the range into the register.
+        const op: u32 = if (self.mode == .visual and self.pending_len == 1 and (k.code == 'y' or k.code == 'd') and k.isChar()) k.code else 0;
         self.resetPending();
         self.run(action, count);
+        if (op != 0 and self.mode == .normal) self.visual_op = op;
         return true;
     };
     if (match.prefix) {
@@ -1613,10 +1620,39 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
         self.updateStatus();
         return true;
     }
-    // Nothing: the keys so far mean nothing together.
+    // Nothing: the keys so far mean nothing together. Say so for typed
+    // keys and sequences, so a key that does nothing is not silent; other
+    // keys (arrows, Ctrl+...) may still be the focused widget's.
     const was_pending = self.pending_len > 1;
+    if (was_pending or k.isChar()) {
+        var kb: [64]u8 = undefined;
+        var mb: [128]u8 = undefined;
+        const seq = keys.format(&kb, self.pending[0..self.pending_len]);
+        self.notify(std.fmt.bufPrint(&mb, "{s} isn't bound in {s} mode", .{ seq, @tagName(self.mode) }) catch "Not bound", false);
+    }
     self.resetPending();
     return was_pending or !(k.code == keys.sym.tab and @as(u8, @bitCast(k.mods)) == 0);
+}
+
+/// The second key of yy, dd, dT, or dD after visual y or d, which acted
+/// at once: the files are in the register, and nothing changed on disk
+/// yet, so dT and dD trash or delete them instead of the cut.
+fn visualFollowup(self: *Window, k: keys.Key) bool {
+    const op = self.visual_op;
+    self.visual_op = 0;
+    if (op == 0 or self.pending_len != 0 or self.count != null or !k.isChar()) return false;
+    if (k.code == op) return true;
+    if (op != 'd' or (k.code != 'T' and k.code != 'D')) return false;
+    const app = self.app;
+    if (app.register.items.len == 0 or !app.register_cut) return false;
+    const paths = app.gpa.alloc([]const u8, app.register.items.len) catch return true;
+    defer app.gpa.free(paths);
+    for (app.register.items, paths) |p, *q| q.* = p;
+    if (k.code == 'T') {
+        app.startOp(self, .trash, paths, "", &.{}, true);
+    } else self.confirmDelete(paths);
+    app.setRegister(&.{}, false);
+    return true;
 }
 
 fn resetPending(self: *Window) void {

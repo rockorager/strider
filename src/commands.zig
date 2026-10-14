@@ -454,6 +454,9 @@ fn delete(ctx: Ctx) void {
     defer App.freePaths(win.gpa, paths);
     if (paths.len == 0) return;
     win.confirmDelete(Window.toConst(paths));
+    // Out of visual mode, as every operator; the range stays marked, so
+    // cancelling the dialog loses nothing.
+    win.finishVisual(true);
 }
 fn restore(ctx: Ctx) void {
     const win = ctx.win;

@@ -85,18 +85,6 @@ pub const Fixture = struct {
         _ = linux.write(fd, data.ptr, data.len);
     }
 
-    pub fn readFile(f: *const Fixture, rel: []const u8, out: []u8) ![]const u8 {
-        var buf: [512]u8 = undefined;
-        const p = try std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0);
-        const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-        if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
-        const fd: i32 = @intCast(rc);
-        defer _ = linux.close(fd);
-        const n = linux.read(fd, out.ptr, out.len);
-        if (linux.errno(n) != .SUCCESS) return error.Unexpected;
-        return out[0..n];
-    }
-
     pub fn sub(f: *const Fixture, buf: []u8, rel: []const u8) []const u8 {
         return std.fmt.bufPrint(buf, "{s}/{s}", .{ f.path, rel }) catch unreachable;
     }

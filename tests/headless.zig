@@ -344,6 +344,100 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     try testing.expect(!f.exists("work/guide.md"));
 }
 
+test "visual operators act at once, as in vim; two-key forms still work; unbound keys say so" {
+    var f: Fixture = .{};
+    try fixture(&f, "visual-ops");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const w = h.win.?;
+    // vD: the range to the trash at once, out of visual mode; u restores.
+    try h.typeText("fba");
+    try h.typeText("vjD");
+    try testing.expectEqual(App.keys.Mode.normal, w.mode);
+    try testing.expect(!f.exists("work/backup.tar.gz") and !f.exists("work/build.zig"));
+    try testing.expect(f.exists(".local/share/Trash/files/backup.tar.gz") and f.exists(".local/share/Trash/files/build.zig"));
+    try h.typeText("u");
+    try testing.expect(f.exists("work/backup.tar.gz") and f.exists("work/build.zig"));
+    // vd cuts the range; p in docs moves it there.
+    try h.typeText("fba");
+    try h.typeText("vjd");
+    try testing.expectEqual(App.keys.Mode.normal, w.mode);
+    try testing.expect(h.app.?.register_cut and h.app.?.register.items.len == 2);
+    try h.typeText("ggjl");
+    try testing.expectEqualStrings("docs", model.basename(h.dir().path));
+    try h.typeText("p");
+    try testing.expect(f.exists("work/docs/backup.tar.gz") and f.exists("work/docs/build.zig"));
+    try testing.expect(!f.exists("work/build.zig"));
+    // vy copies; p in work pastes a copy.
+    try h.typeText("fgu");
+    try h.typeText("vy");
+    try testing.expect(!h.app.?.register_cut);
+    try h.typeText("hp");
+    try testing.expect(f.exists("work/guide.md") and f.exists("work/docs/guide.md"));
+    // vdd and vyy: the second key finishes the form, and is not the start
+    // of another.
+    try h.typeText("fph");
+    try h.typeText("vdd");
+    try testing.expectEqual(@as(usize, 0), w.pending_len);
+    try testing.expect(h.app.?.register_cut and h.app.?.register.items.len == 1);
+    try testing.expect(f.exists("work/photo.png"));
+    // vdT: the range to the trash, not cut.
+    try h.typeText("fgu");
+    try h.typeText("vdT");
+    try testing.expect(!f.exists("work/guide.md") and f.exists(".local/share/Trash/files/guide.md"));
+    try testing.expectEqual(@as(usize, 0), h.app.?.register.items.len);
+    // vdD: deleted permanently, through the dialog.
+    try h.typeText("fR");
+    try testing.expectEqualStrings("README.md", h.hovered());
+    try h.typeText("vdD");
+    try testing.expect(w.dialogs.isOpen() and w.dialogs.kind == .delete);
+    try h.typeText("d");
+    try testing.expect(!f.exists("work/README.md"));
+    // The Delete key, on the real key path: to the trash.
+    try h.typeText("fpd");
+    try testing.expectEqualStrings("report.pdf", h.hovered());
+    try h.key(.delete, .{}, "");
+    try testing.expect(!f.exists("work/report.pdf") and f.exists(".local/share/Trash/files/report.pdf"));
+    // Shift+Delete in visual mode: the dialog, out of visual mode with the
+    // range still marked, so cancelling loses nothing.
+    try h.typeText("fsh");
+    try h.typeText("v");
+    try h.key(.delete, .{ .shift = true }, "");
+    try testing.expect(w.dialogs.isOpen() and w.dialogs.kind == .delete);
+    try testing.expectEqual(App.keys.Mode.normal, w.mode);
+    try h.typeText("c");
+    try testing.expect(f.exists("work/run.sh"));
+    try testing.expectEqual(@as(u32, 1), h.dir().mark_count);
+    try h.typeText("\x1b");
+    // Enter in the dialog presses the focused button: Cancel when it opens
+    // (it did nothing at all before); Tab and Enter delete.
+    try h.typeText("dD");
+    try h.key(.@"return", .{}, "");
+    try testing.expect(!w.dialogs.isOpen());
+    try testing.expectEqualStrings("Not deleted", w.message.items);
+    try testing.expect(f.exists("work/run.sh"));
+    try h.typeText("dD");
+    try h.key(.tab, .{}, "");
+    try h.key(.@"return", .{}, "");
+    try testing.expect(!w.dialogs.isOpen() and !f.exists("work/run.sh"));
+    // D in normal mode trashes the entry under the cursor.
+    try h.typeText("fv");
+    try testing.expectEqualStrings("a-very-long-file-name-that-does-not-fit-in-its-column.txt", h.hovered());
+    try h.typeText("D");
+    try testing.expect(f.exists(".local/share/Trash/files/a-very-long-file-name-that-does-not-fit-in-its-column.txt"));
+    // A key that means nothing says so, in either mode, and so does a
+    // prefix that leads nowhere.
+    try h.typeText("Q");
+    try testing.expectEqualStrings("Q isn't bound in normal mode", w.message.items);
+    try h.typeText("vQ");
+    try testing.expectEqualStrings("Q isn't bound in visual mode", w.message.items);
+    try h.typeText("\x1b");
+    try h.typeText("gQ");
+    try testing.expectEqualStrings("gQ isn't bound in normal mode", w.message.items);
+}
+
 test "rename, create, and bulk rename in an editor" {
     var f: Fixture = .{};
     try fixture(&f, "rename");
@@ -461,7 +555,7 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
     try testing.expectEqualStrings("docs", model.basename(h.dir().path));
     try h.typeText("m:");
     var rb: [1024]u8 = undefined;
-    const saved = try f.readFile(".local/state/strider/bookmarks", &rb);
+    const saved = try readFile(&f, ".local/state/strider/bookmarks", &rb);
     try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "::{0s}/work/docs\né:{0s}/work/docs\n", .{f.path}), saved);
     // A bookmark command's argument is one whole key; anything else is an
     // error, not a read past its end.

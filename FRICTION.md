@@ -360,6 +360,31 @@ what this project does about it, and its status:
       takes a path; borrowed: a name with slashes saves in that folder
       if it exists.
 
+35. **Visual operators and keys that do nothing** (chosen here, after
+    the user's `vD` did nothing). Visual mode had `y` and `d` only, and an
+    unbound key returned silently.
+    - Visual `y`, `d`, `x`, `D`, `X`, `Del`, and `Shift+Del` act on the
+      range at once and leave visual mode, as in vim. Vim's `D` and `X`
+      delete lines into the register; here they trash, since `d` and `x`
+      already fill the register, and ranger has no single-key trash to
+      conflict with. `yy`, `dd`, `dT`, and `dD` still work: the second key,
+      right after visual `y` or `d`, finishes the form on the files the
+      first put in the register (a cut changes nothing on disk, so `dT`
+      and `dD` trash or delete them instead).
+    - `D` in normal mode trashes too (it was free; vim's is "delete to the
+      end of the line", which has no file meaning). The context menu now
+      teaches `D` for "Move to the trash".
+    - A typed key or a sequence bound to nothing says so in the status
+      line. Other unbound keys (arrows, Ctrl+...) stay silent: the focused
+      widget may still take them.
+    - The delete dialog did nothing on Enter: siv focuses a dialog's card,
+      and destructive dialogs had no default. Every dialog of buttons now
+      focuses Cancel when it opens, as GTK does, so Enter cancels visibly
+      and Tab then Enter (or the button's key) acts. Checked on headless
+      sway with wtype: Delete, `vjD`, marks then `D`, `dT`, Shift+Delete
+      with Enter and with Tab then Enter, and `vdD`, with the columns
+      following each change.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design

@@ -318,8 +318,14 @@ pub const default_bindings = [_]struct { keys.Mode, []const u8, []const u8, []co
     .{ .normal, "yp", "yank-path", "Copy the path" },
     .{ .normal, "yn", "yank-name", "Copy the name" },
     .{ .normal, "yd", "yank-dir", "Copy the folder's path" },
+    // Operators act on the range at once and leave visual mode, as in vim;
+    // yy, dd, dT, and dD still work (the window finishes them).
     .{ .visual, "y", "yank", "Copy" },
     .{ .visual, "d", "cut", "Cut" },
+    .{ .visual, "x", "cut", "Cut" },
+    .{ .visual, "D", "trash", "Move to the trash" },
+    .{ .visual, "X", "trash", "Move to the trash" },
+    .{ .normal, "D", "trash", "Move to the trash" },
     .{ .normal, "dT", "trash", "Move to the trash" },
     .{ .normal, "dD", "delete", "Delete permanently" },
     .{ .normal, "dr", "restore", "Restore from the trash" },
