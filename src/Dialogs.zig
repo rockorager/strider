@@ -273,7 +273,7 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
     for (who, 0..) |w_, r| {
         const row = c.siv_flex(txn, d.content(), &.{ .axis = .row, .gap = 14, .align_items = .center });
         const l = line(txn, row, w_, .card_fg);
-        _ = c.siv_set_layout(txn, l, &.{ .width = ui.px(70) });
+        _ = c.siv_set_layout(txn, l, &.{ .width = ui.px(80) });
         for (what, 0..) |x, k| {
             const bit: u32 = @as(u32, 0o400) >> @intCast(r * 3 + k);
             var nb: [32]u8 = undefined;
@@ -290,7 +290,7 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
     d.owner0_len = owner.len;
     const orow = c.siv_flex(txn, d.content(), &.{ .axis = .row, .gap = 10, .align_items = .center });
     const ol = line(txn, orow, "Owned by", .card_fg);
-    _ = c.siv_set_layout(txn, ol, &.{ .width = ui.px(70) });
+    _ = c.siv_set_layout(txn, ol, &.{ .width = ui.px(80) });
     d.owner_field = c.siv_editor(txn, orow, .{});
     _ = c.siv_set_text(txn, d.owner_field, owner.ptr, owner.len);
     _ = c.siv_set_layout(txn, d.owner_field, &.{ .width = ui.px(200), .padding = .{ .start = 6, .end = 6, .top = 3, .bottom = 3 } });
