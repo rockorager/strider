@@ -94,9 +94,10 @@ what this project does about it, and its status:
 
 12. **The tasks view is `w`, as in ranger** (decided), and an overlay
     rather than a column: it lists running operations, then the last 20
-    finished ones (kept in memory, not across restarts). Pausing stops an operation at
-    its next file or 4 MiB chunk; a copy paused mid-file keeps its
-    partial target until it resumes or is cancelled (which removes it).
+    finished ones (kept in memory, not across restarts). Pausing stops
+    an operation at its next file or 4 MiB chunk; a copy paused mid-file
+    keeps its partial target until it resumes or is cancelled (which
+    removes it).
 
 13. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used** (decided:
     they fit the `z` toggle prefix). yazi
