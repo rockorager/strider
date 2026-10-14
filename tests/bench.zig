@@ -129,6 +129,10 @@ const Run = struct {
     win: *App.Window = undefined,
 
     fn start(r: *Run, folder: []const u8, home: []const u8, height: u32) !void {
+        return r.startWith(folder, home, height, null);
+    }
+
+    fn startWith(r: *Run, folder: []const u8, home: []const u8, height: u32, config: ?[]const u8) !void {
         try siv.check(c.siv_app_create(&.{ .backend = .headless, .flags = .{ .reduced_motion = true } }, &r.sapp));
         r.app = try App.create(r.sapp, .{
             .gpa = std.heap.c_allocator,
@@ -142,6 +146,7 @@ const Run = struct {
             .mount_table = false,
             .icon_dir = "icons",
             .window_height = height,
+            .config_file = config,
         });
         r.app.options.which_key_delay = 0;
         r.win = try r.app.newWindow(folder);
@@ -214,6 +219,21 @@ pub fn main() !void {
         const t_idle = now();
         while (now() - t_idle < 2 * std.time.ns_per_s) try siv.check(c.siv_app_dispatch(r.sapp, 2000));
         report("idle for 2 s: {d} context switches over all threads (the bench's own 2 s timeout is one)", .{switches() - sw0});
+        r.stop();
+    }
+
+    // The same with the example configuration (data/init.lua): a Lua
+    // state, keymaps, commands, and a previewer.
+    {
+        var r: Run = .{};
+        const t0 = now();
+        try r.startWith(small, base, 720, "data/init.lua");
+        while (r.win.rows_frame_ns == 0) {
+            try siv.check(c.siv_app_dispatch(r.sapp, 1));
+            if (now() - t0 > 10 * std.time.ns_per_s) return error.Timeout;
+        }
+        report("startup with data/init.lua: first frame with rows {d:.1} ms", .{ms(r.win.rows_frame_ns - t0)});
+        try r.settle();
         r.stop();
     }
 
