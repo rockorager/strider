@@ -76,7 +76,7 @@ tenth entry.
 | `Enter`, `o` | open with the default application (mimeapps.list), open with… |
 | `/` `?` `n` `N` | search forward and backward as you type, next, previous |
 | `f` | jump by typing part of a name |
-| `zf` | filter the folder |
+| `zf` | filter the folder as you type (Enter keeps it, Esc drops it) |
 | `Space`, `v`, `Ctrl+a`, `Esc` | mark and move down, visual selection, mark all, cancel and unmark |
 | `yy` `dd` `p` `P` | copy, cut, paste, paste replacing |
 | `yp` `yn` `yd` | copy the paths, the names, the folder's path |
@@ -91,6 +91,7 @@ tenth entry.
 | `gv` | drives: open, mount (asks for LUKS passphrases), with `:unmount` and `:eject` |
 | `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
 | `!`, `S` | run a shell command on the selection, a terminal here |
+| `=` | change permissions (`:chmod`); `:chown` changes owners |
 | `J` `K` | scroll the preview |
 | `:` | the command line: Tab completes commands and paths, Up and Down recall history |
 | `q`, `ZZ` | close the tab (the window with the last), quit |
@@ -100,6 +101,17 @@ entry under the cursor. Copies and cuts go to the clipboard too (as GNOME
 and KDE file managers put them), and `p` pastes what other file managers
 copied. Files drag out of the current column, and drop into it or onto a
 folder's row.
+
+Filters (`zf`) and searches (`/`, `?`) are separate: a filter hides what
+does not match until Esc, a search moves the cursor among what is shown.
+Both use smart case: a word with a capital letter matches its case, and
+the filter wants every space-separated word.
+
+`:chmod` takes what chmod(1) takes: octal (`755`) or symbolic clauses
+(`u+x`, `go-w`, `a=rX`); `:chown` takes `user`, `user:group`, or
+`:group`, by name or number. `-R` goes into folders. Both run as file
+operations, with progress, and work on the visual range, the marked
+entries, or the entry under the cursor.
 
 A file operation that meets a name already taken asks in the status line:
 replace, skip, keep both, or merge folders, Shift for all of them.
@@ -158,12 +170,19 @@ app:timer_start(1000, function() fm.notify("a second later") end)
 command line), `notify`, and `siv_window`. Every option is also `:set
 name value` while running (`:set hidden!` toggles); `:map` and `:unmap`
 bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
-`dirs_first`, `ratio`, `icons`, `preview`, `preview_images`,
+`dirs_first` (on by default), `ratio`, `fit_parent`, `narrow_width`, `icons`, `preview`, `preview_images`,
 `preview_max_bytes`, `syntax`, `which_key_delay`, `scroll_off`,
 `wrap_scan`, `find_auto_accept`, `confirm_delete`, `show_size`,
 `terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms` (how
 old a folder that cannot be watched, such as the trash, may be before
 it is read again; watched folders follow changes on disk at once).
+
+Column widths start from `ratio`, the shares of the parent, current, and
+preview columns (ranger's `column_ratios`; 0 hides a column). With
+`fit_parent` (on) the parent column widens to show its longest name, up
+to a quarter of the window, taking the room from the preview. A window
+narrower than `narrow_width` (640 logical pixels) hides the parent
+column, and one narrower than two thirds of that the preview too.
 
 Bookmarks and the command history persist in
 `$XDG_STATE_HOME/siv-columns/`.
