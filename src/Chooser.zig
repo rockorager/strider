@@ -135,6 +135,10 @@ pub fn read(ch: *Chooser, r: bus.Reader) void {
     ch.app_id = bus.readString(r, al) orelse "";
     ch.parent_window = bus.readString(r, al) orelse "";
     ch.title = bus.readString(r, al) orelse "";
+    // Chromium sends its "All Files" filter label as the title of a save
+    // dialog it gave none (IDS_SAVEAS_ALL_FILES in
+    // select_file_dialog_linux_portal.cc); that is no title.
+    if (ch.kind == .save and std.mem.eql(u8, ch.title, "All Files")) ch.title = "";
     if (bus.next(r) != 'a' or !bus.enter(r)) return;
     defer bus.exit(r);
     while (bus.next(r) == '{') {

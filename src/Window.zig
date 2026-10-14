@@ -200,13 +200,17 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
     self.dialogs = Dialogs.init(self);
     const parent: []const u8 = if (chooser) |ch| ch.parent_window else "";
     const size = app.chooserSize();
+    // Hyprland opens a chooser (a floating dialog) at its least size, not
+    // the size it asks for: that least fits the columns and the bar, and a
+    // 1366x768 screen, unless `chooser_size` asks for less.
+    const least = [2]u32{ @min(800, app.options.chooser_size[0]), @min(500, app.options.chooser_size[1]) };
     self.window = try siv.windowCreate(app.app, .{
         .title = if (chooser) |ch| ch.windowTitle() else "Columns",
         .app_id = if (chooser != null) App.chooser_app_id else App.app_id,
         .width = if (chooser != null) size[0] else app.opts.window_width,
         .height = if (chooser != null) size[1] else app.opts.window_height,
-        .min_width = 360,
-        .min_height = 240,
+        .min_width = if (chooser != null) least[0] else 360,
+        .min_height = if (chooser != null) least[1] else 240,
         .user_data = self,
         .on_event = onWindowEvent,
         .destroy = onWindowDestroyed,

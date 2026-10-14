@@ -257,7 +257,9 @@ what this project does about it, and its status:
       cancel; Tab goes between the save name and the columns.
     - The bar puts the filters and choices on a row above the name and
       buttons, wrapping; only the name (or the hint) shrinks, so the
-      buttons show at any width (360x240, the window's least, too).
+      buttons show at any width, even narrower than the window's least
+      (800x500, or `chooser_size` if less), which a tiling layout can
+      give it.
       Combo boxes are at most 260 px. A narrow chooser keeps the parent
       column and drops the preview first.
     - Size: `chooser_size` (960x640) until the user resizes a chooser;
@@ -289,16 +291,16 @@ what this project does about it, and its status:
     combo box roots a compositor layer) stayed behind: siv repainted
     only the moved node, not its descendants in other layers.
 
-32. **Hyprland opened a chooser at about 360x240** (open). On the
-    user's Hyprland the chooser floated over Firefox (xdg-foreign and
-    the modal hint work) but came out about 544x363 pixels, likely
-    360x240 logical at scale 1.5: the window's least size. Hyprland
-    floats a toplevel with a parent and lets the client choose its size
-    (a 0x0 configure), then takes the committed size; its source shows
-    no rule that would pick the least size. Not reproduced here (no
-    Hyprland in the orb). `hyprctl clients -j` and `hyprctl monitors -j`
-    with a chooser open would tell; until then a window rule (README)
-    sets the size.
+32. **Hyprland opened a chooser at 360x240** (worked around). On
+    Hyprland 0.56 a chooser (floating: it has a parent) opened at its
+    least size, 360x240, not the 960x640 it asks for; reproduced on a
+    real Hyprland at scale 1.5. The chooser's least size is now 800x500
+    (less if `chooser_size` is less), which fits the columns, the bar,
+    and a 1366x768 screen, so that is what Hyprland opens; a window rule
+    (README) gives another size. Its title was "All Files": Chromium
+    sends that (its IDS_SAVEAS_ALL_FILES) as the title of a save dialog
+    it gave none, so a save request titled "All Files" counts as
+    untitled ("Save a File").
 
 ## Proposals: GUI affordances still missing
 

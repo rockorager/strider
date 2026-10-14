@@ -346,8 +346,10 @@ The chooser is the same three columns, with every key, preview, search,
   the size you give a chooser is the next one's. The bar fits any width
   (the buttons always show; filters and choices wrap onto a row above),
   and a narrow chooser keeps the parent column longer than the preview.
-- Its app id is `org.siv.Columns.Chooser`, for compositor rules. Should
-  Hyprland open it smaller than it asks, a rule sets the size: in
+- Its least size is 800x500 (less if `chooser_size` is less), and
+  Hyprland opens it at that, not at `chooser_size`. Its app id is
+  `org.siv.Columns.Chooser`, for compositor rules; a rule sets another
+  size: in
   Omarchy's Lua configuration `o.window("org.siv.Columns.Chooser", {
   size = { 960, 640 } })`, in hyprland.conf `windowrule = size 960 640,
   match:class org.siv.Columns.Chooser` (older Hyprland: `windowrule =

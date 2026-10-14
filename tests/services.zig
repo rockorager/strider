@@ -924,9 +924,9 @@ test "FileChooser: save with a name, asking before replacing; save several into 
     try testing.expectEqualStrings(fileUri(&ub, &f, "work/summary.txt"), fresh.uri(0));
 
     // A name that exists asks first; Cancel keeps the chooser, Replace
-    // answers.
+    // answers. The title is Chromium's when it has none.
     var over: Chosen = .{};
-    _ = try callChooser(client, "SaveFile", &f, "", struct {
+    _ = try callChooser(client, "SaveFile", &f, "All Files", struct {
         fn w(m: siv.DbusMessage, fx: *const Fixture) void {
             var buf: [512]u8 = undefined;
             entry(m, "current_file", "ay");
@@ -935,6 +935,7 @@ test "FileChooser: save with a name, asking before replacing; save several into 
         }
     }.w, &over);
     const win2 = try chooserWindow(&h);
+    try testing.expectEqualStrings("Save a File", win2.chooser.?.windowTitle());
     try testing.expectEqualStrings("report.txt", h.hovered());
     try h.typeText("\n");
     try testing.expect(win2.dialogs.isOpen());
@@ -1074,8 +1075,8 @@ test "FileChooser: a narrow window keeps its buttons; Escape in the name and clo
     var client: siv.Dbus = .null;
     try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
 
-    // As small as Hyprland made it on the user's desktop, and half of a
-    // 1920x1080 screen: the buttons stay on screen.
+    // Narrower than its least size (a tiling layout can do that), and
+    // half of a 1920x1080 screen: the buttons stay on screen.
     var narrow: Chosen = .{};
     _ = try callChooser(client, "SaveFile", &f, "Save As", firefoxSave, &narrow);
     const win = try chooserWindow(&h);
@@ -1085,7 +1086,7 @@ test "FileChooser: a narrow window keeps its buttons; Escape in the name and clo
     // The parent column stays before the preview does.
     try testing.expect(h.reads("home"));
     try h.expectGolden(h.window(), "chooser-narrow");
-    // Even at the window's least size.
+    // Even at 360x240, as small as Hyprland once made it.
     try siv.check(c.siv_test_resize(h.window(), 360, 240));
     try h.settle();
     try buttonsShow(&h, 360);
