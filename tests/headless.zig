@@ -1443,6 +1443,43 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work\n", .{f.path})));
 }
 
+/// Moves the pointer to the middle of node `n`.
+fn hover(h: *Harness, n: siv.TestNode) !void {
+    try siv.check(c.siv_test_pointer_move(h.window(), n.bounds.x + n.bounds.width / 2, n.bounds.y + n.bounds.height / 2));
+    try h.settle();
+}
+
+test "the header path: hovering a folder underlines it, a click goes there, a middle click opens a tab" {
+    var f: Fixture = .{};
+    try fixture(&f, "crumbs");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    // Home is the parent of the folder shown: the path reads "~ / src /".
+    try h.start(.{ .path = f.sub(&path_buf, "work/src") });
+    // The folder shown is the last segment, and not a link.
+    try testing.expect(h.find(h.window(), .{ .role = .link, .name = "src", .name_len = 3 }) == null);
+    const home = try h.expect(.link, "~");
+    try hover(&h, home);
+    try h.expectGolden(h.window(), "crumb-hover");
+    // A click goes there as h does: the cursor on the folder it came from,
+    // and back in history.
+    try h.click(h.window(), home, .primary);
+    try testing.expectEqualStrings("work", model.basename(h.dir().path));
+    try testing.expectEqualStrings("src", h.hovered());
+    try testing.expect(inCurrent(&h));
+    try h.typeText("H");
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+    // Deeper: from src/util, src is a link too; a middle click opens it in
+    // a new tab, and this one stays.
+    try h.typeText("ful");
+    try testing.expectEqualStrings("util", model.basename(h.dir().path));
+    try h.click(h.window(), try h.expect(.link, "src"), .middle);
+    try testing.expectEqual(@as(usize, 2), h.win.?.tabs.items.len);
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+    try testing.expectEqualStrings("util", model.basename(h.win.?.tabs.items[0].path()));
+}
+
 /// Whether keyboard focus is in the current column.
 fn inCurrent(h: *Harness) bool {
     const focused = h.find(h.window(), .{ .flags = .{ .focused = true } }) orelse return false;

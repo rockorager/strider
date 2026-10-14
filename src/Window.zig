@@ -30,6 +30,9 @@ pub const PreviewMode = Preview.Mode;
 const Node = siv.Node;
 const Txn = siv.Txn;
 
+/// A clickable segment of the header path.
+const Crumb = struct { node: Node, path: []u8 };
+
 pub const Tab = struct {
     dir: *Dir,
     history: std.ArrayList([]u8) = .empty,
@@ -79,8 +82,13 @@ closing: bool = false,
 
 root: Node = .null,
 header: Node = .null,
+/// The folder part of the header path: a text per segment, folders
+/// above the current one clickable (a breadcrumb).
 path_dir: Node = .null,
 path_name: Node = .null,
+crumbs: std.ArrayList(Crumb) = .empty,
+/// The folder the crumbs show (rebuilt when it changes).
+crumbs_for: std.ArrayList(u8) = .empty,
 tabs_row: Node = .null,
 parent_col: Column,
 current: Column,
@@ -305,6 +313,9 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     self.unlock_label.deinit(gpa);
     self.last_search.deinit(gpa);
     self.message.deinit(gpa);
+    self.freeCrumbs();
+    self.crumbs.deinit(gpa);
+    self.crumbs_for.deinit(gpa);
     self.app.windowClosed(self);
     gpa.destroy(self);
 }
@@ -345,9 +356,9 @@ fn build(self: *Window) !void {
     // Paths read left to right in right-to-left layouts too.
     const path_box = c.siv_flex(txn, self.header, &.{ .axis = .row, .align_items = .center });
     _ = c.siv_set_layout(txn, path_box, &.{ .grow = 1, .basis = px(0), .direction = .ltr });
-    self.path_dir = c.siv_text(txn, path_box, "", 0);
-    _ = c.siv_set_text_style(txn, self.path_dir, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true, .ellipsize = true } });
-    _ = c.siv_set_layout(txn, self.path_dir, &.{ .shrink = 1 });
+    self.path_dir = c.siv_flex(txn, path_box, &.{ .axis = .row, .align_items = .center });
+    _ = c.siv_set_layout(txn, self.path_dir, &.{ .shrink = 1, .min_width = 0 });
+    _ = c.siv_set_visual(txn, self.path_dir, &.{ .flags = .{ .clip = true } });
     _ = c.siv_set_semantics(txn, self.path_dir, &.{ .role = .heading, .level = 1 });
     self.path_name = c.siv_text(txn, path_box, "", 0);
     _ = c.siv_set_text_style(txn, self.path_name, &.{ .color_token = .window_fg, .size_role = .body, .flags = .{ .no_wrap = true, .ellipsize = true } });
@@ -869,22 +880,101 @@ pub fn refreshRows(self: *Window) void {
 
 fn applyHeader(self: *Window, txn: Txn) void {
     const d = self.curDir();
-    var buf: [linux.PATH_MAX + 8]u8 = undefined;
-    const home = self.app.home;
-    var shown: []const u8 = d.path;
-    if (std.mem.eql(u8, d.path, home)) {
-        shown = "~";
-    } else if (model.isWithin(d.path, home) and home.len > 1) {
-        shown = std.fmt.bufPrint(&buf, "~{s}", .{d.path[home.len..]}) catch d.path;
-    }
-    var dbuf: [linux.PATH_MAX + 8]u8 = undefined;
-    const dir_text = if (std.mem.eql(u8, shown, "/")) "/" else std.fmt.bufPrint(&dbuf, "{s}/", .{shown}) catch shown;
-    if (d.isTrash()) {
-        _ = c.siv_set_text(txn, self.path_dir, "Trash/", 6);
-    } else _ = c.siv_set_text(txn, self.path_dir, dir_text.ptr, dir_text.len);
+    if (!std.mem.eql(u8, self.crumbs_for.items, d.path)) self.buildCrumbs(txn, d);
     const name = d.nameAt(d.cursor) orelse "";
     const base = model.basename(name);
     _ = c.siv_set_text(txn, self.path_name, base.ptr, if (name.len == 0) 0 else base.len);
+}
+
+fn freeCrumbs(self: *Window) void {
+    for (self.crumbs.items) |cr| self.gpa.free(cr.path);
+    self.crumbs.clearRetainingCapacity();
+}
+
+/// The header path as segments: "~" or "/", then each folder down to
+/// the current one, separated by slashes. Those above the current folder
+/// go there when clicked (a new tab with the middle button), underlined
+/// under the pointer.
+fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
+    self.freeCrumbs();
+    self.crumbs_for.clearRetainingCapacity();
+    self.crumbs_for.appendSlice(self.gpa, d.path) catch {};
+    ui.clear(txn, self.path_dir);
+    if (d.isTrash()) {
+        _ = self.crumb(txn, "Trash/", null);
+        return;
+    }
+    const home = self.app.home;
+    const in_home = home.len > 1 and (std.mem.eql(u8, d.path, home) or model.isWithin(d.path, home));
+    // Segments: their labels and where they go.
+    var labels: std.ArrayList([]const u8) = .empty;
+    defer labels.deinit(self.gpa);
+    var ends: std.ArrayList(usize) = .empty;
+    defer ends.deinit(self.gpa);
+    labels.append(self.gpa, if (in_home) "~" else "/") catch return;
+    ends.append(self.gpa, if (in_home) home.len else 1) catch return;
+    const rest_from = if (in_home) home.len else 0;
+    var it = std.mem.tokenizeScalar(u8, d.path[rest_from..], '/');
+    while (it.next()) |seg| {
+        labels.append(self.gpa, seg) catch return;
+        ends.append(self.gpa, @intFromPtr(seg.ptr) - @intFromPtr(d.path.ptr) + seg.len) catch return;
+    }
+    for (labels.items, ends.items, 0..) |label, end, i| {
+        if (i > 1 or (i == 1 and in_home)) _ = self.crumb(txn, "/", null);
+        const last = i + 1 == labels.items.len;
+        _ = self.crumb(txn, label, if (last) null else d.path[0..end]);
+    }
+    if (!std.mem.eql(u8, d.path, "/")) _ = self.crumb(txn, "/", null);
+}
+
+fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
+    const n = c.siv_text(txn, self.path_dir, label.ptr, label.len);
+    // Folders above give way first when the path is too long, so the
+    // current folder stays whole.
+    _ = c.siv_set_text_style(txn, n, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = path != null } });
+    _ = c.siv_set_layout(txn, n, if (path != null) &.{ .shrink = 1, .min_width = 0 } else &.{ .flags = .{ .no_shrink = true } });
+    const p = path orelse return n;
+    const copy = self.gpa.dupe(u8, p) catch return n;
+    self.crumbs.append(self.gpa, .{ .node = n, .path = copy }) catch {
+        self.gpa.free(copy);
+        return n;
+    };
+    _ = c.siv_set_cursor(txn, n, .pointer);
+    _ = c.siv_set_semantics(txn, n, &.{ .role = .link, .label = label.ptr, .label_len = label.len, .flags = .{ .focusable = false } });
+    _ = c.siv_on(txn, n, .pointer, onCrumbPointer, null, self);
+    return n;
+}
+
+fn onCrumbPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const self: *Window = @ptrCast(@alignCast(ud.?));
+    const cr = for (self.crumbs.items) |x| {
+        if (x.node == node) break x;
+    } else return .pass;
+    switch (ev.phase) {
+        .enter, .leave => if (self.begin()) |txn| {
+            var tb: [linux.PATH_MAX]u8 = undefined;
+            const len = ui.getText(node, &tb).len;
+            const spans = [_]siv.TextSpan{.{ .start = 0, .end = @intCast(len), .flags = .{ .underline = true } }};
+            _ = c.siv_set_text_spans(txn, node, &.{ .spans = &spans, .spans_count = if (ev.phase == .enter) 1 else 0 });
+            _ = commit(txn);
+        },
+        .down => {
+            // A copy: going there rebuilds the crumbs.
+            var pb: [linux.PATH_MAX]u8 = undefined;
+            if (cr.path.len > pb.len) return .handled;
+            @memcpy(pb[0..cr.path.len], cr.path);
+            const path = pb[0..cr.path.len];
+            switch (ev.button) {
+                .primary => self.cd(path),
+                .middle => self.newTab(path),
+                else => return .pass,
+            }
+            _ = c.siv_node_focus(self.current.view);
+            return .handled;
+        },
+        else => {},
+    }
+    return .pass;
 }
 
 /// The status line: the mode, the entry's details, pending keys, and
