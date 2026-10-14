@@ -1,12 +1,16 @@
 //! MIME types from the freedesktop.org shared-mime-info database:
 //! globs2 (by name), aliases, subclasses, icons, and the types' comments
 //! (their human-readable names) from <type>.xml, with a small content
-//! sniffer for names no glob matches.
+//! sniffer for names no glob matches. Names that several types claim at
+//! the same weight (*.ts: Qt Linguist, MPEG transport stream, and on newer
+//! databases TypeScript) are settled by the file's first bytes: the magic
+//! rules of the contending types, then whether it reads as text.
 //!
 //! Loaded once, from a worker thread, then read from any thread; only the
 //! comment cache changes afterwards, under a mutex.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const sync = @import("sync.zig");
@@ -33,7 +37,18 @@ const builtin_types = [_][]const u8{
     "application/x-unknown",
 };
 
-const Hit = struct { id: Id, weight: u16 };
+pub const Hit = struct { id: Id, weight: u16 };
+/// The types one name or extension matches, in database order (the most
+/// important data directory first); `contested` when the best weight is
+/// shared and the file's content can tell the types apart.
+const Hits = struct { list: std.ArrayList(Hit) = .empty, contested: bool = false };
+/// A glob match: the best type, and all candidates when content must
+/// settle it (see `Db.settle`).
+pub const Match = struct { id: Id, contested: ?[]const Hit = null };
+/// A rule from the `magic` file: `value` (under `mask`) at an offset from
+/// `offset` to `offset + range - 1`, and, if it has children, one of them.
+const Matchlet = struct { offset: u32, range: u32, value: []const u8, mask: ?[]const u8, children: []const Matchlet };
+const Magic = struct { priority: u8, rules: []const Matchlet };
 const Complex = struct { pattern: []const u8, id: Id, weight: u16, case_sensitive: bool };
 
 pub const Db = struct {
@@ -42,12 +57,12 @@ pub const Db = struct {
     names: std.ArrayList([]const u8) = .empty,
     ids: std.StringHashMapUnmanaged(Id) = .empty,
     /// Exact file names (case-sensitive), then lowercased.
-    literal: std.StringHashMapUnmanaged(Hit) = .empty,
-    literal_ci: std.StringHashMapUnmanaged(Hit) = .empty,
+    literal: std.StringHashMapUnmanaged(Hits) = .empty,
+    literal_ci: std.StringHashMapUnmanaged(Hits) = .empty,
     /// "*.ext" globs by extension (without the dot): case-sensitive ones,
     /// then the rest lowercased.
-    ext_cs: std.StringHashMapUnmanaged(Hit) = .empty,
-    ext_ci: std.StringHashMapUnmanaged(Hit) = .empty,
+    ext_cs: std.StringHashMapUnmanaged(Hits) = .empty,
+    ext_ci: std.StringHashMapUnmanaged(Hits) = .empty,
     complex: std.ArrayList(Complex) = .empty,
     aliases: std.StringHashMapUnmanaged(Id) = .empty,
     /// Each type's parents, by id.
@@ -55,6 +70,8 @@ pub const Db = struct {
     /// Icon names by id (from `icons` and `generic-icons`).
     icon: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
     generic_icon: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
+    /// Magic rules, only for the types of contested names.
+    magic: std.AutoHashMapUnmanaged(Id, Magic) = .empty,
     /// The directories holding mime/ (data dirs), for <type>.xml.
     dirs: std.ArrayList([]const u8) = .empty,
 
@@ -108,17 +125,24 @@ pub const Db = struct {
     }
 
     /// The type of a file by its name alone, or null if no glob matches.
+    /// For a contested name this is the database's first best guess; see
+    /// `match` for settling it by content.
     pub fn byName(db: *const Db, file_name: []const u8) ?Id {
+        return if (db.match(file_name)) |m| m.id else null;
+    }
+
+    /// The glob match for a file name, or null if no glob matches.
+    pub fn match(db: *const Db, file_name: []const u8) ?Match {
         var lower_buf: [256]u8 = undefined;
-        if (db.literal.get(file_name)) |h| return h.id;
+        if (db.literal.get(file_name)) |h| return hitsMatch(h);
         const lower = if (file_name.len <= lower_buf.len) std.ascii.lowerString(&lower_buf, file_name) else file_name;
-        if (db.literal_ci.get(lower)) |h| return h.id;
+        if (db.literal_ci.get(lower)) |h| return hitsMatch(h);
         // The longest extension that is a glob: from the first dot on.
         var i: usize = 0;
         while (std.mem.indexOfScalarPos(u8, file_name, i, '.')) |dot| : (i = dot + 1) {
             if (dot + 1 >= file_name.len) break;
-            if (db.ext_cs.get(file_name[dot + 1 ..])) |h| return h.id;
-            if (db.ext_ci.get(lower[dot + 1 ..])) |h| return h.id;
+            if (db.ext_cs.get(file_name[dot + 1 ..])) |h| return hitsMatch(h);
+            if (db.ext_ci.get(lower[dot + 1 ..])) |h| return hitsMatch(h);
         }
         var best: ?Hit = null;
         for (db.complex.items) |cx| {
@@ -126,7 +150,42 @@ pub const Db = struct {
             if (best != null and best.?.weight >= cx.weight) continue;
             if (globMatch(cx.pattern, subject)) best = .{ .id = cx.id, .weight = cx.weight };
         }
-        return if (best) |b| b.id else null;
+        return if (best) |b| .{ .id = b.id } else null;
+    }
+
+    fn hitsMatch(h: Hits) Match {
+        return .{ .id = bestHit(h.list.items).id, .contested = if (h.contested) h.list.items else null };
+    }
+
+    /// Settles a contested name by the file's first bytes (`head`; a few
+    /// KiB, so that magic at larger offsets can match). The shared-mime-
+    /// info spec has magic decide between globs of equal weight; when no
+    /// candidate's magic matches, text content goes to a text candidate
+    /// whose strong (priority 50 and up) magic did not just fail, as GIO
+    /// does with its looks-like-text check, and binary content to a binary
+    /// candidate. Weaker globs count too: TypeScript's *.ts glob is weight
+    /// 40 against Linguist's and MPEG-TS's 50, and only content tells them
+    /// apart.
+    pub fn settle(db: *const Db, hits: []const Hit, head: []const u8) Id {
+        var best: ?Hit = null;
+        var best_priority: u8 = 0;
+        for (hits) |h| {
+            const m = db.magic.get(h.id) orelse continue;
+            if (!magicMatches(m.rules, head)) continue;
+            if (best == null or m.priority > best_priority or (m.priority == best_priority and h.weight > best.?.weight)) {
+                best = h;
+                best_priority = m.priority;
+            }
+        }
+        if (best) |b| return b.id;
+        const text = looksLikeText(head);
+        for (hits) |h| {
+            if (db.isA(h.id, text_plain) != text) continue;
+            if (text) if (db.magic.get(h.id)) |m| if (m.priority >= 50) continue;
+            if (best == null or h.weight > best.?.weight) best = h;
+        }
+        if (best) |b| return b.id;
+        return if (text) text_plain else octet_stream;
     }
 
     pub fn byNameOr(db: *const Db, file_name: []const u8, default: Id) Id {
@@ -291,16 +350,229 @@ pub fn load(gpa: Allocator, data_dirs: []const []const u8) !*Db {
         const dir = data_dirs[k];
         db.loadAliases(dir) catch {};
     }
+    // Globs most important first: on equal weights the first type wins.
+    for (data_dirs) |dir| db.loadGlobs(dir) catch {};
     k = data_dirs.len;
     while (k > 0) {
         k -= 1;
         const dir = data_dirs[k];
-        db.loadGlobs(dir) catch {};
         db.loadSubclasses(dir) catch {};
         db.loadIcons(dir, "icons", &db.icon) catch {};
         db.loadIcons(dir, "generic-icons", &db.generic_icon) catch {};
     }
+    try markContested(db);
     return db;
+}
+
+const maps_of_hits = .{ "literal", "literal_ci", "ext_cs", "ext_ci" };
+
+/// The first hit of the best weight.
+fn bestHit(hits: []const Hit) Hit {
+    var best = hits[0];
+    for (hits[1..]) |h| if (h.weight > best.weight) {
+        best = h;
+    };
+    return best;
+}
+
+fn tied(hits: []const Hit) bool {
+    const top = bestHit(hits).weight;
+    var n: usize = 0;
+    for (hits) |h| n += @intFromBool(h.weight == top);
+    return n > 1;
+}
+
+fn markContested(db: *Db) !void {
+    // Only tied names need magic: load it for their types alone.
+    var wanted: std.DynamicBitSetUnmanaged = try .initEmpty(db.gpa, db.names.items.len);
+    defer wanted.deinit(db.gpa);
+    var any = false;
+    inline for (maps_of_hits) |field| {
+        var it = @field(db, field).valueIterator();
+        while (it.next()) |h| if (tied(h.list.items)) {
+            any = true;
+            for (h.list.items) |x| wanted.set(x.id);
+        };
+    }
+    if (!any) return;
+    var k = db.dirs.items.len;
+    while (k > 0) {
+        k -= 1;
+        loadMagic(db, db.dirs.items[k], &wanted) catch {};
+    }
+    // Contested when content can tell: some candidate has magic, or the
+    // candidates are not all text or all binary.
+    inline for (maps_of_hits) |field| {
+        var it = @field(db, field).valueIterator();
+        while (it.next()) |h| if (tied(h.list.items)) {
+            const first_text = db.isA(h.list.items[0].id, text_plain);
+            for (h.list.items) |x| {
+                if (db.magic.contains(x.id) or db.isA(x.id, text_plain) != first_text) h.contested = true;
+            }
+        };
+    }
+}
+
+/// Reads `<dir>/mime/magic`: "MIME-Magic\0\n", then sections
+/// "[priority:type]\n" of rules, one per line:
+/// [indent]">"offset"="length(2 bytes, big-endian) value ["&"mask]
+/// ["~"word-size] ["+"range]"\n".
+fn loadMagic(db: *Db, dir: []const u8, wanted: *const std.DynamicBitSetUnmanaged) !void {
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const p = try std.fmt.bufPrint(&pbuf, "{s}/mime/magic", .{dir});
+    const data = readAll(db.gpa, p) orelse return;
+    defer db.gpa.free(data);
+    const header = "MIME-Magic\x00\n";
+    if (!std.mem.startsWith(u8, data, header)) return;
+    var r: MagicReader = .{ .data = data, .pos = header.len };
+    var flat: std.ArrayList(FlatMatchlet) = .empty;
+    defer flat.deinit(db.gpa);
+    while (r.pos < data.len) {
+        if (data[r.pos] != '[') return; // malformed: stop
+        const close = std.mem.indexOfScalarPos(u8, data, r.pos, ']') orelse return;
+        const head = data[r.pos + 1 .. close];
+        r.pos = close + 1;
+        if (r.pos < data.len and data[r.pos] == '\n') r.pos += 1;
+        const colon = std.mem.indexOfScalar(u8, head, ':') orelse return;
+        const priority = std.fmt.parseInt(u8, head[0..colon], 10) catch 50;
+        flat.clearRetainingCapacity();
+        while (r.pos < data.len and data[r.pos] != '[') {
+            if (r.line()) |m| try flat.append(db.gpa, m) else return;
+        }
+        const id = db.lookup(head[colon + 1 ..]) orelse continue;
+        if (id >= wanted.bit_length or !wanted.isSet(id)) continue;
+        var i: usize = 0;
+        const rules = try buildMatchlets(db, flat.items, &i, 0);
+        try db.magic.put(db.a(), id, .{ .priority = priority, .rules = rules });
+    }
+}
+
+const FlatMatchlet = struct { indent: u32, m: Matchlet };
+
+const MagicReader = struct {
+    data: []const u8,
+    pos: usize,
+
+    fn number(r: *MagicReader) ?u32 {
+        const start = r.pos;
+        while (r.pos < r.data.len and std.ascii.isDigit(r.data[r.pos])) r.pos += 1;
+        if (r.pos == start) return null;
+        return std.fmt.parseInt(u32, r.data[start..r.pos], 10) catch null;
+    }
+
+    fn bytes(r: *MagicReader, n: usize) ?[]const u8 {
+        if (r.pos + n > r.data.len) return null;
+        defer r.pos += n;
+        return r.data[r.pos..][0..n];
+    }
+
+    /// One rule line, or null if malformed.
+    fn line(r: *MagicReader) ?FlatMatchlet {
+        const indent = r.number() orelse 0;
+        if ((r.bytes(1) orelse return null)[0] != '>') return null;
+        const offset = r.number() orelse return null;
+        if ((r.bytes(1) orelse return null)[0] != '=') return null;
+        const len_bytes = r.bytes(2) orelse return null;
+        const len = std.mem.readInt(u16, len_bytes[0..2], .big);
+        const value = r.bytes(len) orelse return null;
+        var m: Matchlet = .{ .offset = offset, .range = 1, .value = value, .mask = null, .children = &.{} };
+        var word: u32 = 1;
+        while (r.pos < r.data.len) {
+            const ch = r.data[r.pos];
+            r.pos += 1;
+            switch (ch) {
+                '\n' => break,
+                '&' => m.mask = r.bytes(len) orelse return null,
+                '~' => word = r.number() orelse 1,
+                '+' => m.range = @max(1, r.number() orelse 1),
+                // An extension this reader does not know: skip the line.
+                else => {
+                    const nl = std.mem.indexOfScalarPos(u8, r.data, r.pos, '\n') orelse r.data.len;
+                    r.pos = @min(r.data.len, nl + 1);
+                    break;
+                },
+            }
+        }
+        // Host-order words are stored big-endian: compare in host order.
+        if (word > 1 and builtin.cpu.arch.endian() == .little and len % word == 0) m.value = swapped(r, m.value, word) orelse return null;
+        if (m.mask) |mk| if (word > 1 and builtin.cpu.arch.endian() == .little and len % word == 0) {
+            m.mask = swapped(r, mk, word) orelse return null;
+        };
+        return .{ .indent = indent, .m = m };
+    }
+
+    /// `value` with each `word`-byte group reversed, in place: the data is
+    /// a private copy (readAll), and each rule's bytes are swapped once.
+    fn swapped(r: *MagicReader, value: []const u8, word: u32) ?[]const u8 {
+        const off = @intFromPtr(value.ptr) - @intFromPtr(r.data.ptr);
+        const mut = @constCast(r.data)[off..][0..value.len];
+        var i: usize = 0;
+        while (i < mut.len) : (i += word) std.mem.reverse(u8, mut[i..][0..word]);
+        return mut;
+    }
+};
+
+/// The rules at `indent` from `flat[i.*]` on, each with its children (the
+/// following rules indented deeper), copied into the arena.
+fn buildMatchlets(db: *Db, flat: []const FlatMatchlet, i: *usize, indent: u32) ![]const Matchlet {
+    var out: std.ArrayList(Matchlet) = .empty;
+    while (i.* < flat.len and flat[i.*].indent >= indent) {
+        if (flat[i.*].indent > indent) {
+            // A child without a parent at this level: skip it.
+            i.* += 1;
+            continue;
+        }
+        var m = flat[i.*].m;
+        m.value = try db.a().dupe(u8, m.value);
+        if (m.mask) |mk| m.mask = try db.a().dupe(u8, mk);
+        i.* += 1;
+        m.children = try buildMatchlets(db, flat, i, indent + 1);
+        try out.append(db.a(), m);
+    }
+    return out.items;
+}
+
+/// Whether any rule matches `head` (a rule with children needs one of
+/// them to match too).
+fn magicMatches(rules: []const Matchlet, head: []const u8) bool {
+    for (rules) |m| {
+        if (!matchletHits(m, head)) continue;
+        if (m.children.len == 0 or magicMatches(m.children, head)) return true;
+    }
+    return false;
+}
+
+fn matchletHits(m: Matchlet, head: []const u8) bool {
+    var off: usize = m.offset;
+    const end = off + m.range;
+    while (off < end and off + m.value.len <= head.len) : (off += 1) {
+        const got = head[off..][0..m.value.len];
+        if (m.mask) |mk| {
+            for (got, m.value, mk) |g, v, k| {
+                if (g & k != v & k) break;
+            } else return true;
+        } else if (std.mem.eql(u8, got, m.value)) return true;
+    }
+    return false;
+}
+
+/// Whether the bytes read as text: UTF-8 (a sequence cut off at the end
+/// is fine), no NUL, and few control characters.
+pub fn looksLikeText(head: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, head, 0) != null) return false;
+    var bad: usize = 0;
+    for (head) |b| bad += @intFromBool(b < 0x09 or (b > 0x0d and b < 0x20 and b != 0x1b) or b == 0x7f);
+    if (bad * 20 > head.len) return false;
+    // Drop a sequence cut short by the end of the read.
+    var end = head.len;
+    var back: usize = 0;
+    while (back < 3 and end > back and head[end - back - 1] & 0xc0 == 0x80) back += 1;
+    if (end > back) {
+        const lead = head[end - back - 1];
+        const need: usize = if (lead >= 0xf0) 3 else if (lead >= 0xe0) 2 else if (lead >= 0xc0) 1 else 0;
+        if (need > back) end -= back + 1;
+    }
+    return std.unicode.utf8ValidateSlice(head[0..end]);
 }
 
 fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
@@ -351,14 +623,16 @@ fn eachLine(gpa: Allocator, dir: []const u8, file: []const u8, ctx: anytype, com
     }
 }
 
-fn putHit(db: *Db, map: *std.StringHashMapUnmanaged(Hit), key: []const u8, hit: Hit) !void {
+fn putHit(db: *Db, map: *std.StringHashMapUnmanaged(Hits), key: []const u8, hit: Hit) !void {
     const gop = try map.getOrPut(db.a(), key);
     if (!gop.found_existing) {
         gop.key_ptr.* = try db.a().dupe(u8, key);
-        gop.value_ptr.* = hit;
-    } else if (hit.weight >= gop.value_ptr.weight) {
-        gop.value_ptr.* = hit;
+        gop.value_ptr.* = .{};
     }
+    // A type listed again (in another data directory): the first listing
+    // (the more important directory) stands.
+    for (gop.value_ptr.list.items) |h| if (h.id == hit.id) return;
+    try gop.value_ptr.list.append(db.a(), hit);
 }
 
 fn globLine(db: *Db, line: []const u8) !void {
@@ -604,4 +878,104 @@ test "database" {
     try testing.expectEqual(text_plain, sniff(db, "hello\nworld\n", 0o644));
     try testing.expectEqual(shellscript, sniff(db, "#!/bin/sh\necho\n", 0o755));
     try testing.expectEqual(octet_stream, sniff(db, "a\x00b", 0o644));
+}
+
+test "names several types claim are settled by content" {
+    const gpa = testing.allocator;
+    var tmp_buf: [64]u8 = undefined;
+    const S = struct {
+        extern "c" fn mkdtemp(template: [*:0]u8) ?[*:0]u8;
+        extern "c" fn system(cmd: [*:0]const u8) c_int;
+        fn write(dir: []const u8, file: []const u8, bytes: []const u8) !void {
+            var pb: [256]u8 = undefined;
+            const p = try std.fmt.bufPrintSentinel(&pb, "{s}/mime/{s}", .{ dir, file }, 0);
+            const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
+            if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
+            defer _ = linux.close(@intCast(rc));
+            if (linux.write(@intCast(rc), bytes.ptr, bytes.len) != bytes.len) return error.Unexpected;
+        }
+    };
+    const tmpl = try std.fmt.bufPrintSentinel(&tmp_buf, "/tmp/siv-files-mime-XXXXXX", .{}, 0);
+    _ = S.mkdtemp(tmpl.ptr) orelse return error.Unexpected;
+    var cmd_buf: [256]u8 = undefined;
+    defer {
+        const rm = std.fmt.bufPrintSentinel(&cmd_buf, "rm -rf {s}", .{tmpl}, 0) catch unreachable;
+        _ = S.system(rm.ptr);
+    }
+    const mk = try std.fmt.bufPrintSentinel(&cmd_buf, "mkdir -p {s}/mime", .{tmpl}, 0);
+    try testing.expectEqual(@as(c_int, 0), S.system(mk.ptr));
+    // As in shared-mime-info 2.5, plus two made-up types for word sizes
+    // and masks, and two text types that only a glob tells apart.
+    try S.write(tmpl, "globs2",
+        \\50:text/vnd.trolltech.linguist:*.ts
+        \\50:video/mp2t:*.ts
+        \\40:application/typescript:*.ts
+        \\50:application/x-word:*.w
+        \\50:application/x-masked:*.w
+        \\50:application/json:*.json
+        \\50:application/schema+json:*.json
+        \\50:text/x-csrc:*.c
+        \\
+    );
+    try S.write(tmpl, "subclasses",
+        \\application/typescript text/plain
+        \\text/vnd.trolltech.linguist application/xml
+        \\application/xml text/plain
+        \\application/json text/plain
+        \\application/schema+json application/json
+        \\
+    );
+    try S.write(tmpl, "magic", "MIME-Magic\x00\n" ++
+        "[50:text/vnd.trolltech.linguist]\n>0=\x00\x04<TS +257\n" ++
+        "[50:video/mp2t]\n>0=\x00\x01G\n1>188=\x00\x01G\n2>376=\x00\x01G\n" ++
+        "[10:application/typescript]\n>0=\x00\x02//\n>0=\x00\x05class\n" ++
+        // Host-order 0x1234 (bytes 34 12 here), and any byte 0x4_.
+        "[60:application/x-word]\n>0=\x00\x02\x12\x34~2\n" ++
+        "[50:application/x-masked]\n>0=\x00\x01\x40&\xf0\n" ++
+        "[50:text/x-csrc]\n>0=\x00\x08#include\n");
+    const db = try load(gpa, &.{tmpl});
+    defer {
+        db.deinit();
+        gpa.destroy(db);
+    }
+    const ts = db.lookup("application/typescript").?;
+    const mp2t = db.lookup("video/mp2t").?;
+    const linguist = db.lookup("text/vnd.trolltech.linguist").?;
+    const hits = db.match("app.ts").?.contested.?;
+    try testing.expectEqual(@as(usize, 3), hits.len);
+    // Text that no magic claims: TypeScript, not Linguist (whose magic
+    // failed) or MPEG-TS (binary).
+    try testing.expectEqual(ts, db.settle(hits, "import { a } from './b';\nexport const x = a;\n"));
+    try testing.expectEqual(ts, db.settle(hits, "// a comment\nlet x = 1;\n"));
+    try testing.expectEqual(ts, db.settle(hits, ""));
+    var stream: [800]u8 = @splat(0xff);
+    for ([_]usize{ 0, 188, 376, 564, 752 }) |o| stream[o] = 0x47;
+    try testing.expectEqual(mp2t, db.settle(hits, &stream));
+    // Two sync bytes are not a stream, but binary is binary.
+    stream[376] = 0;
+    try testing.expectEqual(mp2t, db.settle(hits, &stream));
+    try testing.expectEqual(linguist, db.settle(hits, "<?xml version=\"1.0\"?>\n<!DOCTYPE TS>\n<TS version=\"2.1\">\n"));
+    // An older database without TypeScript: plain text.
+    try testing.expectEqual(text_plain, db.settle(&.{ hits[0], hits[1] }, "import { a } from './b';\n"));
+    const w = db.match("x.w").?.contested.?;
+    try testing.expectEqual(db.lookup("application/x-word").?, db.settle(w, "\x34\x12\x00"));
+    try testing.expectEqual(db.lookup("application/x-masked").?, db.settle(w, "\x4f\x00"));
+    // Only a glob tells these apart: no read, the first one listed.
+    const json = db.match("a.json").?;
+    try testing.expect(json.contested == null);
+    try testing.expectEqual(db.lookup("application/json").?, json.id);
+    // Magic is kept only for contested names' types.
+    try testing.expect(!db.magic.contains(db.lookup("text/x-csrc").?));
+    try testing.expect(db.match("main.c").?.contested == null);
+}
+
+test "text or binary" {
+    try testing.expect(looksLikeText("plain ascii\n\ttabbed\n"));
+    try testing.expect(looksLikeText("caf\xc3\xa9 au lait"));
+    // A read that ends inside a character.
+    try testing.expect(looksLikeText("caf\xc3"));
+    try testing.expect(looksLikeText("\xe2\x82"));
+    try testing.expect(!looksLikeText("bad \xff\xfe utf-8"));
+    try testing.expect(!looksLikeText("nul\x00inside"));
+    try testing.expect(!looksLikeText("\x47\x01\x02\x03\x04\x05\x06"));
 }

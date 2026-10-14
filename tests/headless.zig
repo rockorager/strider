@@ -606,6 +606,34 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
 }
 
+test "*.ts: TypeScript shows as highlighted source, a transport stream as video" {
+    var f: Fixture = .{};
+    try fixture(&f, "typescript");
+    defer f.remove();
+    // The test database lists *.ts as Linguist and MPEG-TS at weight 50,
+    // and TypeScript at 40, as shared-mime-info 2.5 does.
+    try f.writeFile("work/app.ts", "import { readFile } from \"node:fs/promises\";\n\n/** Reads a config. */\nexport async function load(path: string): Promise<number> {\n    const text = await readFile(path, \"utf8\");\n    return text.length; // bytes, roughly\n}\n");
+    var stream: [188 * 5]u8 = @splat(0xff);
+    for (0..5) |k| stream[k * 188] = 0x47;
+    try f.writeFile("work/clip.ts", &stream);
+    for ([_][]const u8{ "work/app.ts", "work/clip.ts" }) |n| try f.touch(n, 1_791_900_300);
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const db = h.app.?.mimeDb().?;
+    const p = &h.win.?.preview;
+    try h.typeText("fap");
+    try testing.expectEqualStrings("app.ts", h.hovered());
+    try testing.expectEqualStrings("application/typescript", db.name(h.dir().entryAt(h.dir().cursor).?.mime));
+    try testing.expectEqual(App.Window.PreviewMode.text, p.applied);
+    try testing.expectEqual(@TypeOf(p.text_kind).text, p.text_kind);
+    try h.expectGolden(h.window(), "preview-typescript");
+    try h.typeText("fcl");
+    try testing.expectEqualStrings("clip.ts", h.hovered());
+    try testing.expectEqualStrings("video/mp2t", db.name(h.dir().entryAt(h.dir().cursor).?.mime));
+    try testing.expect(p.applied != .text);
+}
+
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 

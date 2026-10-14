@@ -165,14 +165,23 @@ pub fn warmComments(db: *mime.Db, entries: []const Entry) void {
 }
 
 /// The MIME type of an entry: folders, then the name's glob, then the
-/// first bytes of the file.
+/// first bytes of the file. A name several types claim (*.ts) is settled
+/// by its first bytes too. Runs on the listing's worker.
 pub fn classify(db: *mime.Db, dirfd: i32, zname: [*:0]const u8, nm: []const u8, e: Entry, sniffs: *usize) mime.Id {
     switch (e.kind) {
         .dir => return mime.directory,
         .other => return if (e.link) mime.symlink else db.byNameOr(nm, mime.octet_stream),
         .file => {},
     }
-    if (db.byName(nm)) |id| return id;
+    if (db.match(nm)) |m| {
+        const hits = m.contested orelse return m.id;
+        if (e.size == 0) return db.settle(hits, "");
+        if (sniffs.* >= max_sniffs) return m.id;
+        sniffs.* += 1;
+        // Magic can sit past the first KiB (MPEG-TS sync bytes to 772).
+        var head: [4096]u8 = undefined;
+        return db.settle(hits, readHead(dirfd, zname, &head));
+    }
     if (e.size == 0) return mime.zerosize;
     if (sniffs.* >= max_sniffs) return if (e.mode & 0o111 != 0) mime.executable else mime.unknown;
     sniffs.* += 1;

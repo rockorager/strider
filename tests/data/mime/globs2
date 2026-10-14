@@ -12,3 +12,7 @@
 50:audio/mpeg:*.mp3
 50:video/mp4:*.mp4
 10:text/x-makefile:makefile
+# *.ts as in shared-mime-info 2.5: settled by content.
+50:text/vnd.trolltech.linguist:*.ts
+50:video/mp2t:*.ts
+40:application/typescript:*.ts

@@ -175,6 +175,9 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     p.scroll_y = 0;
     const name = d.listing.?.base(e);
     const type_name = if (app.mimeDb()) |db| db.name(e.mime) else "";
+    // Text by its type, or by being a subclass of text/plain
+    // (application/typescript).
+    const texty = isTexty(type_name) or if (app.mimeDb()) |db| db.isA(e.mime, mime.text_plain) else false;
     // Lua previewers first.
     if (app.lua) |lua| if (lua.previewer(path, name, type_name)) |pv| switch (pv) {
         .text => |t| {
@@ -207,7 +210,7 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
         }
     }
     // A thumbnail another program cached, for videos and others.
-    if (!isTexty(type_name) and images) {
+    if (!texty and images) {
         var tb: [linux.PATH_MAX]u8 = undefined;
         if (Thumbs.cachedPath(p.win.gpa, app.thumbnail_cache, path, e.mtime, &tb)) |thumb| {
             if (p.loadImage(thumb, e)) {
@@ -226,7 +229,7 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     }
     if (pdf) return p.showInfo(txn, d, e, path, if (images) "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs" else null);
     if (e.size == 0) return p.showInfo(txn, d, e, path, "Empty file");
-    if (isTexty(type_name) or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or std.mem.startsWith(u8, type_name, "application/x-unknown")) {
+    if (texty or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or std.mem.startsWith(u8, type_name, "application/x-unknown")) {
         return p.startJob(txn, .text, path, e);
     }
     // Programs, libraries, and other application data with no previewer:

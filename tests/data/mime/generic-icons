@@ -1,3 +1,4 @@
 application/x-compressed-tar:package-x-generic
 application/gzip:package-x-generic
 application/pdf:x-office-document
+application/typescript:text-x-script

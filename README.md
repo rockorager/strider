@@ -279,6 +279,9 @@ Bookmarks and the command history persist in
 - Screen readers: the columns are lists whose focused row is the cursor,
   marked entries say so, the status line is a live region, prompts are
   labeled text fields (AT-SPI, through siv).
+- Types come from shared-mime-info: globs, and the file's first bytes
+  (magic rules, then text or binary) where several types claim a name,
+  as `*.ts` (TypeScript or an MPEG transport stream).
 - Opening uses the desktop's MIME defaults (mimeapps.list); `o` offers
   every application for the type.
 - Drives come from UDisks2: mount (polkit asks if it must), unmount,

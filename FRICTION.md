@@ -205,6 +205,20 @@ what this project does about it, and its status:
     first press can arrive before siv has the keyboard and is lost. siv's
     own sway test pauses the same way; real keyboards are unaffected.
 
+26. **Names several types claim are settled by content.** `*.ts` is
+    Qt Linguist and MPEG transport stream at weight 50 and, from
+    shared-mime-info 2.5 (Arch), TypeScript at 40. The app had taken the
+    last line, so TypeScript showed as video. As the spec says, contested
+    names now read their first 4 KiB on the listing's worker: the
+    candidates' magic rules decide (sync bytes every 188 bytes are a
+    stream), then text goes to a text candidate whose strong magic did
+    not fail (GIO's looks-like-text check), so TypeScript wins over
+    Linguist. Only names whose candidates content can tell apart pay
+    the read (on Debian's database 41 names tie, among them `*.ogg`,
+    `*.json`, and `*.m`), within the listing's 512-read budget. Older
+    databases without a TypeScript type show `.ts` source as plain text,
+    still highlighted by its extension.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
