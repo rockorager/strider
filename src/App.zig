@@ -104,6 +104,11 @@ config_error: ?[]u8 = null,
 bookmarks: std.AutoArrayHashMapUnmanaged(u32, []u8) = .empty,
 /// Command lines entered, oldest first.
 history: std.ArrayList([]u8) = .empty,
+/// Column widths the user chose by dragging a handle or with < and >:
+/// the parent's and the current column's shares of the window's width.
+/// They win over `ratio` and `fit_parent` until `column-reset`, and
+/// persist in $XDG_STATE_HOME/siv-columns/columns.
+widths: ?[2]f32 = null,
 /// File operations that finished, newest first, for the tasks view.
 recent: std.ArrayList(Finished) = .empty,
 /// zoxide is on $PATH (looked for once, at startup), and the folder
@@ -209,6 +214,7 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     for (Config.default_bindings) |b| self.keymap.map(b[0], b[1], .{ .command = b[2] }, b[3]) catch {};
     self.loadBookmarks();
     self.loadHistory();
+    self.loadWidths();
     // The configuration: Lua changes options and the keymap.
     if (opts.config_file) |path| {
         self.lua = Lua.create(self) catch null;
@@ -694,6 +700,38 @@ pub fn logMessage(self: *App, text: []const u8, is_error: bool) void {
 fn statePath(self: *App, buf: []u8, name: []const u8) ?[]const u8 {
     const dir = self.opts.state_dir orelse return null;
     return std.fmt.bufPrint(buf, "{s}/{s}", .{ dir, name }) catch null;
+}
+
+fn loadWidths(self: *App) void {
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const path = self.statePath(&pbuf, "columns") orelse return;
+    const data = readAll(self.gpa, path) orelse return;
+    defer self.gpa.free(data);
+    var it = std.mem.tokenizeAny(u8, data, " \n");
+    var w: [2]f32 = undefined;
+    for (&w) |*x| {
+        x.* = std.fmt.parseFloat(f32, it.next() orelse return) catch return;
+        if (!(x.* > 0 and x.* < 1)) return;
+    }
+    if (w[0] + w[1] >= 1) return;
+    self.widths = w;
+}
+
+/// Sets (or with null, forgets) the chosen column widths, in every window,
+/// and keeps them for the next start.
+pub fn setWidths(self: *App, w: ?[2]f32) void {
+    self.widths = w;
+    for (self.windows.items) |win| win.relayout();
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const path = self.statePath(&pbuf, "columns") orelse return;
+    if (w) |x| {
+        var buf: [64]u8 = undefined;
+        writeAll(self.opts.state_dir.?, path, std.fmt.bufPrint(&buf, "{d:.4} {d:.4}\n", .{ x[0], x[1] }) catch return);
+    } else {
+        var zb: [linux.PATH_MAX]u8 = undefined;
+        const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
+        _ = linux.unlinkat(linux.AT.FDCWD, z, 0);
+    }
 }
 
 fn loadBookmarks(self: *App) void {

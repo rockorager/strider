@@ -111,6 +111,7 @@ pub const Harness = struct {
     data_dirs: [1][]const u8 = .{"tests/data"},
     config_dirs: [1][]const u8 = .{""},
     config_buf: [256]u8 = undefined,
+    state_buf: [256]u8 = undefined,
     data_home_buf: [256]u8 = undefined,
     cache_buf: [256]u8 = undefined,
 
@@ -120,6 +121,8 @@ pub const Harness = struct {
         width: u32 = 1000,
         height: u32 = 560,
         rtl: bool = false,
+        /// Keep state (bookmarks, history, column widths) under the home.
+        state: bool = false,
         scheme: siv.ColorScheme = .light,
         contrast: siv.Contrast = .follow,
         hidden: bool = false,
@@ -160,6 +163,7 @@ pub const Harness = struct {
             .log_errors = false,
             .window_width = s.width,
             .window_height = s.height,
+            .state_dir = if (s.state) try std.fmt.bufPrint(&h.state_buf, "{s}/.local/state/siv-columns", .{home}) else null,
         });
         const app = h.app.?;
         if (s.which_key_now) app.options.which_key_delay = 0;

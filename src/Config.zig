@@ -323,6 +323,9 @@ pub const default_bindings = [_]struct { keys.Mode, []const u8, []const u8, []co
     .{ .normal, "S", "terminal", "Terminal here" },
     .{ .normal, "=", "chmod", "Change permissions" },
     .{ .normal, "w", "tasks", "Tasks" },
+    .{ .normal, ">", "column-wider", "Widen the column" },
+    .{ .normal, "<", "column-narrower", "Narrow the column" },
+    .{ .normal, "z=", "column-reset", "Column widths from the ratio" },
     // The tasks view.
     .{ .tasks, "j", "task-down", "Next task" },
     .{ .tasks, "<Down>", "task-down", "Next task" },

@@ -152,7 +152,7 @@ test "keys: counts, gg and G, search, find, and history" {
     try h.typeText("L");
     try testing.expectEqualStrings("work", model.basename(h.dir().path));
     // Half pages, and the cursor stays in bounds.
-    try h.typeText("<");
+    try h.typeText("gg");
     try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
     try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
     try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
@@ -917,7 +917,8 @@ test "column widths: the ratio, the parent fitted to its names, narrow windows" 
     try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
     try testing.expectEqual(@as(f32, 375), widthOf(w.current_box));
     try h.typeText(":set fit_parent false\n");
-    try testing.expectApproxEqAbs(@as(f32, 125), widthOf(w.parent_box), 1);
+    // 1/8 of what the two 7 px handles leave.
+    try testing.expectApproxEqAbs(@as(f32, 123.25), widthOf(w.parent_box), 0.5);
     try h.typeText(":set fit_parent true\n");
     // A parent whose names are short keeps its share or a little more.
     try h.typeText("h");
@@ -940,7 +941,102 @@ test "column widths: the ratio, the parent fitted to its names, narrow windows" 
     // :set (and fm.set in init.lua) change the ratio and the breakpoint.
     try h.typeText(":set ratio 2,3,3\n:set narrow_width 1200\n");
     try testing.expect(!h.reads("Parent folder"));
-    try testing.expectApproxEqAbs(@as(f32, 500), widthOf(w.current_box), 1);
+    try testing.expectApproxEqAbs(@as(f32, 496.5), widthOf(w.current_box), 0.5);
+}
+
+/// Presses the primary button at a column handle's middle, moves by `dx`
+/// in steps, and lets go.
+fn dragHandle(h: *Harness, which: usize, dx: f32) !void {
+    var r: siv.Rect = .{};
+    _ = c.siv_node_get_rect(h.win.?.handles[which].node, &r);
+    const x = r.x + r.width / 2;
+    const y = r.y + 200;
+    try siv.check(c.siv_test_pointer_move(h.window(), x, y));
+    try h.settle();
+    try siv.check(c.siv_test_pointer_button(h.window(), .primary, true));
+    for (1..5) |k| try siv.check(c.siv_test_pointer_move(h.window(), x + dx * @as(f32, @floatFromInt(k)) / 4, y));
+    try h.settle();
+    try siv.check(c.siv_test_pointer_button(h.window(), .primary, false));
+    try h.settle();
+}
+
+test "column handles: dragging, < and >, z= to reset, and widths kept across starts" {
+    var f: Fixture = .{};
+    try fixture(&f, "resize");
+    defer f.remove();
+    var lb: [256]u8 = undefined;
+    {
+        var h: Harness = .{};
+        defer h.deinit();
+        try h.start(.{ .path = f.sub(&path_buf, "work/src"), .state = true });
+        const w = h.win.?;
+        // Fitted: a quarter for work's long names, 3/8 for the current.
+        try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
+        try testing.expectEqual(@as(f32, 375), widthOf(w.current_box));
+        try h.expectGolden(h.window(), "handles");
+        // The pointer over a handle lights its line.
+        var r: siv.Rect = .{};
+        _ = c.siv_node_get_rect(w.handles[1].node, &r);
+        try siv.check(c.siv_test_pointer_move(h.window(), r.x + 3, 300));
+        try h.settle();
+        try testing.expectEqual(@as(f32, 2), widthOf(w.handles[1].line));
+        // Dragging the first boundary 60 px right widens the parent; the
+        // current column's far edge stays.
+        try dragHandle(&h, 0, 60);
+        try testing.expectApproxEqAbs(@as(f32, 310), widthOf(w.parent_box), 1);
+        try testing.expectApproxEqAbs(@as(f32, 315), widthOf(w.current_box), 1);
+        // Lit while the pointer stays over it, at rest once it leaves.
+        try testing.expectEqual(@as(f32, 2), widthOf(w.handles[0].line));
+        try siv.check(c.siv_test_pointer_move(h.window(), 900, 300));
+        try h.settle();
+        try testing.expectEqual(@as(f32, 1), widthOf(w.handles[0].line));
+        // The second boundary takes from the preview.
+        try dragHandle(&h, 1, -40);
+        try testing.expectApproxEqAbs(@as(f32, 275), widthOf(w.current_box), 1);
+        try testing.expectApproxEqAbs(@as(f32, 310), widthOf(w.parent_box), 1);
+        // > and < by 32 px, with counts; a column keeps 80 px.
+        try h.typeText(">");
+        try testing.expectApproxEqAbs(@as(f32, 307), widthOf(w.current_box), 1);
+        try h.typeText("2<");
+        try testing.expectApproxEqAbs(@as(f32, 243), widthOf(w.current_box), 1);
+        try h.typeText(":column-narrower parent\n");
+        try testing.expectApproxEqAbs(@as(f32, 278), widthOf(w.parent_box), 1);
+        try h.typeText("20<");
+        try testing.expectApproxEqAbs(@as(f32, 80), widthOf(w.current_box), 1);
+        try h.typeText("5>");
+        try testing.expectApproxEqAbs(@as(f32, 240), widthOf(w.current_box), 1);
+        // A narrow window still drops the parent, and the widths come back.
+        try siv.check(c.siv_test_resize(h.window(), 600, 560));
+        try h.settle();
+        try testing.expect(!h.reads("Parent folder"));
+        try siv.check(c.siv_test_resize(h.window(), 1000, 560));
+        try h.settle();
+        try testing.expectApproxEqAbs(@as(f32, 278), widthOf(w.parent_box), 1);
+        try testing.expectEqualStrings("0.2780 0.2400\n", try readFile(&f, "work/.local/state/siv-columns/columns", &lb));
+    }
+    {
+        // The next start keeps them; z= goes back to the ratio and
+        // forgets them.
+        var h: Harness = .{};
+        defer h.deinit();
+        try h.start(.{ .path = f.sub(&path_buf, "work/src"), .state = true });
+        const w = h.win.?;
+        try testing.expectApproxEqAbs(@as(f32, 278), widthOf(w.parent_box), 1);
+        try testing.expectApproxEqAbs(@as(f32, 240), widthOf(w.current_box), 1);
+        try h.typeText("z=");
+        try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
+        try testing.expectEqual(@as(f32, 375), widthOf(w.current_box));
+        try testing.expectError(error.FileNotFound, readFile(&f, "work/.local/state/siv-columns/columns", &lb));
+    }
+    {
+        // Right to left, the parent is on the right: dragging its
+        // boundary left widens it.
+        var h: Harness = .{};
+        defer h.deinit();
+        try h.start(.{ .path = f.sub(&path_buf, "work/src"), .rtl = true });
+        try dragHandle(&h, 0, -60);
+        try testing.expectApproxEqAbs(@as(f32, 310), widthOf(h.win.?.parent_box), 1);
+    }
 }
 
 test "themes and right to left" {

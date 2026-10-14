@@ -126,6 +126,9 @@ pub const list = [_]Command{
     .{ .name = "help", .desc = "Every key and command", .run = help },
     .{ .name = "messages", .desc = "Recent messages, newest first", .run = messages },
     .{ .name = "tasks", .desc = "Open or close the tasks view", .run = tasks },
+    .{ .name = "column-wider", .desc = "Widen the current column (or: column-wider parent)", .run = columnWider },
+    .{ .name = "column-narrower", .desc = "Narrow the current column (or: column-narrower parent)", .run = columnNarrower },
+    .{ .name = "column-reset", .desc = "Column widths from the ratio again", .run = columnReset },
     .{ .name = "task-down", .desc = "The next task", .run = taskDown },
     .{ .name = "task-up", .desc = "The previous task", .run = taskUp },
     .{ .name = "task-pause", .desc = "Pause or resume the task", .run = taskPause },
@@ -1236,6 +1239,21 @@ fn messages(ctx: Ctx) void {
         out.append(gpa, '\n') catch return;
     }
     win.preview.showOutput("Messages", out.items, spans.items);
+}
+
+// Column widths ---------------------------------------------------------------------------
+
+/// How far < and > move a column's edge, in logical pixels, per count.
+const column_step: f32 = 32;
+
+fn columnWider(ctx: Ctx) void {
+    ctx.win.resizeColumn(std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"), column_step * @as(f32, @floatFromInt(ctx.n())));
+}
+fn columnNarrower(ctx: Ctx) void {
+    ctx.win.resizeColumn(std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"), -column_step * @as(f32, @floatFromInt(ctx.n())));
+}
+fn columnReset(ctx: Ctx) void {
+    ctx.win.app.setWidths(null);
 }
 
 // Tasks -------------------------------------------------------------------------------------

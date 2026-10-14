@@ -126,6 +126,10 @@ message: std.ArrayList(u8) = .empty,
 message_error: bool = false,
 
 whichkey_timer: siv.Timer = .null,
+/// The handles on the column boundaries (parent|current, current|preview),
+/// their lines, and a drag in progress.
+handles: [2]Handle = undefined,
+drag: ?Drag = null,
 /// The tasks view (w): file operations running and done; open in mode
 /// tasks, with this row selected.
 tasks: Node = .null,
@@ -291,10 +295,10 @@ fn build(self: *Window) !void {
     _ = c.siv_set_visual(txn, cols, &.{ .background_token = .view_bg });
     self.parent_box = c.siv_box(txn, cols);
     self.parent_col.build(txn, self.parent_box, "Parent folder");
-    _ = ui.vrule(txn, cols);
+    self.buildHandle(txn, cols, 0);
     self.current_box = c.siv_box(txn, cols);
     self.current.build(txn, self.current_box, "Files");
-    _ = ui.vrule(txn, cols);
+    self.buildHandle(txn, cols, 1);
     self.preview_box = c.siv_box(txn, cols);
     self.preview.build(txn, self.preview_box);
     self.applyRatioTxn(txn);
@@ -374,6 +378,137 @@ fn build(self: *Window) !void {
 /// Column widths from the ratio and the window's width: narrow windows
 /// drop the parent column, then the preview; the parent widens to fit its
 /// names (fit_parent).
+// Column handles ---------------------------------------------------------------------------
+
+/// How wide a column boundary is to grab: a 1 px line in the middle, with
+/// each side on its column's surface.
+const handle_width: f32 = 7;
+/// No column gets narrower than this by dragging or < and >.
+const min_column: f32 = 80;
+
+const Handle = struct { win: *Window, which: u1, node: Node = .null, line: Node = .null, hover: bool = false };
+
+/// A boundary being dragged: where the pointer started (window
+/// coordinates) and the parent's and current column's widths then.
+const Drag = struct { which: u1, x0: f32, widths: [2]f32 };
+
+fn buildHandle(self: *Window, txn: Txn, parent: Node, which: u1) void {
+    const h = &self.handles[which];
+    h.* = .{ .win = self, .which = which };
+    h.node = c.siv_flex(txn, parent, &.{ .axis = .row, .align_items = .stretch });
+    _ = c.siv_set_layout(txn, h.node, &.{ .width = px(handle_width), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+    const sides = [2][2]siv.ColorToken{ .{ .sidebar_bg, .secondary_sidebar_bg }, .{ .secondary_sidebar_bg, .view_bg } };
+    const a = c.siv_box(txn, h.node);
+    _ = c.siv_set_layout(txn, a, &.{ .grow = 1, .basis = px(0) });
+    _ = c.siv_set_visual(txn, a, &.{ .background_token = sides[which][0] });
+    h.line = c.siv_box(txn, h.node);
+    const b = c.siv_box(txn, h.node);
+    _ = c.siv_set_layout(txn, b, &.{ .grow = 1, .basis = px(0) });
+    _ = c.siv_set_visual(txn, b, &.{ .background_token = sides[which][1] });
+    _ = c.siv_set_semantics(txn, h.node, &.{ .role = .none });
+    _ = c.siv_set_cursor(txn, h.node, .ew_resize);
+    _ = c.siv_on(txn, h.node, .pointer, onHandlePointer, null, h);
+    styleHandle(txn, h, false);
+}
+
+/// The line: the separator at rest, the accent and twice as wide under
+/// the pointer or while dragged.
+fn styleHandle(txn: Txn, h: *const Handle, lit: bool) void {
+    _ = c.siv_set_layout(txn, h.line, &.{ .width = px(if (lit) 2 else 1), .flags = .{ .no_shrink = true } });
+    _ = c.siv_set_visual(txn, h.line, &.{ .background_token = if (lit) .accent else .separator });
+}
+
+fn onHandlePointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const h: *Handle = @ptrCast(@alignCast(ud.?));
+    const self = h.win;
+    var r: siv.Rect = .{};
+    _ = c.siv_node_get_rect(node, &r);
+    // In window coordinates, from the last layout, so that moves before
+    // the next frame do not add up.
+    const x = r.x + ev.x;
+    switch (ev.phase) {
+        .down => if (ev.button == .primary) {
+            self.drag = .{ .which = h.which, .x0 = x, .widths = self.columnWidths() };
+            self.restyleHandle(h);
+            return .handled;
+        },
+        .move => if (self.drag) |d| if (d.which == h.which) {
+            var rtl = false;
+            _ = c.siv_node_is_rtl(node, &rtl);
+            const delta = (x - d.x0) * @as(f32, if (rtl) -1 else 1);
+            var w = d.widths;
+            if (d.which == 0) {
+                // The boundary moves; the current column's other edge stays.
+                w[0] += delta;
+                w[1] -= delta;
+            } else w[1] += delta;
+            self.setColumnWidths(w, false);
+            return .handled;
+        },
+        .up, .cancel => if (self.drag != null) {
+            self.drag = null;
+            self.restyleHandle(h);
+            // Kept for the next start once the drag ends.
+            if (self.app.widths) |w| self.app.setWidths(w);
+            return .handled;
+        },
+        .enter, .leave => {
+            h.hover = ev.phase == .enter;
+            self.restyleHandle(h);
+        },
+        else => {},
+    }
+    return .pass;
+}
+
+fn restyleHandle(self: *Window, h: *const Handle) void {
+    const txn = self.begin() orelse return;
+    styleHandle(txn, h, h.hover or (self.drag != null and self.drag.?.which == h.which));
+    _ = commit(txn);
+}
+
+/// The parent's and the current column's widths as laid out.
+pub fn columnWidths(self: *Window) [2]f32 {
+    var a: siv.Rect = .{};
+    var b: siv.Rect = .{};
+    _ = c.siv_node_get_rect(self.parent_box, &a);
+    _ = c.siv_node_get_rect(self.current_box, &b);
+    return .{ a.width, b.width };
+}
+
+/// Makes the parent and current columns `w` wide (clamped so that every
+/// shown column keeps `min_column`), as the user's choice; `persist`
+/// keeps it for the next start.
+fn setColumnWidths(self: *Window, w_in: [2]f32, persist: bool) void {
+    const total = self.width;
+    if (total <= 0) return;
+    var w = w_in;
+    const room = total - 2 * handle_width - min_column;
+    w[0] = std.math.clamp(w[0], min_column, @max(min_column, room - min_column));
+    w[1] = std.math.clamp(w[1], min_column, @max(min_column, room - w[0]));
+    const shares: [2]f32 = .{ w[0] / total, w[1] / total };
+    if (persist) self.app.setWidths(shares) else {
+        self.app.widths = shares;
+        for (self.app.windows.items) |win| win.relayout();
+    }
+}
+
+/// < and >: widens (or narrows, with a negative `delta`) the current
+/// column, or the parent; the room comes from the preview.
+pub fn resizeColumn(self: *Window, parent: bool, delta: f32) void {
+    var w = self.columnWidths();
+    w[if (parent) 0 else 1] += delta;
+    self.setColumnWidths(w, true);
+}
+
+/// Lays the columns out again (the widths or the options changed).
+pub fn relayout(self: *Window) void {
+    if (self.tabs.items.len == 0) return;
+    const txn = self.begin() orelse return;
+    self.applyRatioTxn(txn);
+    _ = commit(txn);
+}
+
 fn applyRatioTxn(self: *Window, txn: Txn) void {
     const o = &self.app.options;
     const r = o.ratio;
@@ -381,22 +516,38 @@ fn applyRatioTxn(self: *Window, txn: Txn) void {
     const w = self.width;
     const show_parent = r[0] > 0 and (w == 0 or w >= narrow);
     const show_preview = o.preview and r[2] > 0 and (w == 0 or w >= narrow * 2 / 3);
-    // Fitting the parent fixes it and the current column at their widths
-    // and leaves the rest to the preview, so only the preview narrows.
+    // Chosen widths, or fitting the parent, fix it and the current column
+    // at their widths and leave the rest to the preview.
     var parent_px: f32 = 0;
     var current_px: f32 = 0;
-    if (show_parent and show_preview and o.fit_parent and w > 0 and self.parent_fit > 0) {
-        const total = r[0] + @max(r[1], 0.1) + r[2];
-        const share = w * r[0] / total;
-        parent_px = std.math.clamp(self.parent_fit, share, @max(share, w / 4));
-        current_px = w * @max(r[1], 0.1) / total;
-    }
-    if (parent_px > 0) {
-        _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
-        _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+    if (self.app.widths) |chosen| if (w > 0) {
+        // The user's widths win over the ratio and fit_parent; narrow
+        // windows still drop columns, and the preview keeps its least.
+        const room = w - 2 * handle_width - (if (show_preview) min_column else 0);
+        parent_px = if (show_parent) std.math.clamp(chosen[0] * w, min_column, @max(min_column, room - min_column)) else 0;
+        current_px = if (show_preview) std.math.clamp(chosen[1] * w, min_column, @max(min_column, room - parent_px)) else 0;
+    };
+    const manual = self.app.widths != null and w > 0;
+    if (manual) {
+        if (show_parent) _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
+        if (show_preview)
+            _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } })
+        else
+            _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = 1, .basis = px(0), .height = ui.fill() });
     } else {
-        _ = c.siv_set_layout(txn, self.parent_box, &.{ .grow = r[0], .basis = px(0), .height = ui.fill(), .min_width = 0 });
-        _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = @max(r[1], 0.1), .basis = px(0), .height = ui.fill() });
+        if (show_parent and show_preview and o.fit_parent and w > 0 and self.parent_fit > 0) {
+            const total = r[0] + @max(r[1], 0.1) + r[2];
+            const share = w * r[0] / total;
+            parent_px = std.math.clamp(self.parent_fit, share, @max(share, w / 4));
+            current_px = w * @max(r[1], 0.1) / total;
+        }
+        if (parent_px > 0) {
+            _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
+            _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+        } else {
+            _ = c.siv_set_layout(txn, self.parent_box, &.{ .grow = r[0], .basis = px(0), .height = ui.fill(), .min_width = 0 });
+            _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = @max(r[1], 0.1), .basis = px(0), .height = ui.fill() });
+        }
     }
     _ = c.siv_set_hidden(txn, self.parent_box, !show_parent);
     _ = c.siv_set_hidden(txn, c.siv_node_get_related(self.parent_box, .next), !show_parent);
