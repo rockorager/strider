@@ -18,6 +18,8 @@ fm.set {
 	sort_reverse = false,
 	dirs_first = true,
 	ratio = { 1, 3, 4 }, -- parent, current, preview
+	fit_parent = true, -- the parent widens to its names, up to a quarter
+	narrow_width = 640, -- narrower windows hide the parent column
 	icons = true,
 	preview = true,
 	which_key_delay = 300, -- ms before the key hints show after a prefix

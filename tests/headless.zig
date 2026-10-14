@@ -544,6 +544,52 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
     App.Lua.lh.pop(L, 1);
 }
 
+fn widthOf(n: siv.Node) f32 {
+    var r: siv.Rect = .{};
+    _ = c.siv_node_get_rect(n, &r);
+    return r.width;
+}
+
+test "column widths: the ratio, the parent fitted to its names, narrow windows" {
+    var f: Fixture = .{};
+    try fixture(&f, "ratio");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work/src") });
+    const w = h.win.?;
+    // work's long name widens the parent from its share (1/8 of 1000) to
+    // a quarter of the window; the current column keeps 3/8; the preview
+    // gives up the rest.
+    try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
+    try testing.expectEqual(@as(f32, 375), widthOf(w.current_box));
+    try h.typeText(":set fit_parent false\n");
+    try testing.expectApproxEqAbs(@as(f32, 125), widthOf(w.parent_box), 1);
+    try h.typeText(":set fit_parent true\n");
+    // A parent whose names are short keeps its share or a little more.
+    try h.typeText("h");
+    try testing.expect(widthOf(w.parent_box) >= 125 and widthOf(w.parent_box) < 200);
+    try h.typeText("l");
+    // Narrow windows drop the parent, then the preview.
+    try siv.check(c.siv_test_resize(h.window(), 600, 560));
+    try h.settle();
+    try testing.expect(!h.reads("Parent folder"));
+    try testing.expect(h.reads("Preview"));
+    try h.expectGolden(h.window(), "narrow");
+    try siv.check(c.siv_test_resize(h.window(), 400, 560));
+    try h.settle();
+    try testing.expect(!h.reads("Preview"));
+    try testing.expectEqual(@as(f32, 400), widthOf(w.current_box));
+    try siv.check(c.siv_test_resize(h.window(), 1000, 560));
+    try h.settle();
+    try testing.expect(h.reads("Parent folder") and h.reads("Preview"));
+    try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
+    // :set (and fm.set in init.lua) change the ratio and the breakpoint.
+    try h.typeText(":set ratio 2,3,3\n:set narrow_width 1200\n");
+    try testing.expect(!h.reads("Parent folder"));
+    try testing.expectApproxEqAbs(@as(f32, 500), widthOf(w.current_box), 1);
+}
+
 test "themes and right to left" {
     var f: Fixture = .{};
     try fixture(&f, "themes");

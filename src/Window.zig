@@ -121,6 +121,10 @@ message_error: bool = false,
 
 whichkey_timer: siv.Timer = .null,
 last_input: u64 = 0,
+/// The window's logical width (0 before the first configure).
+width: f32 = 0,
+/// What the parent column's names need, in logical pixels (0: unknown).
+parent_fit: f32 = 0,
 /// For measurements: frames presented, the first, and the first with the
 /// current folder's rows.
 frames: u64 = 0,
@@ -155,6 +159,8 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .on_event = onWindowEvent,
         .destroy = onWindowDestroyed,
     });
+    var size: siv.Size = .{};
+    if (c.siv_window_get_size(self.window, &size) == .ok) self.width = size.width;
     try self.build();
     const t = self.addTab(path) orelse return error.OutOfMemory;
     _ = t;
@@ -172,6 +178,13 @@ pub fn close(self: *Window) void {
 fn onWindowEvent(ud: ?*anyopaque, _: siv.Window, ev: *const siv.WindowEvent) callconv(.c) bool {
     const self: *Window = @ptrCast(@alignCast(ud.?));
     switch (ev.type) {
+        .resized => if (self.width != @as(f32, @floatFromInt(ev.width))) {
+            self.width = @floatFromInt(ev.width);
+            if (self.tabs.items.len != 0) if (self.begin()) |txn| {
+                self.applyRatioTxn(txn);
+                _ = commit(txn);
+            };
+        },
         .presented => {
             self.frames += 1;
             if (self.first_frame_ns == 0) self.first_frame_ns = ev.commit_ns;
@@ -327,19 +340,88 @@ fn build(self: *Window) !void {
     try siv.txnCommit(txn);
 }
 
+/// Column widths from the ratio and the window's width: narrow windows
+/// drop the parent column, then the preview; the parent widens to fit its
+/// names (fit_parent).
 fn applyRatioTxn(self: *Window, txn: Txn) void {
-    const r = self.app.options.ratio;
-    const show_preview = self.app.options.preview and r[2] > 0;
-    _ = c.siv_set_layout(txn, self.parent_box, &.{ .grow = r[0], .basis = px(0), .height = ui.fill(), .min_width = 0 });
-    _ = c.siv_set_hidden(txn, self.parent_box, r[0] <= 0);
-    _ = c.siv_set_hidden(txn, c.siv_node_get_related(self.parent_box, .next), r[0] <= 0);
-    _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = @max(r[1], 0.1), .basis = px(0), .height = ui.fill() });
+    const o = &self.app.options;
+    const r = o.ratio;
+    const narrow: f32 = @floatFromInt(o.narrow_width);
+    const w = self.width;
+    const show_parent = r[0] > 0 and (w == 0 or w >= narrow);
+    const show_preview = o.preview and r[2] > 0 and (w == 0 or w >= narrow * 2 / 3);
+    // Fitting the parent fixes it and the current column at their widths
+    // and leaves the rest to the preview, so only the preview narrows.
+    var parent_px: f32 = 0;
+    var current_px: f32 = 0;
+    if (show_parent and show_preview and o.fit_parent and w > 0 and self.parent_fit > 0) {
+        const total = r[0] + @max(r[1], 0.1) + r[2];
+        const share = w * r[0] / total;
+        parent_px = std.math.clamp(self.parent_fit, share, @max(share, w / 4));
+        current_px = w * @max(r[1], 0.1) / total;
+    }
+    if (parent_px > 0) {
+        _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
+        _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+    } else {
+        _ = c.siv_set_layout(txn, self.parent_box, &.{ .grow = r[0], .basis = px(0), .height = ui.fill(), .min_width = 0 });
+        _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = @max(r[1], 0.1), .basis = px(0), .height = ui.fill() });
+    }
+    _ = c.siv_set_hidden(txn, self.parent_box, !show_parent);
+    _ = c.siv_set_hidden(txn, c.siv_node_get_related(self.parent_box, .next), !show_parent);
     _ = c.siv_set_layout(txn, self.preview_box, &.{ .grow = r[2], .basis = px(0), .height = ui.fill() });
     _ = c.siv_set_hidden(txn, self.preview_box, !show_preview);
     _ = c.siv_set_hidden(txn, c.siv_node_get_related(self.preview_box, .previous), !show_preview);
     _ = c.siv_set_layout(txn, self.parent_col.root, &.{ .width = ui.fill(), .height = ui.fill() });
     _ = c.siv_set_layout(txn, self.current.root, &.{ .width = ui.fill(), .height = ui.fill() });
     _ = c.siv_set_layout(txn, self.preview.root, &.{ .width = ui.fill(), .height = ui.fill() });
+}
+
+/// The width the parent column needs for its longest names: the few
+/// longest in bytes are measured, so a 100 000-entry parent costs one
+/// pass over its names and a dozen measurements. 0 while it reads.
+fn fitWidth(self: *Window, d: ?*Dir) f32 {
+    const dir = d orelse return 0;
+    const l = if (dir.listing) |*l| l else return 0;
+    if (!dir.loaded) return 0;
+    const k = 12;
+    var longest: [k]u32 = undefined;
+    var lens: [k]usize = @splat(0);
+    var n: usize = 0;
+    for (dir.visible.items) |i| {
+        const len = l.base(l.entries[i]).len;
+        if (n < k) {
+            longest[n] = i;
+            lens[n] = len;
+            n += 1;
+            continue;
+        }
+        const min_at = std.mem.indexOfMin(usize, &lens);
+        if (len > lens[min_at]) {
+            longest[min_at] = i;
+            lens[min_at] = len;
+        }
+    }
+    var widest: f32 = 0;
+    for (longest[0..n]) |i| {
+        const name = l.base(l.entries[i]);
+        var m: siv.TextMetrics = .{};
+        if (c.siv_app_measure_text(self.app.app, name.ptr, name.len, 1e6, &.{ .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true } }, &m) == .ok)
+            widest = @max(widest, m.width);
+    }
+    if (widest == 0) return 0;
+    // The row around the name: its padding, the mark, the icon, and the
+    // gaps between them (Column.bindRow).
+    const icon: f32 = if (self.app.options.icons) 16 + 6 else 0;
+    return widest + 1 + 8 + 3 + 6 + icon + 6 + 10;
+}
+
+/// Measures the parent column's names again and widens or narrows it.
+fn refitParent(self: *Window, txn: Txn) void {
+    const fit = self.fitWidth(self.parent_col.dir);
+    if (fit == self.parent_fit) return;
+    self.parent_fit = fit;
+    self.applyRatioTxn(txn);
 }
 
 // Tabs ------------------------------------------------------------------------------------
@@ -455,6 +537,7 @@ pub fn showTab(self: *Window) void {
     const txn = self.begin() orelse return;
     self.current.show(txn, d);
     self.parent_col.show(txn, pd);
+    self.refitParent(txn);
     self.updatePreviewTxn(txn);
     self.applyTabs(txn);
     self.applyHeader(txn);
@@ -486,6 +569,7 @@ pub fn dirLoaded(self: *Window, d: *Dir) void {
     if (self.parent_col.dir == d) {
         d.selectName(model.basename(cur.path));
         self.parent_col.refresh(txn);
+        self.refitParent(txn);
     }
     if (self.preview.column.dir == d) {
         self.preview.column.refresh(txn);
@@ -509,6 +593,8 @@ pub fn optionsChanged(self: *Window) void {
     self.current.rebind(t2);
     self.parent_col.refresh(t2);
     self.parent_col.rebind(t2);
+    self.parent_fit = self.fitWidth(self.parent_col.dir);
+    self.applyRatioTxn(t2);
     if (self.preview.column.dir != null) {
         self.preview.column.refresh(t2);
         self.preview.column.rebind(t2);

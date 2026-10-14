@@ -10,8 +10,15 @@ pub const Options = struct {
     /// Show entries whose names start with a dot.
     show_hidden: bool = false,
     sort: model.Sort = .{},
-    /// Widths of the parent, current, and preview columns, as shares.
+    /// Widths of the parent, current, and preview columns, as shares
+    /// (ranger's column_ratios).
     ratio: [3]f32 = .{ 1, 3, 4 },
+    /// The parent column widens to show its longest name, up to a quarter
+    /// of the window, taking the room from the preview.
+    fit_parent: bool = true,
+    /// Logical pixels: a window narrower than this hides the parent
+    /// column, and one narrower than two thirds of it the preview too.
+    narrow_width: u32 = 640,
     /// Themed icons beside names.
     icons: bool = true,
     /// The preview column.
@@ -62,6 +69,8 @@ pub const infos = [_]Info{
     .{ .name = "sort_reverse", .kind = .boolean, .desc = "Reverse the sort" },
     .{ .name = "dirs_first", .kind = .boolean, .desc = "Folders before files" },
     .{ .name = "ratio", .kind = .ratio, .desc = "Column widths, e.g. {1, 3, 4}" },
+    .{ .name = "fit_parent", .kind = .boolean, .desc = "Widen the parent column to fit its names" },
+    .{ .name = "narrow_width", .kind = .number, .desc = "Hide the parent column below this window width" },
     .{ .name = "icons", .kind = .boolean, .desc = "Icons beside names" },
     .{ .name = "preview", .kind = .boolean, .desc = "The preview column" },
     .{ .name = "preview_images", .kind = .boolean, .desc = "Image previews" },
@@ -155,11 +164,15 @@ pub fn parseSortKey(t: []const u8) ?model.SortKey {
     return null;
 }
 
+/// Options fields that are booleans and numbers under their own names.
+const bool_fields = .{ "icons", "fit_parent", "preview", "preview_images", "syntax", "wrap_scan", "find_auto_accept", "confirm_delete", "show_size", "editor_in_terminal" };
+const number_fields = .{ "narrow_width", "preview_max_bytes", "which_key_delay", "scroll_off", "stale_ms" };
+
 pub fn getBool(o: *const Options, name: []const u8) ?bool {
     if (std.mem.eql(u8, name, "hidden")) return o.show_hidden;
     if (std.mem.eql(u8, name, "sort_reverse")) return o.sort.descending;
     if (std.mem.eql(u8, name, "dirs_first")) return o.sort.folders_first;
-    inline for (.{ "icons", "preview", "preview_images", "syntax", "wrap_scan", "find_auto_accept", "confirm_delete", "show_size", "editor_in_terminal" }) |f| {
+    inline for (bool_fields) |f| {
         if (std.mem.eql(u8, name, f)) return @field(o, f);
     }
     return null;
@@ -169,20 +182,20 @@ pub fn setBool(o: *Options, name: []const u8, v: bool) void {
     if (std.mem.eql(u8, name, "hidden")) o.show_hidden = v;
     if (std.mem.eql(u8, name, "sort_reverse")) o.sort.descending = v;
     if (std.mem.eql(u8, name, "dirs_first")) o.sort.folders_first = v;
-    inline for (.{ "icons", "preview", "preview_images", "syntax", "wrap_scan", "find_auto_accept", "confirm_delete", "show_size", "editor_in_terminal" }) |f| {
+    inline for (bool_fields) |f| {
         if (std.mem.eql(u8, name, f)) @field(o, f) = v;
     }
 }
 
 pub fn getNumber(o: *const Options, name: []const u8) ?u32 {
-    inline for (.{ "preview_max_bytes", "which_key_delay", "scroll_off", "stale_ms" }) |f| {
+    inline for (number_fields) |f| {
         if (std.mem.eql(u8, name, f)) return @field(o, f);
     }
     return null;
 }
 
 pub fn setNumber(o: *Options, name: []const u8, v: u32) void {
-    inline for (.{ "preview_max_bytes", "which_key_delay", "scroll_off", "stale_ms" }) |f| {
+    inline for (number_fields) |f| {
         if (std.mem.eql(u8, name, f)) @field(o, f) = v;
     }
 }
