@@ -125,7 +125,9 @@ Measured 2026-10-14 with the commits above. `raw/` has every run;
 `report.py` makes this table from it. Times are from the key press (or
 `fork`) to the photon.
 
-Median (worst); 5 runs of siv-columns, 5 runs of Nautilus.
+Median (worst); 5 runs of siv-columns, 5 runs of Nautilus. These runs
+predate siv 66cdcfc, which removed a 16 MiB step in GPU memory; see
+**GPU memory** below for three runs with it.
 
 | Measurement | siv-columns | Nautilus |
 | --- | --- | --- |
@@ -194,12 +196,19 @@ What the numbers say:
   5 s in the big folder. Nautilus's main thread wakes 98 times a second
   while idle in the big folder (0.3% CPU), for as long as it shows it.
 - **GPU memory** is the one count where siv-columns is higher: 47 MiB
-  after starting (Nautilus 30), of which 43 MiB is VRAM, and 63 MiB from
-  the moment the big folder opens (VRAM 43 → 59 MiB; Nautilus 25 → 27),
-  though the window shows as many rows as before. It stays at 63 MiB
-  through scrolling and filtering (Nautilus ends at 51 MiB). The cause
-  of the 16 MiB step is not known; a new glyph atlas page or a texture
-  sized by the list would explain it.
+  after starting (Nautilus 30), of which 43 MiB is VRAM. In the runs
+  above it then went to 63 MiB (VRAM 43 → 59 MiB; Nautilus 25 → 27) and
+  stayed there through scrolling and filtering (Nautilus ends at
+  51 MiB). The folder did not cause that step. siv's Vulkan renderer
+  made every path mask page at least 2048 px square, with two layers
+  for each frame in flight, and the first paths siv-columns draws are
+  the four bands of the command line's border. The command line opens
+  as `:cd` is typed, just before the folder opens. siv 66cdcfc sizes the
+  pages to the frame's masks. With it (siv-columns 5962120, 3 runs,
+  `raw/siv-66cdcfc/`) siv-columns holds 46.9 MiB after starting and
+  48.2 MiB with the big folder open, against 63.0 MiB for the same app
+  with siv cdfb9be. The other numbers in those runs matched the table
+  within noise.
 
 ## What is not measured fairly
 
