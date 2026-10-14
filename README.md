@@ -131,8 +131,23 @@ stays marked if you cancel), and `yy`, `dd`, `dT`, and `dD` still work.
 A key that is bound to nothing says so in the status line ("Q isn't
 bound in normal mode") instead of doing nothing silently. Copies and cuts go to the clipboard too (as GNOME
 and KDE file managers put them), and `p` pastes what other file managers
-copied. Files drag out of the current column, and drop into it or onto a
-folder's row.
+copied.
+
+Drag what commands act on (the row, the marks, or the visual range) from
+the current column onto any folder: a folder's row in any column, a
+column's empty space (its folder), a folder of the header path, or a
+tab (its folder). The folder under the pointer is outlined, the drag
+icon shows the file (or "3 items") and whether it will move or copy, and
+the status line says "Move 3 items to src". Within one filesystem a drop
+moves, across filesystems it copies; Shift moves, Ctrl copies, and
+Ctrl+Shift makes links. Resting on a folder for 0.7 s opens it, so a
+drop can go deeper (on a tab, it switches to it), and resting near a
+column's top or bottom scrolls it. The folder the items are in, the
+items themselves, and folders you cannot write take nothing. A drop is a
+file operation like `p`: conflicts ask, the tasks view shows it, and `u`
+undoes it. Escape cancels a drag where the compositor still sends keys
+during one (sway does not). Files drag out to other applications and
+drop in from them too.
 
 Filters (`zf`) and searches (`/`, `?`) are separate: a filter hides what
 does not match until Esc, a search moves the cursor among what is shown.

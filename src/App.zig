@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const siv = @import("siv");
 const c = siv.c;
 pub const Window = @import("Window.zig");
+pub const Dnd = @import("Dnd.zig");
 pub const Dir = @import("Dir.zig");
 pub const Config = @import("Config.zig");
 pub const keys = @import("keys.zig");
@@ -126,6 +127,8 @@ messages: std.ArrayList(Message) = .empty,
 /// What yy and dd took: paths, and whether pasting moves them.
 register: std.ArrayList([]u8) = .empty,
 register_cut: bool = false,
+/// The app's drag in progress, from one of its windows (Drag.zig).
+drag: ?*Dnd.Source = null,
 
 /// Loaded once by the first job that needs it.
 mime_db: ?*mime.Db = null,

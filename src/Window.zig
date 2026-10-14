@@ -14,6 +14,7 @@ const Dir = @import("Dir.zig");
 const Column = @import("Column.zig");
 const Preview = @import("Preview.zig");
 const Picker = @import("Picker.zig");
+const Dnd = @import("Dnd.zig");
 const Chooser = @import("Chooser.zig");
 pub const Menu = @import("Menu.zig");
 pub const Dialogs = @import("Dialogs.zig");
@@ -104,6 +105,8 @@ picker: Picker,
 menu: Menu,
 /// The dialog showing, if any.
 dialogs: Dialogs,
+/// Drops into folders here: the target outlined, its timers.
+dnd: Dnd,
 /// The FileChooser portal request this window serves, if it is one.
 chooser: ?*Chooser = null,
 /// Whether it was made for one (the request goes before the window).
@@ -206,9 +209,11 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
         .picker = undefined,
         .menu = undefined,
         .dialogs = undefined,
+        .dnd = undefined,
         .chooser = chooser,
         .is_chooser = chooser != null,
     };
+    self.dnd = .{ .win = self };
     self.parent_col.win = self;
     self.current.win = self;
     self.preview = Preview.init(self);
@@ -297,6 +302,7 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     const gpa = self.gpa;
     self.window = .null;
     self.closing = true;
+    self.dnd.deinit();
     if (self.whichkey_timer != .null) _ = c.siv_timer_cancel(self.whichkey_timer);
     if (self.probing) |pr| pr.win = null;
     if (self.is_chooser and self.user_resized and self.width > 0)
@@ -391,9 +397,6 @@ fn build(self: *Window) !void {
     self.preview.build(txn, self.preview_box);
     self.applyRatioTxn(txn);
     if (self.chooser) |ch| ch.build(txn, main);
-    const drop_mimes = "text/uri-list";
-    _ = c.siv_set_drop_target(txn, self.current_box, &.{ .mimes = drop_mimes, .mimes_len = drop_mimes.len, .actions = .{ .copy = true, .move = true }, .preferred = .copy });
-    _ = c.siv_on(txn, self.current_box, .drop, onDrop, null, self);
 
     // The status line.
     const status = c.siv_flex(txn, main, &.{ .axis = .row, .gap = 10, .align_items = .center });
@@ -792,6 +795,9 @@ fn applyTabs(self: *Window, txn: Txn) void {
         _ = c.siv_set_layout(txn, root, &.{ .padding = .{ .start = 8, .end = 2, .top = 1, .bottom = 1 }, .max_width = 180 });
         _ = c.siv_set_semantics(txn, root, &.{ .role = .tab, .label = label.ptr, .label_len = label.len });
         _ = c.siv_on(txn, root, .pointer, onTabPointer, null, self);
+        // Files dragged onto a tab go to its folder.
+        _ = c.siv_set_drop_target(txn, root, &drop_target);
+        _ = c.siv_on(txn, root, .drop, onTabDrop, null, self);
         const text = c.siv_text(txn, root, label.ptr, label.len);
         _ = c.siv_set_layout(txn, text, &.{ .shrink = 1, .min_width = 0 });
         // The close button's space is always kept, so labels stay put when
@@ -815,7 +821,9 @@ fn styleTab(self: *Window, txn: Txn, i: usize) void {
     const hover = self.tab_hover == i;
     const fg: siv.ColorToken = if (on) .accent_fg else if (hover) .control_fg else .muted_fg;
     _ = c.siv_set_visual(txn, n.root, &.{ .background_token = if (on) .accent else if (hover) .control_hover else .control_bg, .radius = tab_radius });
-    _ = c.siv_set_semantics(txn, n.root, &.{ .role = .tab, .selected = if (on) .on else .off });
+    var tb: [96]u8 = undefined;
+    const label = self.tabLabel(&tb, i);
+    _ = c.siv_set_semantics(txn, n.root, &.{ .role = .tab, .label = label.ptr, .label_len = label.len, .selected = if (on) .on else .off });
     _ = c.siv_set_text_style(txn, n.label, &.{ .color_token = fg, .size_role = .caption, .weight = if (on) .bold else .regular, .flags = .{ .no_wrap = true, .ellipsize = true } });
     const shown = on or hover;
     const close_hover = shown and self.tab_close_hover == i;
@@ -827,6 +835,21 @@ fn styleTab(self: *Window, txn: Txn, i: usize) void {
     const name = std.fmt.bufPrint(&buf, "Close {s}", .{self.tabLabel(&lb, i)}) catch "Close";
     _ = c.siv_set_semantics(txn, n.close, &.{ .role = if (shown) .button else .none, .label = name.ptr, .label_len = name.len, .flags = .{ .focusable = false } });
     _ = c.siv_set_image_view(txn, n.icon, &.{ .icon = "window-close-symbolic", .icon_len = 21, .icon_size = 12, .color_token = fg });
+}
+
+fn onTabDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const self: *Window = @ptrCast(@alignCast(ud.?));
+    const i = self.tabIndex(node, "root") orelse return .pass;
+    var pb: [linux.PATH_MAX]u8 = undefined;
+    const path = std.fmt.bufPrint(&pb, "{s}", .{self.tabs.items[i].path()}) catch return .pass;
+    return self.dnd.onDrop(ev, .{ .tab = i }, path);
+}
+
+/// A drop's outline on tab `i`, or its own look again.
+pub fn tabDropOutline(self: *Window, txn: Txn, i: usize, on: bool) void {
+    if (i >= self.tab_nodes.items.len) return;
+    self.styleTab(txn, i);
+    if (on) _ = c.siv_set_visual(txn, self.tab_nodes.items[i].root, &.{ .background_token = .control_hover, .border_token = .accent, .border_width = 2, .radius = tab_radius });
 }
 
 fn tabIndex(self: *Window, node: Node, comptime field: []const u8) ?usize {
@@ -1037,7 +1060,23 @@ fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
     _ = c.siv_set_cursor(txn, n, .pointer);
     _ = c.siv_set_semantics(txn, n, &.{ .role = .link, .label = label.ptr, .label_len = label.len, .flags = .{ .focusable = false } });
     _ = c.siv_on(txn, n, .pointer, onCrumbPointer, null, self);
+    // Files dragged onto a folder of the path go there.
+    _ = c.siv_set_drop_target(txn, n, &drop_target);
+    _ = c.siv_on(txn, n, .drop, onCrumbDrop, null, self);
     return n;
+}
+
+/// What folders take: files, copied or moved.
+pub const drop_target: siv.DropTargetDesc = .{ .mimes = "text/uri-list", .mimes_len = 13, .actions = .{ .copy = true, .move = true }, .preferred = .copy };
+
+fn onCrumbDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const self: *Window = @ptrCast(@alignCast(ud.?));
+    const cr = for (self.crumbs.items) |x| {
+        if (x.node == node) break x;
+    } else return .pass;
+    var pb: [linux.PATH_MAX]u8 = undefined;
+    const path = std.fmt.bufPrint(&pb, "{s}", .{cr.path}) catch return .pass;
+    return self.dnd.onDrop(ev, .{ .crumb = node }, path);
 }
 
 fn onCrumbPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
@@ -1104,6 +1143,10 @@ fn applyStatus(self: *Window, txn: Txn) void {
                 .finished => |f| std.fmt.bufPrint(&lbuf, "{s}: {s}", .{ f.title, f.result }) catch "",
             };
         } else left = "No file operations yet";
+        left_token = .window_fg;
+    } else if (self.dnd.hint.items.len != 0) {
+        // What a drop here would do.
+        left = self.dnd.hint.items;
         left_token = .window_fg;
     } else if (self.message.items.len != 0) {
         left = self.message.items;
@@ -1545,6 +1588,9 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     if (!ev.flags.pressed) return .pass;
     input_clock += 1;
     self.last_input = input_clock;
+    // Escape while dragging cancels the drag (where the compositor still
+    // sends keys during one).
+    if (ev.keysym == .escape and Dnd.cancel(self)) return .handled;
     if (self.prompt != null or self.tabs.items.len == 0 or self.dialogs.isOpen()) return .pass;
     const m = ev.modifiers;
     // A chooser's name field takes its keys (insert mode); Tab goes to it.
@@ -2613,6 +2659,19 @@ fn pasteRegister(self: *Window, dest: []const u8, replace: bool) void {
     self.app.startOpWith(self, if (self.app.register_cut) .move else .copy, @ptrCast(reg), dest, &.{}, true, if (replace) .replace else .none);
 }
 
+/// The themed icon names of `path`, an entry of the folder shown, as its
+/// row shows it.
+pub fn iconForPath(self: *Window, path: []const u8, buf: []u8) []const u8 {
+    const d = self.curDir();
+    if (std.mem.eql(u8, model.parent(path), d.path)) if (d.indexOf(model.basename(path))) |i| if (d.entryAt(i)) |e| return Column.iconFor(self, e, buf);
+    return "text-x-generic";
+}
+
+/// Files another application dropped into `dest`.
+pub fn dropUris(self: *Window, uris: []const u8, dest: []const u8, kind: fsops.Kind) void {
+    self.transferUris(uris, dest, kind, false);
+}
+
 fn transferUris(self: *Window, uris: []const u8, dest: []const u8, kind: fsops.Kind, replace: bool) void {
     var paths: std.ArrayList([]u8) = .empty;
     defer {
@@ -2629,43 +2688,3 @@ fn transferUris(self: *Window, uris: []const u8, dest: []const u8, kind: fsops.K
     self.app.startOpWith(self, kind, toConst(paths.items), dest, &.{}, true, if (replace) .replace else .none);
 }
 
-fn onDrop(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
-    const self: *Window = @ptrCast(@alignCast(ud.?));
-    const d = self.curDir();
-    if (d.isTrash()) return .pass;
-    return if (self.acceptDrop(ev, d.path)) .handled else .pass;
-}
-
-/// Files dropped into `dest`: copied, or moved when the drop says so.
-pub fn acceptDrop(self: *Window, ev: *const siv.Event, dest: []const u8) bool {
-    switch (ev.phase) {
-        .enter, .move => return true,
-        .drop => {
-            const data = if (ev.data) |p| p[0..ev.data_count] else return false;
-            self.transferUris(data, dest, if (ev.action == .move) .move else .copy, false);
-            return true;
-        },
-        else => return false,
-    }
-}
-
-/// Drags the targets out to other applications.
-pub fn startDrag(self: *Window, node: Node) void {
-    const paths = self.targets() catch return;
-    defer App.freePaths(self.gpa, paths);
-    if (paths.len == 0) return;
-    var data: std.ArrayList(u8) = .empty;
-    defer data.deinit(self.gpa);
-    for (paths) |p| {
-        uri.appendFileUri(&data, self.gpa, p) catch return;
-        data.appendSlice(self.gpa, "\r\n") catch return;
-    }
-    const first = data.items.len;
-    for (paths, 0..) |p, i| {
-        if (i > 0) data.append(self.gpa, '\n') catch return;
-        data.appendSlice(self.gpa, p) catch return;
-    }
-    const lengths = [2]usize{ first, data.items.len - first };
-    const mimes = "text/uri-list\ntext/plain;charset=utf-8";
-    _ = c.siv_drag_start(node, &.{ .mimes = mimes, .mimes_len = mimes.len, .data = data.items.ptr, .data_count = data.items.len, .lengths = &lengths, .lengths_count = 2, .actions = .{ .copy = true, .move = true } });
-}

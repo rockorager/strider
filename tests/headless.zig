@@ -1653,6 +1653,142 @@ test "tabs: the x closes its tab, the active one stays; hover and middle clicks"
     try testing.expectEqualStrings("src", model.basename(h.dir().path));
 }
 
+/// Presses on `from`, drags past the threshold (the drag starts), and
+/// moves over `to`, the button still held.
+fn dragOver(h: *Harness, from: siv.TestNode, to: siv.TestNode) !void {
+    const w = h.window();
+    const fx = from.bounds.x + 30;
+    const fy = from.bounds.y + from.bounds.height / 2;
+    try siv.check(c.siv_test_pointer_move(w, fx, fy));
+    try siv.check(c.siv_test_pointer_button(w, .primary, true));
+    try siv.check(c.siv_test_pointer_move(w, fx + 12, fy + 3));
+    try h.settle();
+    try moveOver(h, to);
+}
+
+fn moveOver(h: *Harness, to: siv.TestNode) !void {
+    try siv.check(c.siv_test_pointer_move(h.window(), to.bounds.x + @min(to.bounds.width / 2, 40), to.bounds.y + to.bounds.height / 2));
+    try h.settle();
+}
+
+fn release(h: *Harness) !void {
+    try siv.check(c.siv_test_pointer_button(h.window(), .primary, false));
+    try h.settle();
+}
+
+test "drag and drop inside the window: folders in each column, Ctrl copies, undo, spring-loaded folders" {
+    var f: Fixture = .{};
+    try fixture(&f, "dnd-folders");
+    defer f.remove();
+    try f.add(.{ .name = "work/src/util/inner", .dir = true });
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const w = h.win.?;
+    // A file onto a folder's row in the current column: outlined, the
+    // status line says what a drop does, the icon shows the file and Move.
+    try dragOver(&h, try h.expect(.list_item, "build.zig 2.0 K"), try h.expect(.list_item, "docs"));
+    try testing.expect(h.app.?.drag != null);
+    try testing.expectEqualStrings("Move “build.zig” to docs", w.dnd.hint.items);
+    try h.expectGolden(h.window(), "drag-over-folder");
+    try h.expectDragIconGolden("drag-icon");
+    try release(&h);
+    try testing.expect(f.exists("work/docs/build.zig") and !f.exists("work/build.zig"));
+    try testing.expect(h.app.?.drag == null and w.dnd.hint.items.len == 0);
+    // A file operation like any other: u puts it back.
+    try h.typeText("u");
+    try testing.expect(f.exists("work/build.zig") and !f.exists("work/docs/build.zig"));
+
+    // Ctrl copies, even within one filesystem; the hint follows the key.
+    try dragOver(&h, try h.expect(.list_item, "README.md 97 B"), try h.expect(.list_item, "docs"));
+    try siv.check(c.siv_test_modifiers(h.window(), .{ .ctrl = true }));
+    try h.settle();
+    try testing.expectEqualStrings("Copy “README.md” to docs", w.dnd.hint.items);
+    try release(&h);
+    try siv.check(c.siv_test_modifiers(h.window(), .{}));
+    try h.settle();
+    try testing.expect(f.exists("work/docs/README.md") and f.exists("work/README.md"));
+
+    // Onto a folder in the parent column.
+    try dragOver(&h, try h.expect(.list_item, "photo.png 293 K"), try h.expect(.list_item, "Music"));
+    try testing.expectEqualStrings("Move “photo.png” to Music", w.dnd.hint.items);
+    try release(&h);
+    try testing.expect(f.exists("Music/photo.png") and !f.exists("work/photo.png"));
+
+    // Resting on a folder opens it (src); its cursor's folder (util) is in
+    // the preview, and a folder there (inner) takes the drop.
+    try dragOver(&h, try h.expect(.list_item, "run.sh 80 B"), try h.expect(.list_item, "src"));
+    const Opened = struct {
+        fn check(win: *App.Window) bool {
+            return std.mem.endsWith(u8, win.curDir().path, "/src");
+        }
+    };
+    try h.dispatchUntil(w, Opened.check);
+    try h.settle();
+    try moveOver(&h, try h.expect(.list_item, "inner"));
+    try testing.expectEqualStrings("Move “run.sh” to inner", w.dnd.hint.items);
+    try release(&h);
+    try testing.expect(f.exists("work/src/util/inner/run.sh") and !f.exists("work/run.sh"));
+
+    // A folder that opened under a resting drag takes the release there,
+    // without the pointer moving (sway found it dropping on nothing): in
+    // docs, a file's row is under the pointer, so the drop is docs's.
+    try h.typeText("h");
+    try dragOver(&h, try h.expect(.list_item, "report.pdf 2.3 M"), try h.expect(.list_item, "docs"));
+    const InDocs = struct {
+        fn check(win: *App.Window) bool {
+            return std.mem.endsWith(u8, win.curDir().path, "/docs");
+        }
+    };
+    try h.dispatchUntil(w, InDocs.check);
+    try h.settle();
+    try testing.expectEqualStrings("Move “report.pdf” to docs", w.dnd.hint.items);
+    try release(&h);
+    try testing.expect(f.exists("work/docs/report.pdf") and !f.exists("work/report.pdf"));
+}
+
+test "drag and drop inside the window: the header path, tabs, its own folder, Escape" {
+    var f: Fixture = .{};
+    try fixture(&f, "dnd-path");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    // Home is work: the path reads "~ / src /".
+    try h.start(.{ .path = f.sub(&path_buf, "work/src") });
+    const w = h.win.?;
+    // Onto a folder of the path.
+    try dragOver(&h, try h.expect(.list_item, "App.zig 300 B"), try h.expect(.link, "~"));
+    try testing.expectEqualStrings("Move “App.zig” to ~", w.dnd.hint.items);
+    try release(&h);
+    try testing.expect(f.exists("work/App.zig") and !f.exists("work/src/App.zig"));
+    // Its own folder takes nothing: no outline, no hint, nothing moves.
+    const files = try h.expect(.list, "Files");
+    var below = files;
+    below.bounds.y = files.bounds.y + files.bounds.height - 40;
+    below.bounds.height = 20;
+    try dragOver(&h, try h.expect(.list_item, "main.zig 198 B"), below);
+    try testing.expectEqual(@as(usize, 0), w.dnd.hint.items.len);
+    try release(&h);
+    try testing.expect(f.exists("work/src/main.zig"));
+    // Onto a tab: its folder.
+    try h.typeText("gn");
+    try h.typeText("h");
+    try h.typeText("gt");
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+    try dragOver(&h, try h.expect(.list_item, "main.zig 198 B"), try h.expect(.tab, "2 ~"));
+    try testing.expectEqualStrings("Move “main.zig” to ~", w.dnd.hint.items);
+    try release(&h);
+    try testing.expect(f.exists("work/main.zig") and !f.exists("work/src/main.zig"));
+    // Escape cancels a drag: the release drops nothing.
+    try h.typeText("fut");
+    try dragOver(&h, try h.expect(.list_item, "util"), try h.expect(.tab, "2 ~"));
+    try testing.expect(h.app.?.drag != null);
+    try h.key(.escape, .{}, "");
+    try testing.expect(h.app.?.drag == null and w.dnd.hint.items.len == 0);
+    try release(&h);
+    try testing.expect(f.exists("work/src/util") and !f.exists("work/util"));
+}
+
 /// Whether keyboard focus is in the current column.
 fn inCurrent(h: *Harness) bool {
     const focused = h.find(h.window(), .{ .flags = .{ .focused = true } }) orelse return false;

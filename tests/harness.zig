@@ -300,6 +300,27 @@ pub const Harness = struct {
         const pixels = try gpa.alloc(u8, len);
         defer gpa.free(pixels);
         try siv.check(c.siv_test_capture(w, pixels.ptr, pixels.len, &len, &width, &height));
+        return comparePixels(name, pixels, width, height);
+    }
+
+    /// Compares the icon of the app's drag in progress with
+    /// tests/golden/NAME.png.
+    pub fn expectDragIconGolden(h: *Harness, name: []const u8) !void {
+        const gpa = testing.allocator;
+        var len: usize = 0;
+        var width: u32 = 0;
+        var height: u32 = 0;
+        try siv.check(c.siv_test_capture_drag_icon(h.sapp, null, 0, &len, &width, &height));
+        const pixels = try gpa.alloc(u8, len);
+        defer gpa.free(pixels);
+        try siv.check(c.siv_test_capture_drag_icon(h.sapp, pixels.ptr, pixels.len, &len, &width, &height));
+        return comparePixels(name, pixels, width, height);
+    }
+
+    /// Premultiplied RGBA pixels against tests/golden/NAME.png, written
+    /// there when new or with SIV_UPDATE_GOLDEN.
+    fn comparePixels(name: []const u8, pixels: []u8, width: u32, height: u32) !void {
+        const gpa = testing.allocator;
         var i: usize = 0;
         while (i < pixels.len) : (i += 4) {
             const a = pixels[i + 3];

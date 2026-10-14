@@ -385,6 +385,33 @@ what this project does about it, and its status:
       with Enter and with Tab then Enter, and `vdD`, with the columns
       following each change.
 
+36. **Drag and drop inside the window** (chosen here, on the user's
+    request). Feedback needed siv (7e4f89b, fcb487f): `siv_image_draw`
+    for a drag icon of the file's icon and name, `siv_drag_set_icon` to
+    show Move, Copy, or Link as it changes, `siv_drop_set_action` and
+    modifiers on drop events so the target chooses the action,
+    `siv_drag_cancel`, and a resting drag that follows the tree when a
+    spring-loaded folder opens under it (found on sway: the release
+    dropped on nothing).
+    - The action: a move within one filesystem, a copy across (as GNOME
+      and KDE do); Shift moves, Ctrl copies, Ctrl+Shift links. Wayland
+      has no link action, so a link is asked for as a copy and made here,
+      as an absolute symbolic link (a new `link` operation, undone like a
+      copy: the links go to the trash).
+    - Targets: folder rows in all three columns, a column's empty space
+      (and its files' rows) for its folder, the header path's folders,
+      and tabs. Nothing for the items' own folder, the items themselves
+      (or folders inside them), or folders that cannot be written.
+    - Spring-loading after 0.7 s on folder rows and tabs (switching to
+      the tab), not on the header path, where going up under the pointer
+      would move the path itself. Autoscroll near a column's top and
+      bottom, a row every 80 ms.
+    - Escape: wlroots (sway) grabs the keyboard during drags and gives
+      keys to no client, so Escape cannot cancel there; GNOME cancels
+      itself. Hyprland is unknown: worth a try on the user's desktop.
+    - The outline is the accent around the row, the tab, or the path's
+      folder, and a ring around the column for its empty space.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
@@ -410,10 +437,8 @@ principle in the README, but does not yet. None is built; pick any.
   and cancel buttons.
 - **Rename happens in the command line.** It could edit the name in
   place, in the row (`r` and F2 alike), as GUI file managers do.
-- **Only the current column has a context menu and takes drops on
-  folders.** The parent and preview columns could do both, for the
-  folders they show.
-- **Tabs take no drops.** Dropping files on a tab could move or copy
-  them into its folder.
+- **Only the current column has a context menu.** The parent and
+  preview columns could have one, for the folders they show (they take
+  drops now, 36).
 - **The image preview is look-only.** A click could open the image; the
   wheel with Ctrl could zoom it.

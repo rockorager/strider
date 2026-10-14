@@ -10,6 +10,7 @@ const Dir = @import("Dir.zig");
 const model = @import("model.zig");
 const ui = @import("ui.zig");
 const Window = @import("Window.zig");
+const Dnd = @import("Dnd.zig");
 
 const Column = @This();
 const Node = siv.Node;
@@ -25,6 +26,8 @@ root: Node = .null,
 view: Node = .null,
 /// What shows instead of rows: "Empty", "Loading…", an error.
 message: Node = .null,
+/// Over the column while a drop would go into its folder.
+drop_ring: Node = .null,
 dir: ?*Dir = null,
 /// The count the view was last given.
 shown_count: u32 = 0,
@@ -37,6 +40,8 @@ drag_y: f32 = 0,
 const RowParts = extern struct {
     col: ?*Column,
     index: u32,
+    /// The row's content, which a drop outlines.
+    line: Node,
     mark: Node,
     icon: Node,
     name: Node,
@@ -69,6 +74,30 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     _ = c.siv_set_layout(txn, col.message, &.{ .align_x = .center, .padding = .{ .start = 12, .end = 12, .top = 16 } });
     _ = c.siv_set_visual(txn, col.message, &.{ .flags = .{ .no_hit_test = true } });
     _ = c.siv_set_hidden(txn, col.message, true);
+    // A drop on the column's empty space goes into its folder; the ring
+    // over it says so.
+    col.drop_ring = c.siv_box(txn, col.root);
+    _ = c.siv_set_layout(txn, col.drop_ring, &.{ .width = ui.fill(), .height = ui.fill() });
+    _ = c.siv_set_visual(txn, col.drop_ring, &.{ .border_token = .accent, .border_width = 2, .flags = .{ .no_hit_test = true } });
+    _ = c.siv_set_hidden(txn, col.drop_ring, true);
+    _ = c.siv_set_drop_target(txn, col.root, &Window.drop_target);
+    _ = c.siv_on(txn, col.root, .drop, onColumnDrop, null, col);
+}
+
+/// Files dragged onto the column's empty space (or a file's row) go
+/// into the folder it shows.
+fn onColumnDrop(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const col: *Column = @ptrCast(@alignCast(ud.?));
+    const d = col.dir orelse return .pass;
+    if (d.isTrash()) return .pass;
+    var pb: [linux.PATH_MAX]u8 = undefined;
+    const path = std.fmt.bufPrint(&pb, "{s}", .{d.path}) catch return .pass;
+    return col.win.dnd.onDrop(ev, .{ .column = col }, path);
+}
+
+/// The drop ring over the column, shown while a drop would go into it.
+pub fn showDropRing(col: *Column, txn: Txn, on: bool) void {
+    _ = c.siv_set_hidden(txn, col.drop_ring, !on);
 }
 
 /// Each column's surface: the parent most recessed, the current column a
@@ -200,6 +229,7 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
     if (parts.col == null) {
         parts.col = col;
         const line = c.siv_flex(txn, row, &.{ .axis = .row, .gap = 6, .align_items = .center });
+        parts.line = line;
         _ = c.siv_set_layout(txn, line, &.{ .height = ui.fill(), .width = ui.fill() });
         parts.mark = c.siv_box(txn, line);
         _ = c.siv_set_layout(txn, parts.mark, &.{ .width = ui.px(3), .height = ui.px(row_height - 8), .flags = .{ .no_shrink = true } });
@@ -211,11 +241,14 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
         // Pointer and drop handlers on the body, which fills the row.
         _ = c.siv_on(txn, row, .pointer, onRowPointer, null, parts);
         _ = c.siv_on(txn, row, .drop, onRowDrop, null, parts);
+        _ = c.siv_on(txn, row, .drag, onRowDrag, null, parts);
     }
+    // An outline a drop left on this row was for the entry it showed.
+    col.win.dnd.rowRebound(parts.line, i);
     parts.index = i;
-    // Folders take drops (into them); other rows leave drops to the
-    // column behind them.
-    const drop_mimes: []const u8 = if (e.kind == .dir and col.kind != .preview) "text/uri-list" else "";
+    // Folders take drops (into them), in every column; other rows leave
+    // drops to the column behind them (its folder).
+    const drop_mimes: []const u8 = if (e.kind == .dir) "text/uri-list" else "";
     _ = c.siv_set_drop_target(txn, row, &.{ .mimes = drop_mimes.ptr, .mimes_len = drop_mimes.len, .actions = .{ .copy = true, .move = true }, .preferred = .copy });
     parts.col = col;
     const marked = d.isMarked(i) or col.win.inVisualRange(col, i);
@@ -294,7 +327,7 @@ fn onRowPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
         },
         .move => if (col.drag_armed and (@abs(ev.x - col.drag_x) >= drag_threshold or @abs(ev.y - col.drag_y) >= drag_threshold)) {
             col.drag_armed = false;
-            col.win.startDrag(node);
+            Dnd.start(col.win, node);
         },
         .up, .cancel => col.drag_armed = false,
         else => {},
@@ -329,7 +362,15 @@ fn onRowDrop(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.Ev
     if (e.kind != .dir) return .pass;
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = d.pathAt(&pbuf, parts.index) orelse return .pass;
-    return if (col.win.acceptDrop(ev, p)) .handled else .pass;
+    return col.win.dnd.onDrop(ev, .{ .row = .{ .line = parts.line, .col = col, .index = parts.index } }, p);
+}
+
+/// The drag a row started ended, dropped or not.
+fn onRowDrag(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const parts: *RowParts = @ptrCast(@alignCast(ud.?));
+    const col = parts.col orelse return .pass;
+    if (ev.phase == .end) Dnd.sourceEnded(col.win.app);
+    return .handled;
 }
 
 fn onSelect(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
