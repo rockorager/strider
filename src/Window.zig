@@ -14,6 +14,8 @@ const Dir = @import("Dir.zig");
 const Column = @import("Column.zig");
 const Preview = @import("Preview.zig");
 const Picker = @import("Picker.zig");
+pub const Menu = @import("Menu.zig");
+pub const Dialogs = @import("Dialogs.zig");
 const keys = @import("keys.zig");
 const model = @import("model.zig");
 const fsops = @import("fsops.zig");
@@ -83,6 +85,10 @@ current: Column,
 preview: Preview,
 /// Fuzzy finding (gf) and zoxide's folders (gz), over the command line.
 picker: Picker,
+/// The context menu.
+menu: Menu,
+/// The dialog showing, if any.
+dialogs: Dialogs,
 parent_box: Node = .null,
 preview_box: Node = .null,
 current_box: Node = .null,
@@ -162,11 +168,15 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .current = .{ .win = undefined, .kind = .current },
         .preview = undefined,
         .picker = undefined,
+        .menu = undefined,
+        .dialogs = undefined,
     };
     self.parent_col.win = self;
     self.current.win = self;
     self.preview = Preview.init(self);
     self.picker = Picker.init(self);
+    self.menu = Menu.init(self);
+    self.dialogs = Dialogs.init(self);
     self.window = try siv.windowCreate(app.app, .{
         .title = "Columns",
         .app_id = App.app_id,
@@ -227,6 +237,8 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     if (self.conflict) |e| e.answer(.cancel, false);
     self.preview.deinit();
     self.picker.deinit();
+    self.menu.deinit();
+    self.dialogs.deinit();
     if (self.parent_col.dir) |d| d.pins -= 1;
     if (self.current.dir) |d| d.pins -= 1;
     for (self.tabs.items) |t| freeTab(gpa, t);
@@ -1266,7 +1278,7 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     if (!ev.flags.pressed) return .pass;
     input_clock += 1;
     self.last_input = input_clock;
-    if (self.prompt != null or self.tabs.items.len == 0) return .pass;
+    if (self.prompt != null or self.tabs.items.len == 0 or self.dialogs.isOpen()) return .pass;
     const m = ev.modifiers;
     const text = if (ev.text) |t| t[0..ev.text_len] else "";
     const keysym: u32 = @bitCast(@intFromEnum(ev.keysym));
@@ -1407,6 +1419,14 @@ pub fn showWhichKey(self: *Window) void {
     _ = commit(txn);
 }
 
+/// `p` with the home as "~", in `buf`.
+pub fn shortPathIn(self: *Window, buf: []u8, p: []const u8) []const u8 {
+    const home = self.app.home;
+    if (std.mem.eql(u8, p, home)) return "~";
+    if (home.len > 1 and model.isWithin(p, home)) return std.fmt.bufPrint(buf, "~{s}", .{p[home.len..]}) catch p;
+    return p;
+}
+
 fn shortPath(self: *Window, a: Allocator, p: []const u8) []const u8 {
     const home = self.app.home;
     if (std.mem.eql(u8, p, home)) return "~";
@@ -1421,6 +1441,35 @@ pub fn hideWhichKey(self: *Window) void {
     const txn = self.begin() orelse return;
     _ = c.siv_set_hidden(txn, self.whichkey, true);
     _ = commit(txn);
+}
+
+// Context menus -----------------------------------------------------------------------------
+
+/// A right click on entry `i` of the current column: a GUI's convention,
+/// the menu acts on the selection when the entry is in it, else on the
+/// entry alone (the marks go, the cursor moves there).
+pub fn contextMenuAt(self: *Window, i: u32, anchor: Node, x: f32, y: f32) void {
+    const d = self.curDir();
+    const in_selection = (self.mode == .visual and self.inVisualRange(&self.current, i)) or (self.mode != .visual and d.mark_count != 0 and d.isMarked(i));
+    if (!in_selection) {
+        if (self.mode == .visual) self.endVisual();
+        if (d.mark_count != 0) {
+            d.clearMarks();
+            self.rebindCurrent();
+        }
+        self.moveCursor(i);
+    }
+    self.menu.open(.entries, anchor, x, y);
+}
+
+/// The Menu key or Shift+F10: the menu at the cursor's row (the folder's
+/// when it is empty).
+pub fn contextMenuAtCursor(self: *Window) void {
+    const d = self.curDir();
+    if (d.count() == 0) return self.menu.open(.folder, self.current.view, 40, 20);
+    const row = c.siv_view_get_row(self.current.view, d.cursor);
+    if (row == .null) return self.menu.open(.entries, self.current.view, 40, 20);
+    self.menu.open(.entries, row, 48, Column.row_height);
 }
 
 // The tasks view ----------------------------------------------------------------------------
@@ -1622,9 +1671,12 @@ fn answerAwait(self: *Window, k: keys.Key) void {
     self.updateStatus();
 }
 
-/// An operation found its target taken: ask in the status line.
+/// An operation found its target taken: a quick question in the status
+/// line for a single item, a dialog comparing the two when there are
+/// more (folders included), with a choice for every later conflict.
 pub fn askConflict(self: *Window, e: *App.OpEntry) void {
     self.conflict = e;
+    if (e.op.sources.len > 1 or e.op.conflict.src_dir) return self.dialogs.askConflict(e);
     self.awaitKey(.conflict);
 }
 
@@ -1633,7 +1685,10 @@ pub fn confirmDelete(self: *Window, paths: []const []const u8) void {
     self.confirm_paths.clearRetainingCapacity();
     for (paths) |p| self.confirm_paths.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
     if (!self.app.options.confirm_delete) return self.answerAwait(.{ .code = 'y' });
-    self.awaitKey(.confirm_delete);
+    // What cannot be undone gets a dialog, not a y/N in the status line.
+    self.dialogs.confirmDelete(paths);
+    for (self.confirm_paths.items) |p| self.gpa.free(p);
+    self.confirm_paths.clearRetainingCapacity();
 }
 
 pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {

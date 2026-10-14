@@ -301,18 +301,21 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     try h.typeText("d");
     try testing.expectEqual(App.keys.Mode.normal, h.win.?.mode);
     try testing.expect(h.app.?.register_cut);
-    // Pasted in the parent: photo.png is there already, so the status
-    // line asks; K keeps both, for every conflict.
+    // Pasted in the parent: photo.png is there already. Two items move,
+    // so a dialog compares the two files; a ticks "for every conflict",
+    // k keeps both.
     try h.typeText("h");
     try siv.check(c.siv_test_type(h.window(), "p", 1));
     const Asking = struct {
         fn check(w: *App.Window) bool {
-            return w.await_key == .conflict;
+            return w.dialogs.isOpen() and w.dialogs.kind == .conflict;
         }
     };
     try h.dispatchUntil(h.win.?, Asking.check);
     try h.expectGolden(h.window(), "conflict");
-    try h.typeText("K");
+    try testing.expect(h.reads("Do the same for every conflict"));
+    try h.typeText("ak");
+    try testing.expect(!h.win.?.dialogs.isOpen());
     try testing.expect(f.exists("work/guide.md"));
     try testing.expect(f.exists("work/photo (2).png"));
     try testing.expect(!f.exists("work/docs/guide.md"));
@@ -324,14 +327,20 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     try testing.expect(f.exists(".local/share/Trash/files/guide.md"));
     try h.typeText("u");
     try testing.expect(f.exists("work/guide.md"));
-    // dD asks first; n keeps it, y deletes it.
+    // dD asks in a dialog; c (or Escape) keeps it, d deletes it, and the
+    // keys go to the dialog, not the columns behind it.
     try h.typeText("fgu");
     try h.typeText("dD");
-    try testing.expectEqual(App.Window.Await.confirm_delete, h.win.?.await_key);
+    try testing.expect(h.win.?.dialogs.isOpen() and h.win.?.dialogs.kind == .delete);
     try h.expectGolden(h.window(), "confirm-delete");
-    try h.typeText("n");
+    try h.typeText("jc");
+    try testing.expect(!h.win.?.dialogs.isOpen());
+    try testing.expectEqualStrings("Not deleted", h.win.?.message.items);
+    try testing.expectEqualStrings("guide.md", h.hovered());
     try testing.expect(f.exists("work/guide.md"));
-    try h.typeText("dDy");
+    try h.typeText("dD\x1b");
+    try testing.expect(f.exists("work/guide.md"));
+    try h.typeText("dDd");
     try testing.expect(!f.exists("work/guide.md"));
 }
 
@@ -1037,6 +1046,138 @@ test "column handles: dragging, < and >, z= to reset, and widths kept across sta
         try dragHandle(&h, 0, -60);
         try testing.expectApproxEqAbs(@as(f32, 310), widthOf(h.win.?.parent_box), 1);
     }
+}
+
+/// Right-clicks node `n` of window `w` (the middle of its first 40 px).
+fn rightClick(h: *Harness, w: siv.Window, n: siv.TestNode) !void {
+    try h.click(w, n, .secondary);
+}
+
+/// Clicks the item named `name` in the newest popup.
+fn choose(h: *Harness, name: []const u8) !void {
+    const popup = h.popup();
+    const item = h.find(popup, .{ .role = .menu_item, .name = name.ptr, .name_len = name.len }) orelse {
+        h.dump(popup);
+        return error.NotFound;
+    };
+    try h.click(popup, item, .primary);
+}
+
+fn menuHas(h: *Harness, name: []const u8) bool {
+    return h.find(h.popup(), .{ .role = .menu_item, .name = name.ptr, .name_len = name.len }) != null;
+}
+
+test "context menus: entries, the selection, empty space, the Menu key, and init.lua's commands" {
+    var f: Fixture = .{};
+    try fixture(&f, "menus");
+    defer f.remove();
+    var cbuf: [512]u8 = undefined;
+    try f.writeFile("init.lua", "local fm = require('fm')\nfm.command('hello', function() fm.notify('hi from init.lua') end, 'Say hello')\n");
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
+    const app = h.app.?;
+    // A right click on an entry moves the cursor there and lists what
+    // applies to it, each with its keys.
+    try rightClick(&h, h.window(), try h.expect(.list_item, "build.zig 2.0 K"));
+    try testing.expectEqualStrings("build.zig", h.hovered());
+    try testing.expect(menuHas(&h, "Open with…") and menuHas(&h, "Copy") and menuHas(&h, "Delete permanently…"));
+    try h.expectGolden(h.popup(), "context-menu");
+    try choose(&h, "Copy");
+    try testing.expectEqual(@as(usize, 1), app.register.items.len);
+    // On a marked entry it acts on every marked one; on another entry the
+    // marks go, as in other file managers.
+    try h.typeText("gg  ");
+    try testing.expectEqual(@as(u32, 2), h.dir().mark_count);
+    try rightClick(&h, h.window(), try h.expect(.list_item, "marked assets"));
+    try testing.expect(menuHas(&h, "Copy the paths"));
+    try choose(&h, "Copy");
+    try testing.expectEqual(@as(usize, 2), app.register.items.len);
+    try h.typeText("gg  ");
+    try rightClick(&h, h.window(), try h.expect(.list_item, "README.md 97 B"));
+    try testing.expectEqual(@as(u32, 0), h.dir().mark_count);
+    try testing.expect(menuHas(&h, "Copy the path"));
+    try h.key(.escape, .{}, "");
+    // The empty space below the entries: the folder's menu, with check
+    // items and a submenu.
+    const files = try h.expect(.list, "Files");
+    var below = files;
+    below.bounds.y = files.bounds.y + files.bounds.height - 40;
+    below.bounds.height = 20;
+    try rightClick(&h, h.window(), below);
+    try testing.expect(menuHas(&h, "New file or folder…") and menuHas(&h, "Sort by"));
+    try choose(&h, "Hidden files");
+    try testing.expect(app.options.show_hidden);
+    // The Menu key opens it at the cursor; init.lua's commands are in a
+    // submenu of their own.
+    try h.key(.menu, .{}, "");
+    try testing.expect(menuHas(&h, "From init.lua"));
+    try choose(&h, "From init.lua");
+    try choose(&h, "Say hello");
+    try testing.expectEqualStrings("hi from init.lua", h.win.?.message.items);
+}
+
+test "the properties dialog: the mode typed or ticked, the owner, applied as operations" {
+    var f: Fixture = .{};
+    try fixture(&f, "props");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    try testing.expectEqual(@as(u32, 0o644), modeOf(&f, "work/build.zig"));
+    try h.typeText("fbu");
+    try h.key(.@"return", .{ .alt = true }, "");
+    const d = &h.win.?.dialogs;
+    try testing.expect(d.isOpen() and d.kind == .properties);
+    // The owner is this machine's user: a fixed one for the image.
+    var ob: [128]u8 = undefined;
+    const owner = try testing.allocator.dupe(u8, App.ui.getText(d.owner_field, &ob));
+    defer testing.allocator.free(owner);
+    try setText(&h, d.owner_field, "tim:users");
+    try h.expectGolden(h.window(), "properties");
+    try setText(&h, d.owner_field, owner);
+    // The mode is selected: typing replaces it, and the boxes follow.
+    try h.typeText("755");
+    try testing.expect(h.find(h.window(), .{ .role = .checkbox, .name = "Run", .name_len = 3 }) != null);
+    var v: f64 = 0;
+    _ = c.siv_widget_get_value(d.boxes[2], &v);
+    try testing.expectEqual(@as(f64, 1), v);
+    // A box flipped writes the mode back.
+    try h.click(h.window(), try nodeOf(&h, d.boxes[4]), .primary);
+    var mb: [16]u8 = undefined;
+    try testing.expectEqualStrings("0775", App.ui.getText(d.mode_field, &mb));
+    // Enter applies (a chmod operation); keys never reached the columns.
+    try h.typeText("\n");
+    try h.waitFor(&h, opsDone);
+    try testing.expect(!d.isOpen());
+    try testing.expectEqual(@as(u32, 0o775), modeOf(&f, "work/build.zig"));
+    try testing.expectEqualStrings("build.zig", h.hovered());
+    // Escape leaves without a change; Alt+a applies from a text field.
+    try h.key(.@"return", .{ .alt = true }, "");
+    try h.typeText("700\x1b");
+    try testing.expect(!d.isOpen());
+    try testing.expectEqual(@as(u32, 0o775), modeOf(&f, "work/build.zig"));
+    try h.key(.@"return", .{ .alt = true }, "");
+    try h.typeText("go-w");
+    try h.key(@enumFromInt('a'), .{ .alt = true }, "");
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqual(@as(u32, 0o755), modeOf(&f, "work/build.zig"));
+}
+
+fn setText(h: *Harness, n: siv.Node, text: []const u8) !void {
+    var txn: siv.Txn = .null;
+    try siv.check(c.siv_txn_begin(h.window(), &txn));
+    _ = c.siv_set_text(txn, n, text.ptr, text.len);
+    try siv.check(c.siv_txn_commit(txn));
+    try h.settle();
+}
+
+/// The test node for a node of the window (for clicking it).
+fn nodeOf(h: *Harness, n: siv.Node) !siv.TestNode {
+    var r: siv.Rect = .{};
+    try siv.check(c.siv_node_get_rect(n, &r));
+    _ = h;
+    return .{ .bounds = r };
 }
 
 test "themes and right to left" {

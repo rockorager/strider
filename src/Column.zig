@@ -59,6 +59,7 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     _ = c.siv_set_layout(txn, col.view, &.{ .width = ui.fill(), .height = ui.fill() });
     _ = c.siv_set_visual(txn, col.view, &.{ .background_token = col.surface(), .flags = .{ .clip = true } });
     _ = c.siv_on(txn, col.view, .select, onSelect, null, col);
+    _ = c.siv_on(txn, col.view, .pointer, onViewPointer, null, col);
     _ = c.siv_on(txn, col.view, .activate, onActivate, null, col);
     col.message = c.siv_text(txn, col.root, "", 0);
     _ = c.siv_set_text_style(txn, col.message, &.{ .color_token = .muted_fg, .size_role = .body, .@"align" = .center });
@@ -277,6 +278,10 @@ fn onRowPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
     if (col.kind != .current) return .pass;
     switch (ev.phase) {
         .down => {
+            if (ev.button == .secondary) {
+                col.win.contextMenuAt(parts.index, node, ev.x, ev.y);
+                return .handled;
+            }
             if (ev.button != .primary) return .pass;
             col.drag_armed = true;
             col.drag_x = ev.x;
@@ -290,6 +295,15 @@ fn onRowPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
         else => {},
     }
     return .pass;
+}
+
+/// A right click on the current column's empty space: the folder's menu
+/// (clicks on rows are theirs first).
+fn onViewPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const col: *Column = @ptrCast(@alignCast(ud.?));
+    if (col.kind != .current or ev.phase != .down or ev.button != .secondary) return .pass;
+    col.win.menu.open(.folder, node, ev.x, ev.y);
+    return .handled;
 }
 
 /// A drop on a folder's row goes into that folder.

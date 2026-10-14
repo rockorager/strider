@@ -126,6 +126,8 @@ pub const list = [_]Command{
     .{ .name = "help", .desc = "Every key and command", .run = help },
     .{ .name = "messages", .desc = "Recent messages, newest first", .run = messages },
     .{ .name = "tasks", .desc = "Open or close the tasks view", .run = tasks },
+    .{ .name = "menu", .desc = "The context menu at the cursor", .run = contextMenu },
+    .{ .name = "properties", .desc = "The targets' details, permissions, and owner", .run = properties },
     .{ .name = "column-wider", .desc = "Widen the current column (or: column-wider parent)", .run = columnWider },
     .{ .name = "column-narrower", .desc = "Narrow the current column (or: column-narrower parent)", .run = columnNarrower },
     .{ .name = "column-reset", .desc = "Column widths from the ratio again", .run = columnReset },
@@ -484,20 +486,33 @@ fn chown(ctx: Ctx) void {
     const win = ctx.win;
     const recursive, const spec = recursiveFlag(ctx.args);
     if (spec.len == 0) return win.startPrompt(.command, "chown ", 6, 6);
+    const o = parseOwner(win, spec) orelse return;
+    if (o.uid == null and o.gid == null) return win.notify("chown needs a user, user:group, or :group", true);
+    const paths = win.targets() catch return;
+    defer App.freePaths(win.gpa, paths);
+    if (paths.len == 0) return;
+    win.app.startAttrOp(win, .chown, Window.toConst(paths), "", o.uid, o.gid, recursive);
+    win.consumeTargets();
+}
+
+pub const Owner = struct { uid: ?u32, gid: ?u32 };
+
+/// "user", "user:group", or ":group", by name or number; says in the
+/// status line what is wrong.
+pub fn parseOwner(win: *Window, spec: []const u8) ?Owner {
     const colon = std.mem.indexOfScalar(u8, spec, ':');
     const user = spec[0 .. colon orelse spec.len];
     const group = if (colon) |i| spec[i + 1 ..] else "";
     var buf: [160]u8 = undefined;
-    const uid: ?u32 = if (user.len == 0) null else userId(user) orelse
-        return win.notify(std.fmt.bufPrint(&buf, "No such user: {s}", .{user}) catch "No such user", true);
-    const gid: ?u32 = if (group.len == 0) null else groupId(group) orelse
-        return win.notify(std.fmt.bufPrint(&buf, "No such group: {s}", .{group}) catch "No such group", true);
-    if (uid == null and gid == null) return win.notify("chown needs a user, user:group, or :group", true);
-    const paths = win.targets() catch return;
-    defer App.freePaths(win.gpa, paths);
-    if (paths.len == 0) return;
-    win.app.startAttrOp(win, .chown, Window.toConst(paths), "", uid, gid, recursive);
-    win.consumeTargets();
+    const uid: ?u32 = if (user.len == 0) null else userId(user) orelse {
+        win.notify(std.fmt.bufPrint(&buf, "No such user: {s}", .{user}) catch "No such user", true);
+        return null;
+    };
+    const gid: ?u32 = if (group.len == 0) null else groupId(group) orelse {
+        win.notify(std.fmt.bufPrint(&buf, "No such group: {s}", .{group}) catch "No such group", true);
+        return null;
+    };
+    return .{ .uid = uid, .gid = gid };
 }
 
 /// A user by name or number (getpwnam: /etc/passwd, or NSS).
@@ -521,7 +536,7 @@ const Group = extern struct { name: ?[*:0]u8, passwd: ?[*:0]u8, gid: u32, member
 extern "c" fn getgrnam(name: [*:0]const u8) ?*Group;
 
 fn emptyTrash(ctx: Ctx) void {
-    ctx.win.awaitKey(.confirm_empty_trash);
+    ctx.win.dialogs.confirmEmptyTrash();
 }
 fn undo(ctx: Ctx) void {
     var n = ctx.n();
@@ -1239,6 +1254,16 @@ fn messages(ctx: Ctx) void {
         out.append(gpa, '\n') catch return;
     }
     win.preview.showOutput("Messages", out.items, spans.items);
+}
+
+fn properties(ctx: Ctx) void {
+    const paths = ctx.win.targets() catch return;
+    if (paths.len == 0) return App.freePaths(ctx.win.gpa, paths);
+    ctx.win.dialogs.properties(paths);
+}
+
+fn contextMenu(ctx: Ctx) void {
+    ctx.win.contextMenuAtCursor();
 }
 
 // Column widths ---------------------------------------------------------------------------
