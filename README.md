@@ -344,6 +344,23 @@ fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
 Rows are virtualized by siv's views, so a frame costs what is on screen,
 not what is in the folder.
 
+Against GNOME Files (Nautilus 50.3, list view), measured from outside
+both on a laptop's panel under sway (Radeon 760M, Vulkan, 1280×800 at
+60 Hz, real vblank), median of five runs; times to the photon. Method,
+caveats, and every number: [bench/README.md](bench/README.md).
+
+| | siv-columns | Nautilus |
+| --- | --- | --- |
+| Warm start to the folder's rows on screen (cold) | 48 ms (116 ms) | 228 ms (498 ms) |
+| Memory after starting: RSS, PSS | 61, 43 MiB | 106, 82 MiB |
+| Opening 100 100 entries to sorted rows on screen, warm (cold) | 157 ms (809 ms) | 3.4 s (4.8 s) |
+| Memory with them open (RSS) | 68 MiB | 288 MiB |
+| Down, key to photon: median, worst | 12, 21 ms | 13, 46 ms |
+| End, Home: median | 12, 12 ms | 44, 72 ms |
+| Filtering "12345": each key; the result after the last key | 13 ms; 13 ms | 408 ms; 1.8 s |
+| Idle wakeups: after starting, with 100 100 entries open | 0, 0.2 per second | 0.6, 98 per second |
+| GPU memory with 100 100 entries open | 63 MiB | 31 MiB |
+
 ## License
 
 MIT. siv and what it contains: `share/licenses/siv-columns/`.
