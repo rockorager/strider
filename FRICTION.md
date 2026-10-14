@@ -91,39 +91,48 @@ line to change.
 
 ## Noted
 
-11. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
+11. **Image previews read on siv's workers, outside the app's limit.**
+  siv decodes images (`siv_image_load`) on its own threads, so the
+  two-job limit on previews covers text, archives, renderers, and
+  previewers but not images; an image on a hung mount holds one of
+  siv's decode threads until the mount answers. Folder reads use siv's
+  blocking lane (8 threads): previewing many folders on a hung mount can
+  fill it. Neither has happened in testing; a per-application lane in
+  siv would close both.
+
+12. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
    a git submodule (`deps/siv`) and a path dependency; clone with
    `--recurse-submodules`.
 
-12. **The focus ring.** siv draws a focus ring when focus moved by
+13. **The focus ring.** siv draws a focus ring when focus moved by
    keyboard; focus returns to the cursor's row from a key handler when a
    prompt closes, so the ring appears then and not before (when focus
    came from creating the window). Both are siv's documented rule; the
    selection highlight is the cursor either way.
 
-13. **Bulk rename waits for the editor.** `R` writes the names to a
+14. **Bulk rename waits for the editor.** `R` writes the names to a
    file, runs `$VISUAL`/`$EDITOR` in a terminal, and renames when the
    editor exits, so the terminal must stay in the foreground until then:
    foot, alacritty, kitty, wezterm, and ghostty do; gnome-terminal does
    with `--wait`, which the app passes. `fm.set { terminal = "...",
    editor = "...", editor_in_terminal = false }` covers the rest.
 
-14. **Settling while a job waits for the user.** As in siv-files:
+15. **Settling while a job waits for the user.** As in siv-files:
     `siv_test_settle` waits for running jobs, so a test cannot settle
     while a copy waits for the conflict question; the tests dispatch
     until the question shows.
 
-15. **No monospace font in the tests.** The text preview asks for the
+16. **No monospace font in the tests.** The text preview asks for the
     generic `monospace` family; the headless tests load only Droid Sans,
     so their goldens show code in it. Real desktops get their monospace
     font.
 
-16. **A large static binary.** ReleaseSafe with libsiv, its decoders,
+17. **A large static binary.** ReleaseSafe with libsiv, its decoders,
     and Lua linked in is 46 MB unstripped (`-Doptimize=ReleaseSmall` or
     stripping makes it much smaller); it maps lazily, so startup does
     not pay for it.
 
-17. **Driving the app on a headless sway.** With no keyboard attached,
+18. **Driving the app on a headless sway.** With no keyboard attached,
     each `wtype` adds a virtual keyboard, so the seat gains its keyboard
     as wtype starts typing; without a pause (`wtype -s 300 ...`) the
     first press can arrive before siv has the keyboard and is lost. siv's

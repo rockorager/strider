@@ -127,10 +127,25 @@ Folders show their entries; text files their start with syntax coloring
 JSON, TOML, YAML, Markdown, diffs, and more); images decode on siv's
 workers at the size the column shows them; archives list their entries
 (zip and its relatives, tar and tar.gz directly, others with `bsdtar`);
-PDFs show their first page (with poppler's `pdftoppm`); videos and other
-files show a thumbnail another program cached, if any, or their details.
-A preview starts the moment the cursor lands, and moving on cancels
-decoding and reading that has not started.
+PDFs show their first page (poppler's `pdftoppm`, else MuPDF's `mutool`,
+else a thumbnail another program cached); videos a frame
+(`ffmpegthumbnailer`, else `ffmpeg`, else a cached thumbnail); binary
+files their first 4 KiB in hex; other files their details, with a link's
+target. When a program is missing the details say what to install.
+
+Limits: text previews read `preview_max_bytes` (128 KiB); images larger
+than `preview_max_image_bytes` (64 MiB) show their details; programs a
+preview runs (renderers, thumbnailers, Lua previewers) are killed after
+15 seconds or as soon as the cursor moves on. Pipes, sockets, and devices
+are never opened.
+
+A preview starts the moment the cursor lands, and moving on cancels it.
+Nothing that previews or navigates touches the file system on the UI
+thread: folders are read, watched, and looked up (`:cd`) on workers, so
+a slow or hung network file system shows "Loading…" or "Waiting for the
+file system…" instead of freezing the keys. At most two file previews run
+at once, so previews stuck on a hung mount cannot take the workers that
+read folders.
 
 ## Configuration
 
