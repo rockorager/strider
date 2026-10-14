@@ -97,3 +97,9 @@ what this project does about it, and its status:
     and Lua linked in is 46 MB unstripped (`-Doptimize=ReleaseSmall` or
     stripping makes it much smaller); it maps lazily, so startup does
     not pay for it.
+
+13. **Driving the app on a headless sway.** With no keyboard attached,
+    each `wtype` adds a virtual keyboard, so the seat gains its keyboard
+    as wtype starts typing; without a pause (`wtype -s 300 ...`) the
+    first press can arrive before siv has the keyboard and is lost. siv's
+    own sway test pauses the same way; real keyboards are unaffected.

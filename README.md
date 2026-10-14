@@ -11,6 +11,15 @@ configuration. The mouse works, but nothing needs it.
 The name is a placeholder (program `siv-columns`, app id
 `org.siv.Columns`); see [FRICTION.md](FRICTION.md).
 
+On sway (headless, 1280×800, driven with wtype): an image previewed at
+its displayed size, an archive listing, the which-key popup after `g`,
+and the dark style with a syntax-colored README.
+
+| | |
+| --- | --- |
+| ![landscape.png previewed](docs/screenshots/image-preview.png) | ![assets.tar.gz listed](docs/screenshots/archive-preview.png) |
+| ![The keys after g](docs/screenshots/which-key.png) | ![The dark style](docs/screenshots/dark-text.png) |
+
 ## Install
 
 You need Zig 0.17.0 and the development files of libwayland-client,
@@ -148,7 +157,9 @@ bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
 `dirs_first`, `ratio`, `icons`, `preview`, `preview_images`,
 `preview_max_bytes`, `syntax`, `which_key_delay`, `scroll_off`,
 `wrap_scan`, `find_auto_accept`, `confirm_delete`, `show_size`,
-`terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms`.
+`terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms` (how
+old a folder that cannot be watched, such as the trash, may be before
+it is read again; watched folders follow changes on disk at once).
 
 Bookmarks and the command history persist in
 `$XDG_STATE_HOME/siv-columns/`.
@@ -197,19 +208,23 @@ fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
 
 | Measurement | Result |
 | --- | --- |
-| Startup to the first frame showing a 40-entry folder (its rows included) | 22 ms (UI thread CPU 11 ms) |
+| Startup to the first frame showing a 40-entry folder (its rows included) | 23 ms (UI thread CPU 12 ms) |
+| The same with the example `data/init.lua` loaded | 18 ms |
 | Resident memory with that window open | 36 MiB (heap in use 19.8 MiB) |
 | Idle for 2 s | no wakeups |
-| A 100 100-entry folder: read, typed, and sorted | 245 ms, rows shown at 252 ms; the first frame at 26 ms |
-| Memory for those entries | 8.0 MiB of heap (84 bytes each); 49 MiB resident in all |
-| `j`, 300 times, each frame presented and the preview updated | 0.56 ms UI thread CPU per key (1.5 ms worst), each on the next 60 Hz frame |
-| 100 `j`s queued at once (a held key) | 24 ms UI thread CPU in all |
-| `G`, `gg` | 1.4 ms each |
-| `Ctrl+f` (a page) | 0.9 ms (1.3 ms worst) |
-| `/file-99999` typed, every keystroke searching all names | 20 ms for the eleven keystrokes |
-| `Ctrl+a` marking all 100 100 | 1.1 ms |
-| `sS` (by size, largest first, the cursor kept on its entry) | 57 ms |
-| `zf-12` typed (filtering as you type) | 18 ms for the three keystrokes |
+| A 100 100-entry folder: read, typed, and sorted | 265 ms, rows shown at 271 ms; the first frame at 24 ms |
+| Memory for those entries | 8.2 MiB of heap (86 bytes each); 61 MiB resident in all |
+| `j`, 300 times, each frame presented and the preview updated | 0.69 ms UI thread CPU per key (1.8 ms worst), each on the next 60 Hz frame |
+| 100 `j`s queued at once (a held key) | 28 ms UI thread CPU in all |
+| `G`, `gg` | 1.5 ms each |
+| `Ctrl+f` (a page) | 1.2 ms (2.0 ms worst) |
+| `/file-99999` typed, every keystroke searching all names | 21 ms for the eleven keystrokes |
+| `n` (the next match, wrapping around) | 5.4 ms |
+| `h` to the parent and `l` back in (both folders cached and watched) | 3.4 ms |
+| `Ctrl+a` marking all 100 100 | 1.4 ms |
+| `sS` (by size, largest first, the cursor kept on its entry), `sn` | 59 ms, 85 ms |
+| `zf-12` typed (filtering as you type) | 22 ms for the three keystrokes |
+| Peak memory | 62 MiB |
 
 Rows are virtualized by siv's views, so a frame costs what is on screen,
 not what is in the folder.

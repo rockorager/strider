@@ -15,9 +15,9 @@
 //!
 //! The program uses only siv's public API: the `siv` module generated from
 //! its C ABI schema and the Lua binding's embedding API, both linked
-//! statically (libsiv.a, libsiv-lua.a), so the installed program is one
-//! file that needs only the system's libwayland-client, xkbcommon, and
-//! Fontconfig.
+//! statically (libsiv.a and the Lua binding's object), so the installed
+//! program is one file that needs only the system's libwayland-client,
+//! xkbcommon, and Fontconfig.
 
 const std = @import("std");
 
