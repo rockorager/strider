@@ -448,7 +448,7 @@ var waiting: [32]?*Preview = @splat(null);
 /// Programs a preview runs are killed after this long.
 const program_timeout_ms = 15_000;
 /// How much of a binary file the hex view shows.
-const hex_bytes = 4096;
+const hex_bytes = 1024;
 
 const Pending = struct { kind: JobKind, path: []u8, e: model.Entry };
 
