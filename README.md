@@ -94,7 +94,7 @@ tenth entry.
 | `Space`, `v`, `Ctrl+a`, `Esc` | mark and move down, visual selection, mark all, cancel and unmark |
 | `yy` `dd` `p` `P` | copy, cut, paste, paste replacing |
 | `yp` `yn` `yd` | copy the paths, the names, the folder's path |
-| `dT` `Del`, `dD` `Shift+Del`, `u` | move to the trash, delete permanently (asks), undo |
+| `dT` `Del`, `dD` `Shift+Del`, `u` | move to the trash, delete permanently (a dialog asks), undo |
 | `r` `A` `I`, `R` | rename (the name without its extension selected, at the end, at the start), bulk rename in `$EDITOR` |
 | `a` | new file, or folder with a trailing `/` (`a/b/c/` makes them all) |
 | `zh`, `zp`, `zi` | hidden files, the preview, icons |
@@ -109,6 +109,8 @@ tenth entry.
 | `!`, `S` | run a shell command on the selection, a terminal here |
 | `=` | change permissions (`:chmod`); `:chown` changes owners |
 | `w` | the tasks view: running and recent file operations |
+| Menu key, `Shift+F10`, right click | the context menu |
+| `Alt+Enter` | properties: details, permissions, owner |
 | `>` `<`, `z=` | widen and narrow the current column, back to the ratio |
 | `J` `K` | scroll the preview |
 | `:` | the command line: Tab completes commands and paths, Up and Down recall history |
@@ -150,11 +152,28 @@ Esc, `q`, or `w` closes it. Its keys are a keymap mode of their own
 (`t` in `fm.map`), and `:task-pause` and `:task-cancel` act on the first
 running operation with the view closed.
 
-A file operation that meets a name already taken asks in the status line:
-replace, skip, keep both, or merge folders, Shift for all of them.
+Right-clicking an entry, the selection, or a column's empty space (or
+pressing the Menu key or Shift+F10 for the cursor's row) opens a menu of
+what applies, each item a command with its keys beside it, so the menu
+teaches the keymap; commands from init.lua are in a submenu of their
+own. A right click outside the selection moves the cursor and drops the
+marks, as in other file managers.
 
-Messages go to the status line, as in ranger and vim; errors are in the
-error color. A message stays until the next key, and `:messages` lists
+Dialogs come up where a dialog beats the status line, and work from the
+keyboard: each button and check box has an underlined key that presses
+it (with Alt while typing in a field), Enter takes the default, Escape
+cancels.
+- Deleting permanently and emptying the trash, which cannot be undone.
+- A name already taken in an operation of several items or a folder:
+  both files compared, replace, skip, keep both, or merge, and a check
+  box for every later conflict. A single file's conflict is a one-key
+  question in the status line: `r`, `s`, `k`, `m`, `c`, Shift for all.
+- Properties (`Alt+Enter`, `:properties`): the details, the mode typed
+  as chmod takes it or ticked in check boxes, and the owner, applied as
+  chmod and chown operations, into folders on request.
+
+Messages go to the status line, as in ranger and vim, never a dialog or
+a toast; errors are in the error color. A message stays until the next key, and `:messages` lists
 the last 200 in the preview column, newest first.
 
 ## Previews

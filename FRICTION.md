@@ -64,51 +64,59 @@ what this project does about it, and its status:
    view"). The parent column is on the sidebar, the current column on
    the secondary sidebar, and the preview on the view.
 
+7. **Dialogs could not be answered with a key.** siv's dialogs closed
+   with Escape and took Tab, but their buttons had no mnemonics, so a
+   keyboard-driven dialog had to be tabbed through. *Fixed:* buttons,
+   toggles, and check boxes take a mnemonic, underlined, that presses
+   them in a dialog (with Alt in a text field), siv 4a7c551, "widgets,
+   abi: mnemonics for buttons, toggles, and check boxes in dialogs".
+
 ## Decided
 
-7. **The application's name and id are placeholders** (decided: they
+8. **The application's name and id are placeholders** (decided: they
    stay until the user picks names): "Columns",
    `org.siv.Columns`, program `siv-columns`, Lua module `fm`, config in
    `$XDG_CONFIG_HOME/siv-columns/`. Renaming touches `App.app_id` and
    `App.program`, `build.zig`, `tools/desktop_files.zig`, `data/`, and
    the README. (siv-files' name is open too.)
 
-8. **`f` closes as soon as one name matches** (decided: as ranger
+9. **`f` closes as soon as one name matches** (decided: as ranger
    does), so the letters typed after the match run as commands (`fpho`
    reaches photo.png at `ph`, then `o` opens "Open with").
    `fm.set { find_auto_accept = false }` makes it wait for Enter.
 
-9. **Messages go to the status line, not toasts** (decided: as in ranger
-   and vim, errors belong in the status line of a keyboard-driven app).
+10. **Messages go to the status line, not toasts** (decided: as in ranger
+   and vim, errors belong in the status line of a keyboard-driven app;
+   still so now that dialogs exist, which ask, never report).
    An error is in the error color; a message stays until the next key;
    `:messages` lists the last 200, newest first. The status line is a
    polite live region, so screen readers announce each one.
 
-10. **Column widths** (decided: as they are). The parent column widens
+11. **Column widths** (decided: as they are). The parent column widens
    to its longest name up to a quarter of the window (`fit_parent`),
    taking the room from the preview, never the current column; under
    640 logical pixels (`narrow_width`) the parent column hides, and
    under two thirds of that the preview too. ranger instead keeps every
    column and truncates; yazi keeps its fixed ratio.
 
-11. **The filter stays on `zf`** (decided: it matches ranger). yazi
-    filters with `f`, but `f` is ranger's find here (item 8); `zf` is
+12. **The filter stays on `zf`** (decided: it matches ranger). yazi
+    filters with `f`, but `f` is ranger's find here (item 9); `zf` is
     free of conflicts, and the filter and `/` search stay separate. A
     filter stays on its folder until Esc (the status line says so), as
     ranger's does.
 
-12. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`**
+13. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`**
     (decided). Undo reverses what moved, not attributes; reversing them
     would mean recording every file's old mode and owner first.
 
-13. **The tasks view is `w`, as in ranger** (decided), and an overlay
+14. **The tasks view is `w`, as in ranger** (decided), and an overlay
     rather than a column: it lists running operations, then the last 20
     finished ones (kept in memory, not across restarts). Pausing stops
     an operation at its next file or 4 MiB chunk; a copy paused mid-file
     keeps its partial target until it resumes or is cancelled (which
     removes it).
 
-14. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used** (decided:
+15. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used** (decided:
     they fit the `z` toggle prefix). yazi
     binds `z` and `Z`, but `z` is the prefix for toggles here (`zh`,
     `zf`, `zp`); `g` is "go" (`gh`, `gd`). The built-in finder walks
@@ -118,7 +126,7 @@ what this project does about it, and its status:
     same way without the live list), so it would not clearly help.
     `.gitignore` is not read; hidden entries follow `zh`.
 
-15. **Image previews read on siv's workers, outside the app's limit**
+16. **Image previews read on siv's workers, outside the app's limit**
     (decided: fine, since superseded loads are cancelled). siv decodes
     images (`siv_image_load`) on its own threads, so the two-job limit
     on previews covers text, archives, renderers, and previewers but not
@@ -132,7 +140,7 @@ what this project does about it, and its status:
 
 ## Decide
 
-16. **Resizing columns** (chosen here). The handles are the app's own,
+17. **Resizing columns** (chosen here). The handles are the app's own,
     not nested `siv_split_pane`s: a split has two panes and a divider
     the app cannot hide, while the columns are three, any of which
     `narrow_width` or the options may hide. A chosen width wins over
@@ -144,42 +152,87 @@ what this project does about it, and its status:
     siv's split pane sets no resize cursor on its divider; these
     handles set `ew_resize` themselves.
 
+18. **Which questions are dialogs** (chosen here). Dialogs: deleting
+    permanently and emptying the trash (they cannot be undone, and a
+    y/N in the status line is easy to answer by reflex); a conflict in
+    an operation of several items or a folder (the two files compared
+    side by side, and "every conflict" is a check box, not a hidden
+    Shift); and properties (nine permission boxes, a mode, and an owner
+    do not fit a status line). The status line keeps one-key questions:
+    a single file's conflict, bookmarks, the passphrase prompt, and
+    every message and error. The context menu acts on the selection
+    when the clicked entry is in it, else moves the cursor there and
+    drops the marks (GTK's and KDE's rule); its items are chosen per
+    context, with init.lua's commands in a submenu.
+
 ## Noted
 
-17. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
+19. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
    a git submodule (`deps/siv`) and a path dependency; clone with
    `--recurse-submodules`.
 
-18. **The focus ring.** siv draws a focus ring when focus moved by
+20. **The focus ring.** siv draws a focus ring when focus moved by
    keyboard; focus returns to the cursor's row from a key handler when a
    prompt closes, so the ring appears then and not before (when focus
    came from creating the window). Both are siv's documented rule; the
    selection highlight is the cursor either way.
 
-19. **Bulk rename waits for the editor.** `R` writes the names to a
+21. **Bulk rename waits for the editor.** `R` writes the names to a
    file, runs `$VISUAL`/`$EDITOR` in a terminal, and renames when the
    editor exits, so the terminal must stay in the foreground until then:
    foot, alacritty, kitty, wezterm, and ghostty do; gnome-terminal does
    with `--wait`, which the app passes. `fm.set { terminal = "...",
    editor = "...", editor_in_terminal = false }` covers the rest.
 
-20. **Settling while a job waits for the user.** As in siv-files:
+22. **Settling while a job waits for the user.** As in siv-files:
     `siv_test_settle` waits for running jobs, so a test cannot settle
     while a copy waits for the conflict question; the tests dispatch
     until the question shows.
 
-21. **No monospace font in the tests.** The text preview asks for the
+23. **No monospace font in the tests.** The text preview asks for the
     generic `monospace` family; the headless tests load only Droid Sans,
     so their goldens show code in it. Real desktops get their monospace
     font.
 
-22. **A large static binary.** ReleaseSafe with libsiv, its decoders,
+24. **A large static binary.** ReleaseSafe with libsiv, its decoders,
     and Lua linked in is 46 MB unstripped (`-Doptimize=ReleaseSmall` or
     stripping makes it much smaller); it maps lazily, so startup does
     not pay for it.
 
-23. **Driving the app on a headless sway.** With no keyboard attached,
+25. **Driving the app on a headless sway.** With no keyboard attached,
     each `wtype` adds a virtual keyboard, so the seat gains its keyboard
     as wtype starts typing; without a pause (`wtype -s 300 ...`) the
     first press can arrive before siv has the keyboard and is lost. siv's
     own sway test pauses the same way; real keyboards are unaffected.
+
+## Proposals: GUI affordances still missing
+
+Places where the mouse or a visual cue should work, by the design
+principle in the README, but does not yet. None is built; pick any.
+
+- **The path in the header is plain text.** Each folder in it could be
+  a breadcrumb: click to go there, drop files on it to move them there.
+- **The mouse's back and forward buttons do nothing.** They could move
+  through the tab's history, as `H` and `L` do.
+- **No Ctrl+click or Shift+click.** Marking with the mouse could toggle
+  one entry (Ctrl) or a range (Shift), and dragging on empty space
+  could draw a selection rectangle.
+- **Cut-off names have no tooltip.** A name ellipsized in its column
+  could show in full under the pointer (and in the parent column, which
+  truncates the most).
+- **The status line is not clickable.** The operation's progress could
+  open the tasks view, the sort and filter could open their menus, and
+  "2 copied" could show what the register holds.
+- **The which-key popup, the picker, and the tasks view ignore the
+  pointer.** Their rows could be clicked to run the key, open the
+  result, or select the task, and each running task could have pause
+  and cancel buttons.
+- **Rename happens in the command line.** It could edit the name in
+  place, in the row (`r` and F2 alike), as GUI file managers do.
+- **Only the current column has a context menu and takes drops on
+  folders.** The parent and preview columns could do both, for the
+  folders they show.
+- **Tabs take no drops.** Dropping files on a tab could move or copy
+  them into its folder.
+- **The image preview is look-only.** A click could open the image; the
+  wheel with Ctrl could zoom it.
