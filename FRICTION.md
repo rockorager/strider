@@ -7,7 +7,7 @@ what this project does about it, and its status:
 - **Fixed** — siv changed in a labeled commit on its main branch (the
   submodule in `deps/siv` points at it).
 - **Decide** — a question for siv's author (or the app's owner); the app
-  works around it meanwhile.
+  works around it meanwhile. **Decided** — answered.
 - **Noted** — minor, or about Zig or the platform rather than siv.
 
 ## Fixed in siv
@@ -32,35 +32,31 @@ what this project does about it, and its status:
    host made, never owned by Lua (same commit, D23). `fm.siv_app()` and
    `fm.siv_window()` use it.
 
-## Decide
+3. **A view row handled keys before the application saw them.** A
+   focused row's default handler took Space, Enter, the arrows, Home,
+   End, and the page keys before its ancestors' handlers ran, and `bind`
+   gets the row's body, so the keymap had to go on the body's parent,
+   leaning on the row's shape. *Fixed* (decided by siv's author): keys
+   have a capture phase, `siv_on_capture`, from C, Zig, and Lua (siv
+   96d08f7, "ui, abi, lua: a capture phase for keys", D16). The keymap is
+   a capture handler on the window's root; it handles what it binds and
+   passes the rest, so prompts' editors type as before.
 
-3. **A view row handles keys before the application sees them.** A
-   focused row's default handler takes Space, Enter, the arrows, Home,
-   End, and the page keys before its ancestors' handlers run (siv
-   delivers a node's `siv_on` handler, then its default, then bubbles).
-   An application whose keys are its own — Space marks here, `j` and `k`
-   move, Enter opens — needs its handler on the row itself, but `bind`
-   gets the row's body, a child of the focused row. The app puts its key
-   handler on `siv_node_get_related(body, .parent)`, which works with the
-   public API but leans on the row's shape. Two ways siv could make this
-   first-class: a capture phase (`siv_on` flag or `siv_on_capture`) so an
-   ancestor sees keys before the focused node, as the DOM's capture does;
-   or rows that hand keys to the view root's `siv_on` handler before
-   their default. Keyboard-first applications (editors, terminals, this)
-   would all use the first.
+## Decided
 
-4. **The application's name and id are placeholders**: "Columns",
+4. **The application's name and id are placeholders** (decided: they
+   stay until the user picks names): "Columns",
    `org.siv.Columns`, program `siv-columns`, Lua module `fm`, config in
    `$XDG_CONFIG_HOME/siv-columns/`. Renaming touches `App.app_id` and
    `App.program`, `build.zig`, `tools/desktop_files.zig`, `data/`, and
    the README. (siv-files' name is open too.)
 
-5. **`f` closes as soon as one name matches, or waits for Enter?**
-   ranger's find closes at the first unique match, so the letters typed
-   after it run as commands (`fpho` reaches photo.png at `ph`, then `o`
-   opens "Open with"). That surprised the tests and would surprise
-   people, so the default waits for Enter (Escape goes back);
-   `fm.set { find_auto_accept = true }` gives ranger's behavior.
+5. **`f` closes as soon as one name matches** (decided: as ranger
+   does), so the letters typed after the match run as commands (`fpho`
+   reaches photo.png at `ph`, then `o` opens "Open with").
+   `fm.set { find_auto_accept = false }` makes it wait for Enter.
+
+## Decide
 
 6. **Messages go to the status line, not toasts.** The first version
    showed every message twice, in the status line and in a siv toast

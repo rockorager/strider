@@ -29,9 +29,9 @@ pub const Options = struct {
     scroll_off: u32 = 3,
     /// Searches wrap around the end.
     wrap_scan: bool = true,
-    /// f: close the prompt as soon as one name matches (as ranger does);
+    /// f: close the prompt as soon as one name matches, as ranger does;
     /// off, Enter closes it.
-    find_auto_accept: bool = false,
+    find_auto_accept: bool = true,
     /// Ask before deleting permanently.
     confirm_delete: bool = true,
     /// Sizes in the current column.

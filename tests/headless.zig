@@ -13,6 +13,10 @@ const png = @import("png.zig");
 
 const testing = std.testing;
 
+test {
+    _ = @import("services.zig");
+}
+
 const zig_source =
     \\const std = @import("std");
     \\
@@ -127,15 +131,15 @@ test "keys: counts, gg and G, search, find, and history" {
     // f jumps to the only match without Enter.
     try h.typeText("fph");
     try testing.expectEqualStrings("photo.png", h.hovered());
+    try testing.expect(h.win.?.prompt == null);
+    // Without find_auto_accept, Enter closes it.
+    h.app.?.options.find_auto_accept = false;
+    try h.typeText("fRE");
+    try testing.expectEqualStrings("README.md", h.hovered());
     try testing.expect(h.win.?.prompt != null);
     try h.typeText("\n");
     try testing.expect(h.win.?.prompt == null);
-    // With find_auto_accept, one match closes the prompt.
     h.app.?.options.find_auto_accept = true;
-    try h.typeText("fR");
-    try testing.expectEqualStrings("README.md", h.hovered());
-    try testing.expect(h.win.?.prompt == null);
-    h.app.?.options.find_auto_accept = false;
     // l enters a folder, h comes back with the cursor on it, H and L
     // walk the history.
     try h.typeText("ggjjl");
@@ -175,7 +179,7 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // Space marks and moves down: build.zig and photo.png.
-    try h.typeText("fbui\n");
+    try h.typeText("fbu");
     try h.typeText("  ");
     try testing.expectEqual(@as(u32, 2), h.dir().mark_count);
     try testing.expectEqualStrings("README.md", h.hovered());
@@ -220,14 +224,14 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     try testing.expect(!f.exists("work/docs/guide.md"));
     try testing.expectEqual(@as(usize, 1), countIn(&f, "work/docs"));
     // dT trashes; u restores.
-    try h.typeText("fguide\n");
+    try h.typeText("fgu");
     try h.typeText("dT");
     try testing.expect(!f.exists("work/guide.md"));
     try testing.expect(f.exists(".local/share/Trash/files/guide.md"));
     try h.typeText("u");
     try testing.expect(f.exists("work/guide.md"));
     // dD asks first; n keeps it, y deletes it.
-    try h.typeText("fguide\n");
+    try h.typeText("fgu");
     try h.typeText("dD");
     try testing.expectEqual(App.Window.Await.confirm_delete, h.win.?.await_key);
     try h.expectGolden(h.window(), "confirm-delete");
@@ -245,7 +249,7 @@ test "rename, create, and bulk rename in an editor" {
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // r selects the name without its extension: typing replaces it.
-    try h.typeText("fbui\n");
+    try h.typeText("fbu");
     try h.typeText("r");
     try testing.expectEqual(App.Window.PromptKind.rename, h.win.?.prompt.?);
     try h.expectGolden(h.window(), "rename");
@@ -264,7 +268,7 @@ test "rename, create, and bulk rename in an editor" {
     // Bulk rename: the editor gets the names and rewrites them.
     h.app.?.options.editor = "sed -i s/^re/RE/";
     h.app.?.options.editor_in_terminal = false;
-    try h.typeText("frep\n");
+    try h.typeText("frep");
     try h.typeText(" kk ");
     try testing.expectEqual(@as(u32, 2), h.dir().mark_count);
     try h.typeText("R");
@@ -413,11 +417,11 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const p = &h.win.?.preview;
-    try h.typeText("fphoto\n");
+    try h.typeText("fph");
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
     _ = try h.expect(.image, "Image preview");
     try h.expectGolden(h.window(), "preview-image");
-    try h.typeText("fback\n");
+    try h.typeText("fba");
     try testing.expectEqual(App.Window.PreviewMode.text, p.applied);
     try testing.expectEqual(@TypeOf(p.text_kind).archive, p.text_kind);
     {
@@ -427,13 +431,13 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
         try testing.expect(std.mem.indexOf(u8, t, "pkg/b.txt  1 byte\n") != null);
     }
     try h.expectGolden(h.window(), "preview-archive");
-    try h.typeText("fdata.b\n");
+    try h.typeText("fda");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
     try testing.expect(h.reads("Binary file"));
-    try h.typeText("fREAD\n");
+    try h.typeText("fR");
     try testing.expectEqual(App.Window.PreviewMode.text, p.applied);
     if (App.Window.isPath("/usr/bin/pdftoppm")) {
-        try h.typeText("frepo\n");
+        try h.typeText("frep");
         if (p.applied != .image) {
             var tb: [256]u8 = undefined;
             std.debug.print("pdf preview: {s}\n", .{App.ui.getText(p.info_body, &tb)});
@@ -493,7 +497,7 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
     try h.typeText(":boom\n");
     try testing.expect(std.mem.indexOf(u8, h.win.?.message.items, "boom!") != null);
     try testing.expect(h.win.?.message_error);
-    try h.typeText("fdata.c\n");
+    try h.typeText("fda");
     {
         var tb: [256]u8 = undefined;
         try testing.expectEqualStrings("CSV: data.csv", App.ui.getText(h.win.?.preview.text, &tb));

@@ -238,7 +238,9 @@ fn build(self: *Window) !void {
     errdefer _ = c.siv_txn_abort(txn);
     self.root = c.siv_window_get_root(self.window);
     _ = c.siv_set_visual(txn, self.root, &.{ .background_token = .window_bg });
-    _ = c.siv_on(txn, self.root, .key, onKey, null, self);
+    // The keymap sees every key first, on its way down to the focused
+    // row (whose own defaults would take Space and the arrows).
+    _ = c.siv_on_capture(txn, self.root, .key, onKey, null, self);
     const main = c.siv_flex(txn, self.root, &.{ .axis = .column });
     _ = c.siv_set_layout(txn, main, &.{ .width = ui.fill(), .height = ui.fill() });
 
@@ -382,6 +384,15 @@ fn addTab(self: *Window, path_in: []const u8) ?*Tab {
 pub fn newTab(self: *Window, path: []const u8) void {
     _ = self.addTab(path) orelse return;
     self.active = self.tabs.items.len - 1;
+    self.showTab();
+}
+
+/// A new tab on `path`'s folder with `path` under the cursor, folders
+/// included (ShowItems).
+pub fn newTabSelecting(self: *Window, path: []const u8) void {
+    _ = self.addTab(model.parent(path)) orelse return;
+    self.active = self.tabs.items.len - 1;
+    self.curDir().selectName(model.basename(path));
     self.showTab();
 }
 
@@ -901,15 +912,11 @@ pub fn consumeTargets(self: *Window) void {
 
 // Keys -------------------------------------------------------------------------------------
 
+/// Every key, captured at the root before the focused node: the keymap
+/// handles what it binds and passes the rest (and everything while a
+/// prompt's editor has focus).
 fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const self: *Window = @ptrCast(@alignCast(ud.?));
-    return self.keyEvent(ev);
-}
-
-/// A key event, from the window's root or from a row of a column, whose
-/// own defaults (Space selects, arrows move) run before its ancestors
-/// see the key: the keymap goes first.
-pub fn keyEvent(self: *Window, ev: *const siv.Event) siv.EventResult {
     if (!ev.flags.pressed) return .pass;
     input_clock += 1;
     self.last_input = input_clock;
@@ -1499,21 +1506,33 @@ pub fn drivesChanged(self: *Window) void {
 
 /// An encrypted volume asks for its passphrase in the command line.
 pub fn askPassphrase(self: *Window, block: []const u8, label: []const u8, new_tab: bool) void {
+    self.askPassphraseAgain(block, label, new_tab, null);
+}
+
+fn askPassphraseAgain(self: *Window, block: []const u8, label: []const u8, new_tab: bool, failure: ?[]const u8) void {
+    var lbuf: [256]u8 = undefined;
+    const label_copy = lbuf[0..@min(label.len, lbuf.len)];
+    @memcpy(label_copy, label[0..label_copy.len]);
     self.unlock_block.clearRetainingCapacity();
     self.unlock_block.appendSlice(self.gpa, block) catch return;
     self.unlock_label.clearRetainingCapacity();
-    self.unlock_label.appendSlice(self.gpa, label) catch {};
+    self.unlock_label.appendSlice(self.gpa, label_copy) catch {};
     self.unlock_new_tab = new_tab;
     self.startPrompt(.passphrase, "", 0, 0);
-    var buf: [300]u8 = undefined;
+    var buf: [600]u8 = undefined;
     self.message.clearRetainingCapacity();
-    self.message.appendSlice(self.gpa, std.fmt.bufPrint(&buf, "Unlock “{s}”", .{label}) catch "Unlock") catch {};
+    const msg = if (failure) |f|
+        std.fmt.bufPrint(&buf, "{s} Unlock “{s}”", .{ f, label_copy }) catch "Unlock"
+    else
+        std.fmt.bufPrint(&buf, "Unlock “{s}”", .{label_copy}) catch "Unlock";
+    self.message.appendSlice(self.gpa, msg) catch {};
+    self.message_error = failure != null;
     self.updateStatus();
 }
 
 pub fn unlockFailed(self: *Window, msg: []const u8, block: []const u8, label: []const u8, new_tab: bool) void {
-    self.notify(msg, true);
-    if (block.len != 0) self.askPassphrase(block, label, new_tab);
+    if (block.len == 0) return self.notify(msg, true);
+    self.askPassphraseAgain(block, label, new_tab, msg);
 }
 
 /// The drives in a menu at the cursor: choosing a mounted one goes

@@ -58,7 +58,6 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     _ = c.siv_set_layout(txn, col.view, &.{ .width = ui.fill(), .height = ui.fill() });
     _ = c.siv_set_visual(txn, col.view, &.{ .background_token = .view_bg, .flags = .{ .clip = true } });
     _ = c.siv_on(txn, col.view, .select, onSelect, null, col);
-    _ = c.siv_on(txn, col.view, .key, onKey, null, col);
     _ = c.siv_on(txn, col.view, .activate, onActivate, null, col);
     col.message = c.siv_text(txn, col.root, "", 0);
     _ = c.siv_set_text_style(txn, col.message, &.{ .color_token = .muted_fg, .size_role = .body, .@"align" = .center });
@@ -153,20 +152,15 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
         _ = c.siv_set_layout(txn, parts.name, &.{ .grow = 1, .basis = ui.px(0) });
         parts.info = c.siv_text(txn, line, "", 0);
         _ = c.siv_set_layout(txn, parts.info, &.{ .flags = .{ .no_shrink = true } });
-        // A row handles Space, Enter, and the arrows in its default
-        // handler before its ancestors hear them, so the keymap goes on
-        // the row itself (bind gets the row's body; its parent is the
-        // row, which takes focus).
-        const row_root = c.siv_node_get_related(row, .parent);
-        _ = c.siv_on(txn, row_root, .key, onKey, null, col);
-        _ = c.siv_on(txn, row_root, .pointer, onRowPointer, null, parts);
-        _ = c.siv_on(txn, row_root, .drop, onRowDrop, null, parts);
+        // Pointer and drop handlers on the body, which fills the row.
+        _ = c.siv_on(txn, row, .pointer, onRowPointer, null, parts);
+        _ = c.siv_on(txn, row, .drop, onRowDrop, null, parts);
     }
     parts.index = i;
     // Folders take drops (into them); other rows leave drops to the
     // column behind them.
     const drop_mimes: []const u8 = if (e.kind == .dir and col.kind != .preview) "text/uri-list" else "";
-    _ = c.siv_set_drop_target(txn, c.siv_node_get_related(row, .parent), &.{ .mimes = drop_mimes.ptr, .mimes_len = drop_mimes.len, .actions = .{ .copy = true, .move = true }, .preferred = .copy });
+    _ = c.siv_set_drop_target(txn, row, &.{ .mimes = drop_mimes.ptr, .mimes_len = drop_mimes.len, .actions = .{ .copy = true, .move = true }, .preferred = .copy });
     parts.col = col;
     const marked = d.isMarked(i) or col.win.inVisualRange(col, i);
     _ = c.siv_set_visual(txn, parts.mark, &.{ .background_token = if (marked) .warning else .none, .radius = .{ .top_start = 1.5, .top_end = 1.5, .bottom_start = 1.5, .bottom_end = 1.5 } });
@@ -233,11 +227,6 @@ pub fn iconFor(win: *Window, e: model.Entry, buf: []u8) []const u8 {
     if (e.kind == .dir) return "folder";
     const db = win.app.mimeDb() orelse return "text-x-generic";
     return db.iconNames(e.mime, buf);
-}
-
-fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
-    const col: *Column = @ptrCast(@alignCast(ud.?));
-    return col.win.keyEvent(ev);
 }
 
 const drag_threshold: f32 = 6;
