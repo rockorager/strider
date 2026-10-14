@@ -283,7 +283,10 @@ Bookmarks and the command history persist in
   (magic rules, then text or binary) where several types claim a name,
   as `*.ts` (TypeScript or an MPEG transport stream).
 - Opening uses the desktop's MIME defaults (mimeapps.list); `o` offers
-  every application for the type.
+  every application for the type. Terminal applications (nvim) run in
+  `$TERMINAL` (with the flag it takes before a command, `-e` for one the
+  app does not know), else `xdg-terminal-exec`, else the first common
+  terminal found.
 - Drives come from UDisks2: mount (polkit asks if it must), unmount,
   eject, and unlock encrypted volumes with a passphrase typed in a masked
   field.

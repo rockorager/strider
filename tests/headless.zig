@@ -636,6 +636,7 @@ test "*.ts: TypeScript shows as highlighted source, a transport stream as video"
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
 fn infoText(h: *Harness, buf: []u8) []const u8 {
     return App.ui.getText(h.win.?.preview.info_body, buf);
@@ -1256,6 +1257,73 @@ test "the mouse: clicks in each column, double clicks, and drops" {
     try h.settle();
     try testing.expect(f.exists("work/docs/notes.txt"));
     try testing.expect(f.exists("notes.txt"));
+}
+
+/// Reads what the recorder wrote (its working folder, then one argument
+/// per line) once it has run, and removes it for the next launch.
+fn recorded(h: *Harness, f: *const Fixture, buf: []u8) ![]const u8 {
+    var pb: [512]u8 = undefined;
+    const out = try std.fmt.bufPrintSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
+    const Ctx = struct {
+        p: [*:0]const u8,
+        fn ready(x: @This()) bool {
+            return linux.errno(linux.faccessat(linux.AT.FDCWD, x.p, linux.F_OK, 0)) == .SUCCESS;
+        }
+    };
+    try h.dispatchUntil(Ctx{ .p = out.ptr }, Ctx.ready);
+    const rc = linux.openat(linux.AT.FDCWD, out, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    const n = linux.read(fd, buf.ptr, buf.len);
+    _ = linux.unlinkat(linux.AT.FDCWD, out, 0);
+    return buf[0..n];
+}
+
+test "opening: %F applications like imv and nvim get the paths, in a terminal, through symlinked folders" {
+    var f: Fixture = .{};
+    try fixture(&f, "open");
+    defer f.remove();
+    // Applications whose Exec takes a list (%F), as imv's and nvim's do,
+    // run a recorder from the fixture's PATH. The launch spawns them only
+    // when the activation token arrives, after the keys' paths are freed.
+    try f.add(.{ .name = "bin", .dir = true });
+    try f.add(.{ .name = "bin/record-args", .mode = 0o755 });
+    try f.writeFile("bin/record-args", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    for ([_][]const u8{ ".local", ".local/share", ".local/share/applications", ".config" }) |d| {
+        if (!f.exists(d)) try f.add(.{ .name = d, .dir = true });
+    }
+    try f.writeFile(".local/share/applications/org.example.Imv.desktop", "[Desktop Entry]\nType=Application\nName=imv\nExec=record-args %F\nMimeType=image/png;\n");
+    try f.writeFile(".local/share/applications/org.example.Nvim.desktop", "[Desktop Entry]\nType=Application\nName=Neovim\nExec=record-args %F\nTerminal=true\nMimeType=text/plain;\n");
+    try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\ntext/plain=org.example.Nvim.desktop\n");
+    try f.add(.{ .name = "work/shot.png", .size = 10 });
+    var cmd: [512]u8 = undefined;
+    const ln = try std.fmt.bufPrintSentinel(&cmd, "ln -s src '{s}/work/linked'", .{f.path}, 0);
+    try testing.expectEqual(@as(c_int, 0), system(ln.ptr));
+    const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
+    var saved: [4096]u8 = undefined;
+    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    var nb: [4096]u8 = undefined;
+    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    defer _ = setenv("PATH", saved_path.ptr, 1);
+    // A terminal this does not know: it gets "-e" before the command.
+    _ = setenv("TERMINAL", "record-args", 1);
+    defer _ = unsetenv("TERMINAL");
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    var rb: [2048]u8 = undefined;
+    var eb: [2048]u8 = undefined;
+    // Text in nvim's terminal, in the file's folder.
+    try h.typeText("fa-\n");
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n-e\nrecord-args\n{0s}/work/a-very-long-file-name-that-does-not-fit-in-its-column.txt\n", .{f.path}), try recorded(&h, &f, &rb));
+    // Through a symlinked folder: the path as browsed.
+    try h.typeText("flil");
+    try h.typeText("fAp\n");
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work/src\n-e\nrecord-args\n{0s}/work/linked/App.zig\n", .{f.path}), try recorded(&h, &f, &rb));
+    // Both images at once, with imv's %F.
+    try h.typeText("hfph fsho \n");
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
 }
 
 test "folders follow changes on disk: the current one, its parent, and the previewed one" {

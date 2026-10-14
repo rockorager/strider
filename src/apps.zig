@@ -383,7 +383,9 @@ fn writeAll(path: []const u8, data: []const u8) !void {
 
 /// The argument vectors to run `app` on `paths`: one for all of them if
 /// its Exec takes a list (%F, %U), else one per path (%f, %u), or one
-/// without arguments. Strings are allocated with `arena`.
+/// without arguments. Every string is copied into `arena`: the launch
+/// spawns them later (once the activation token arrives), after the
+/// caller's paths and perhaps the application database are gone.
 pub fn commandLines(arena: Allocator, app: *const App, paths: []const []const u8) ![][]const []const u8 {
     const args = try splitExec(arena, app.exec);
     var takes_list = false;
@@ -406,35 +408,61 @@ pub fn commandLines(arena: Allocator, app: *const App, paths: []const []const u8
 }
 
 fn inTerminal(arena: Allocator, argv: []const []const u8) ![]const []const u8 {
-    const term = terminal();
     var out: std.ArrayList([]const u8) = .empty;
-    for (term) |t| try out.append(arena, t);
+    try terminal(arena, &out);
     for (argv) |x| try out.append(arena, x);
     return out.toOwnedSlice(arena);
 }
 
-/// The terminal command a Terminal=true application runs in: $TERMINAL,
-/// else the first common one on $PATH.
-fn terminal() []const []const u8 {
+/// Terminals, and the arguments before the command they run.
+const known_terminals = [_][]const []const u8{
+    &.{ "foot", "--" },
+    &.{ "alacritty", "-e" },
+    &.{ "kitty", "--" },
+    &.{ "wezterm", "start", "--" },
+    &.{ "ghostty", "-e" },
+    &.{ "gnome-terminal", "--" },
+    &.{ "ptyxis", "--" },
+    &.{ "konsole", "-e" },
+    &.{ "xfce4-terminal", "-x" },
+    &.{ "xterm", "-e" },
+};
+
+/// The terminal command a Terminal=true application runs in, copied into
+/// `out`: $TERMINAL (which may carry arguments) with the flag its
+/// terminal takes before a command ("-e" for one this does not know),
+/// else xdg-terminal-exec, else the first common terminal on $PATH.
+fn terminal(arena: Allocator, out: *std.ArrayList([]const u8)) !void {
     const S = struct {
         extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
-        var buf: [1][]const u8 = undefined;
     };
     if (S.getenv("TERMINAL")) |t| {
-        S.buf[0] = std.mem.span(t);
-        return &S.buf;
+        var it = std.mem.tokenizeAny(u8, std.mem.span(t), " \t");
+        const prog = it.next() orelse "";
+        if (prog.len != 0) {
+            try out.append(arena, try arena.dupe(u8, prog));
+            var has_args = false;
+            while (it.next()) |x| {
+                has_args = true;
+                try out.append(arena, try arena.dupe(u8, x));
+            }
+            // "foot -e" or the like already ends in its flag.
+            if (has_args) return;
+            const base = if (std.mem.lastIndexOfScalar(u8, prog, '/')) |i| prog[i + 1 ..] else prog;
+            for (known_terminals) |k| if (std.mem.eql(u8, k[0], base)) {
+                for (k[1..]) |x| try out.append(arena, x);
+                return;
+            };
+            try out.append(arena, "-e");
+            return;
+        }
     }
-    const known = [_][]const []const u8{
-        &.{ "foot", "--" },
-        &.{ "alacritty", "-e" },
-        &.{ "kitty", "--" },
-        &.{ "wezterm", "start", "--" },
-        &.{ "gnome-terminal", "--" },
-        &.{ "konsole", "-e" },
-        &.{ "xterm", "-e" },
+    if (onPath("xdg-terminal-exec")) return out.append(arena, "xdg-terminal-exec");
+    for (known_terminals) |k| if (onPath(k[0])) {
+        for (k) |x| try out.append(arena, x);
+        return;
     };
-    for (known) |k| if (onPath(k[0])) return k;
-    return &.{ "xterm", "-e" };
+    try out.appendSlice(arena, &.{ "xterm", "-e" });
 }
 
 pub fn onPath(prog: []const u8) bool {
@@ -491,7 +519,7 @@ fn expand(arena: Allocator, app: *const App, args: []const []const u8, paths: []
     for (args) |arg| {
         // Codes that stand alone expand to several arguments, or none.
         if (std.mem.eql(u8, arg, "%F")) {
-            for (paths) |p| try out.append(arena, p);
+            for (paths) |p| try out.append(arena, try arena.dupe(u8, p));
             continue;
         }
         if (std.mem.eql(u8, arg, "%U")) {
@@ -501,7 +529,7 @@ fn expand(arena: Allocator, app: *const App, args: []const []const u8, paths: []
         if (std.mem.eql(u8, arg, "%i")) {
             if (app.icon.len != 0) {
                 try out.append(arena, "--icon");
-                try out.append(arena, app.icon);
+                try out.append(arena, try arena.dupe(u8, app.icon));
             }
             continue;
         }

@@ -108,7 +108,8 @@ pub const Harness = struct {
     sapp: siv.App = .null,
     app: ?*App = null,
     win: ?*App.Window = null,
-    data_dirs: [1][]const u8 = .{"tests/data"},
+    /// The fixture's data home first, as the app has $XDG_DATA_HOME.
+    data_dirs: [2][]const u8 = .{ "", "tests/data" },
     config_dirs: [1][]const u8 = .{""},
     config_buf: [256]u8 = undefined,
     state_buf: [256]u8 = undefined,
@@ -144,6 +145,7 @@ pub const Harness = struct {
         const config = try std.fmt.bufPrint(&h.config_buf, "{s}/.config", .{home});
         h.config_dirs[0] = config;
         const data_home = try std.fmt.bufPrint(&h.data_home_buf, "{s}/.local/share", .{home});
+        h.data_dirs[0] = data_home;
         h.app = try App.create(h.sapp, .{
             .gpa = testing.allocator,
             .home = home,
