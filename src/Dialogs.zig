@@ -4,7 +4,8 @@
 //! later conflict), and properties (the details, permissions as check
 //! boxes and as a mode, the owner). Each is a siv dialog driven from the
 //! keyboard: buttons and check boxes carry mnemonics, underlined, that
-//! work as keys; Enter takes the default; Escape cancels. Quick one-key
+//! work as keys; Enter presses the focused button (Cancel when a dialog
+//! opens; Apply in properties); Escape cancels. Quick one-key
 //! questions (a single file's conflict, bookmarks) stay in the status
 //! line.
 
@@ -92,6 +93,14 @@ fn button(d: *Dialogs, txn: Txn, label: []const u8, mnemonic: u8, style: siv.But
     d.nbuttons += 1;
 }
 
+/// Shows a dialog of buttons with its first, Cancel, focused, as GTK
+/// does: Enter then cancels (siv focuses the card, where Enter did
+/// nothing at all), Tab reaches the others, and each one's key presses it.
+fn present(d: *Dialogs, txn: Txn) void {
+    if (!ui.commit(txn)) return;
+    if (d.nbuttons != 0) _ = c.siv_node_focus(d.buttons[0]);
+}
+
 fn content(d: *Dialogs) Node {
     return c.siv_widget_get_part(d.node, .content, 0);
 }
@@ -135,14 +144,14 @@ pub fn confirmDelete(d: *Dialogs, paths: []const []const u8) void {
     }
     d.button(txn, "Cancel", 'c', .default, .cancel);
     d.button(txn, "Delete", 'd', .destructive, .delete);
-    _ = ui.commit(txn);
+    d.present(txn);
 }
 
 pub fn confirmEmptyTrash(d: *Dialogs) void {
     const txn = d.begin(.empty_trash, "Empty the trash?", "Everything in it is deleted permanently; this cannot be undone.") orelse return;
     d.button(txn, "Cancel", 'c', .default, .cancel);
     d.button(txn, "Empty the trash", 'e', .destructive, .empty_trash);
-    _ = ui.commit(txn);
+    d.present(txn);
 }
 
 // Saving over files ---------------------------------------------------------------------------
@@ -167,7 +176,7 @@ pub fn confirmOverwrite(d: *Dialogs, names: []const []const u8, folder: []const 
     }
     d.button(txn, "Cancel", 'c', .default, .cancel);
     d.button(txn, "Replace", 'r', .destructive, .overwrite);
-    _ = ui.commit(txn);
+    d.present(txn);
 }
 
 // Conflicts ----------------------------------------------------------------------------------
@@ -195,7 +204,7 @@ pub fn askConflict(d: *Dialogs, e: *App.OpEntry) void {
     d.button(txn, "Keep both", 'k', .default, .keep_both);
     if (cf.src_dir and cf.dst_dir) d.button(txn, "Merge", 'm', .default, .merge);
     d.button(txn, "Replace", 'r', .primary, .replace);
-    _ = ui.commit(txn);
+    d.present(txn);
 }
 
 // Properties ---------------------------------------------------------------------------------
@@ -477,7 +486,8 @@ fn onClose(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.Event
 }
 
 /// Enter takes the default: Apply in properties (from its text fields
-/// too); the dialogs that destroy something have no default.
+/// too). Elsewhere it presses the focused button, Cancel at first
+/// (present), so nothing is destroyed by Enter alone.
 fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const d: *Dialogs = @ptrCast(@alignCast(ud.?));
     if (!ev.flags.pressed) return .pass;
