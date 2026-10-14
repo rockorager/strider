@@ -15,6 +15,7 @@ pub const keys = @import("keys.zig");
 pub const model = @import("model.zig");
 pub const mime = @import("mime.zig");
 pub const fsops = @import("fsops.zig");
+const proc = @import("proc.zig");
 pub const places_mod = @import("places.zig");
 pub const apps = @import("apps.zig");
 pub const undo_mod = @import("undo.zig");
@@ -51,6 +52,8 @@ pub const Options = struct {
     tz_offset_s: i64 = 0,
     /// Follow changes to folders with inotify.
     watch: bool = true,
+    /// Tell zoxide about the folders visited, when it is on $PATH.
+    zoxide: bool = true,
     /// Ask UDisks2 for drives (off in tests).
     udisks: bool = true,
     /// UDisks2's bus: null is the system bus (tests pass an address).
@@ -103,6 +106,10 @@ bookmarks: std.AutoArrayHashMapUnmanaged(u32, []u8) = .empty,
 history: std.ArrayList([]u8) = .empty,
 /// File operations that finished, newest first, for the tasks view.
 recent: std.ArrayList(Finished) = .empty,
+/// zoxide is on $PATH (looked for once, at startup), and the folder
+/// last told to it.
+zoxide: bool = false,
+zoxide_last: std.ArrayList(u8) = .empty,
 /// The status line's recent messages, oldest first (`:messages`).
 messages: std.ArrayList(Message) = .empty,
 /// What yy and dd took: paths, and whether pasting moves them.
@@ -209,6 +216,7 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     }
     self.applyViewOptions();
     if (opts.watch) self.cache.startWatching();
+    self.zoxide = opts.zoxide and proc.onPath("zoxide");
     if (opts.mount_table) self.refreshMountDrives();
     if (opts.udisks) self.udisks = UDisks.create(self) catch null;
     return self;
@@ -243,6 +251,7 @@ pub fn destroy(self: *App) void {
     self.bookmarks.deinit(gpa);
     for (self.history.items) |h| gpa.free(h);
     self.history.deinit(gpa);
+    self.zoxide_last.deinit(gpa);
     for (self.messages.items) |m| gpa.free(m.text);
     self.messages.deinit(gpa);
     for (self.recent.items) |f| {
@@ -604,6 +613,70 @@ pub fn driveMounted(self: *App, win: *Window, mount_point: []const u8, new_tab: 
 pub fn leaveMount(self: *App, mount_point: []const u8) void {
     for (self.windows.items) |w| w.leaveMount(mount_point);
 }
+
+// zoxide ----------------------------------------------------------------------------------
+
+/// Tells zoxide about a folder the user went to (`zoxide add`), on a
+/// worker; each folder once until another is visited.
+pub fn zoxideAdd(self: *App, d: *const Dir) void {
+    if (!self.zoxide or d.isTrash() or std.mem.eql(u8, d.path, self.zoxide_last.items)) return;
+    self.zoxide_last.clearRetainingCapacity();
+    self.zoxide_last.appendSlice(self.gpa, d.path) catch return;
+    self.runProgram(null, &.{ "zoxide", "add", "--", d.path }, null);
+}
+
+/// What a program run by `runProgram` printed, for its window.
+pub const ProgramDone = *const fn (win: *Window, status: u8, output: []const u8) void;
+
+/// Runs `argv` on a worker (killed after 10 seconds), then `done` with
+/// what it printed if `win` is still open.
+pub fn runProgram(self: *App, win: ?*Window, argv: []const []const u8, done: ?ProgramDone) void {
+    const gpa = self.gpa;
+    const j = gpa.create(ProgramJob) catch return;
+    j.* = .{ .app = self, .win = win, .gpa = gpa, .done = done };
+    for (argv) |a| {
+        const copy = gpa.dupe(u8, a) catch return ProgramJob.destroy(j);
+        j.argv.append(gpa, copy) catch {
+            gpa.free(copy);
+            return ProgramJob.destroy(j);
+        };
+    }
+    // The destroy-notify runs if the job cannot start.
+    _ = c.siv_job_start(self.app, .{}, ProgramJob.work, ProgramJob.finish, ProgramJob.destroy, j);
+}
+
+const ProgramJob = struct {
+    app: *App,
+    win: ?*Window,
+    gpa: Allocator,
+    argv: std.ArrayList([]u8) = .empty,
+    done: ?ProgramDone,
+    status: u8 = 127,
+    output: []u8 = &.{},
+
+    fn work(ud: ?*anyopaque) callconv(.c) void {
+        const j: *ProgramJob = @ptrCast(@alignCast(ud.?));
+        const r = proc.run(j.gpa, @ptrCast(j.argv.items), .{ .max_output = 1 << 20, .timeout_ms = 10_000 }) catch return;
+        j.status = r.status;
+        j.output = r.output;
+    }
+
+    fn finish(ud: ?*anyopaque) callconv(.c) void {
+        const j: *ProgramJob = @ptrCast(@alignCast(ud.?));
+        const done = j.done orelse return;
+        const w = j.win orelse return;
+        // The window may have closed meanwhile.
+        for (j.app.windows.items) |x| if (x == w) return done(w, j.status, j.output);
+    }
+
+    fn destroy(ud: ?*anyopaque) callconv(.c) void {
+        const j: *ProgramJob = @ptrCast(@alignCast(ud.?));
+        for (j.argv.items) |a| j.gpa.free(a);
+        j.argv.deinit(j.gpa);
+        j.gpa.free(j.output);
+        j.gpa.destroy(j);
+    }
+};
 
 /// Keeps a message for `:messages`, dropping the oldest past
 /// `max_messages`.

@@ -13,6 +13,7 @@ const App = @import("App.zig");
 const Dir = @import("Dir.zig");
 const Column = @import("Column.zig");
 const Preview = @import("Preview.zig");
+const Picker = @import("Picker.zig");
 const keys = @import("keys.zig");
 const model = @import("model.zig");
 const fsops = @import("fsops.zig");
@@ -45,6 +46,8 @@ pub const PromptKind = enum {
     rename,
     create,
     passphrase,
+    /// The picker's query.
+    pick,
 
     fn label(k: PromptKind) []const u8 {
         return switch (k) {
@@ -57,6 +60,7 @@ pub const PromptKind = enum {
             .rename => "rename:",
             .create => "new:",
             .passphrase => "passphrase:",
+            .pick => "",
         };
     }
 };
@@ -77,6 +81,8 @@ tabs_row: Node = .null,
 parent_col: Column,
 current: Column,
 preview: Preview,
+/// Fuzzy finding (gf) and zoxide's folders (gz), over the command line.
+picker: Picker,
 parent_box: Node = .null,
 preview_box: Node = .null,
 current_box: Node = .null,
@@ -151,10 +157,12 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .parent_col = .{ .win = undefined, .kind = .parent },
         .current = .{ .win = undefined, .kind = .current },
         .preview = undefined,
+        .picker = undefined,
     };
     self.parent_col.win = self;
     self.current.win = self;
     self.preview = Preview.init(self);
+    self.picker = Picker.init(self);
     self.window = try siv.windowCreate(app.app, .{
         .title = "Columns",
         .app_id = App.app_id,
@@ -214,6 +222,7 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     if (self.probing) |pr| pr.win = null;
     if (self.conflict) |e| e.answer(.cancel, false);
     self.preview.deinit();
+    self.picker.deinit();
     if (self.parent_col.dir) |d| d.pins -= 1;
     if (self.current.dir) |d| d.pins -= 1;
     for (self.tabs.items) |t| freeTab(gpa, t);
@@ -358,6 +367,7 @@ fn build(self: *Window) !void {
     _ = c.siv_set_visual(txn, self.tasks, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
     _ = c.siv_set_semantics(txn, self.tasks, &.{ .role = .list, .label = "Tasks", .label_len = 5 });
     _ = c.siv_set_hidden(txn, self.tasks, true);
+    self.picker.build(txn, self.root);
     try siv.txnCommit(txn);
 }
 
@@ -853,6 +863,7 @@ pub fn cdKnown(self: *Window, path: []const u8, select: ?[]const u8, record: boo
         if (record) self.pushHistory(t, d.path);
     }
     self.showTab();
+    self.app.zoxideAdd(d);
     if (self.app.lua) |l| l.emit("cd", d.path);
 }
 
@@ -1499,7 +1510,7 @@ pub fn startPrompt(self: *Window, kind: PromptKind, initial: []const u8, caret: 
     self.prompt = kind;
     self.prompt_origin = self.curDir().cursor;
     self.history_pos = self.app.history.items.len;
-    const label = kind.label();
+    const label = if (kind == .pick) self.picker.label() else kind.label();
     const txn = self.begin() orelse return;
     _ = c.siv_set_text(txn, self.cmd_label, label.ptr, label.len);
     _ = c.siv_set_text(txn, self.cmd_editor, initial.ptr, initial.len);
@@ -1516,6 +1527,7 @@ pub fn startPrompt(self: *Window, kind: PromptKind, initial: []const u8, caret: 
         .rename => "New name",
         .create => "New file or folder",
         .passphrase => "Passphrase",
+        .pick => if (self.picker.kind == .files) "Find a file or folder" else "Jump to a folder",
     };
     _ = c.siv_set_semantics(txn, self.cmd_editor, &.{ .role = .text_input, .label = sem_label.ptr, .label_len = sem_label.len, .flags = .{ .focusable = true } });
     self.applyStatus(txn);
@@ -1524,6 +1536,7 @@ pub fn startPrompt(self: *Window, kind: PromptKind, initial: []const u8, caret: 
 }
 
 pub fn closePrompt(self: *Window) void {
+    if (self.prompt == .pick) self.picker.close();
     self.prompt = null;
     self.hideWhichKey();
     const txn = self.begin() orelse return;
@@ -1565,9 +1578,18 @@ fn onPromptKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.
         },
         .tab, .iso_left_tab => {
             if (kind == .command or kind == .shell) self.complete();
+            if (kind == .pick) self.picker.move(if (ev.keysym == .tab and !m.shift) 1 else -1);
+            return .handled;
+        },
+        .page_up, .page_down => if (kind == .pick) {
+            self.picker.move(if (ev.keysym == .page_down) Picker.rows else -Picker.rows);
             return .handled;
         },
         .up, .down => {
+            if (kind == .pick) {
+                self.picker.move(if (ev.keysym == .up) -1 else 1);
+                return .handled;
+            }
             if (kind == .command or kind == .shell) {
                 self.recallHistory(if (ev.keysym == .up) -1 else 1);
                 return .handled;
@@ -1576,6 +1598,18 @@ fn onPromptKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.
         },
         else => {},
     }
+    // Ctrl+N and Ctrl+P (Ctrl+J and Ctrl+K) move in the picker, as in fzf.
+    if (kind == .pick and m.ctrl) switch (@intFromEnum(ev.keysym)) {
+        'n', 'j' => {
+            self.picker.move(1);
+            return .handled;
+        },
+        'p', 'k' => {
+            self.picker.move(-1);
+            return .handled;
+        },
+        else => {},
+    };
     // Ctrl+C and Ctrl+[ cancel, as in a terminal.
     if (m.ctrl and (@intFromEnum(ev.keysym) == 'c' or @intFromEnum(ev.keysym) == '[')) {
         self.cancelPrompt(kind);
@@ -1611,6 +1645,7 @@ fn onPromptChange(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
             self.applyStatus(txn);
             _ = commit(txn);
         },
+        .pick => self.picker.setQuery(t),
         else => {},
     }
     return .handled;
@@ -1632,7 +1667,33 @@ fn cancelPrompt(self: *Window, kind: PromptKind) void {
     self.closePrompt();
 }
 
+/// Opens the picker: files and folders below this one, or zoxide's.
+pub fn startPicker(self: *Window, kind: Picker.Kind, query: []const u8) void {
+    if (self.prompt != null) self.closePrompt();
+    self.picker.start(kind, self.curDir().path, self.app.options.show_hidden);
+    self.startPrompt(.pick, query, @intCast(query.len), @intCast(query.len));
+    if (query.len != 0) self.picker.setQuery(query);
+}
+
+/// Enter in the picker: a folder opens; a file shows in its folder.
+fn submitPick(self: *Window) void {
+    var buf: [linux.PATH_MAX + 2]u8 = undefined;
+    const got = self.picker.chosen(&buf);
+    var copy: [linux.PATH_MAX + 2]u8 = undefined;
+    const path = if (got) |g| copy[0..g.len] else null;
+    if (got) |g| @memcpy(path.?, g);
+    const kind = self.picker.kind;
+    self.closePrompt();
+    const p = path orelse return;
+    if (std.mem.endsWith(u8, p, "/")) {
+        const dir = p[0 .. p.len - 1];
+        // A walk found the folder just now; zoxide's may be gone.
+        if (kind == .files) self.cdKnown(dir, null, true) else self.cd(dir);
+    } else self.cdKnown(model.parent(p), model.basename(p), true);
+}
+
 fn submitPrompt(self: *Window, kind: PromptKind) void {
+    if (kind == .pick) return self.submitPick();
     if (kind == .passphrase) {
         var pass: [1024]u8 = undefined;
         const p = ui.getText(self.pass_editor, &pass);
@@ -1666,6 +1727,7 @@ fn submitPrompt(self: *Window, kind: PromptKind) void {
         },
         .find => {},
         .filter => {},
+        .pick => {},
         .rename => commands.finishRename(self, t),
         .create => commands.finishCreate(self, t),
         .passphrase => {},

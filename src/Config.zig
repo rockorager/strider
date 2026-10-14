@@ -257,6 +257,8 @@ pub const default_bindings = [_]struct { keys.Mode, []const u8, []const u8, []co
     .{ .normal, "gx", "trash-browse", "Trash" },
     .{ .normal, "gv", "drives", "Drives" },
     .{ .normal, "gm", "cd-media", "Mounted media" },
+    .{ .normal, "gf", "fuzzy", "Find a file below" },
+    .{ .normal, "gz", "zi", "Jump with zoxide" },
     .{ .normal, "g?", "help", "All keys" },
     .{ .normal, "<F1>", "help", "All keys" },
     // Tabs.

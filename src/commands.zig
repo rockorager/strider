@@ -54,6 +54,9 @@ pub const list = [_]Command{
     .{ .name = "back", .desc = "Back in history", .run = back },
     .{ .name = "forward", .desc = "Forward in history", .run = forward },
     .{ .name = "cd", .desc = "Go to a folder (or a file's folder)", .run = cd, .complete = .dir },
+    .{ .name = "fuzzy", .desc = "Find a file or folder below this one", .run = fuzzyFind },
+    .{ .name = "z", .desc = "Jump to zoxide's best folder for the words, or pick one", .run = zJump },
+    .{ .name = "zi", .desc = "Pick a folder zoxide knows", .run = zPick },
     .{ .name = "cd-xdg", .desc = "Go to an XDG user folder: DOWNLOAD, DOCUMENTS, …", .run = cdXdg },
     .{ .name = "cd-media", .desc = "Go to where drives mount", .run = cdMedia },
     .{ .name = "trash-browse", .desc = "Show the trash", .run = trashBrowse },
@@ -218,6 +221,30 @@ fn forward(ctx: Ctx) void {
 fn cd(ctx: Ctx) void {
     ctx.win.cd(if (ctx.args.len == 0) "~" else unquote(ctx.args));
 }
+fn fuzzyFind(ctx: Ctx) void {
+    ctx.win.startPicker(.files, ctx.args);
+}
+fn zPick(ctx: Ctx) void {
+    if (!ctx.win.app.zoxide) return ctx.win.notify("zoxide is not installed (it is in most distributions' packages)", true);
+    ctx.win.startPicker(.folders, ctx.args);
+}
+fn zJump(ctx: Ctx) void {
+    const win = ctx.win;
+    if (ctx.args.len == 0) return zPick(ctx);
+    if (!win.app.zoxide) return win.notify("zoxide is not installed (it is in most distributions' packages)", true);
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(win.gpa);
+    argv.appendSlice(win.gpa, &.{ "zoxide", "query", "--exclude", win.curDir().path, "--" }) catch return;
+    var it = std.mem.tokenizeScalar(u8, ctx.args, ' ');
+    while (it.next()) |w| argv.append(win.gpa, w) catch return;
+    win.app.runProgram(win, argv.items, zFound);
+}
+fn zFound(win: *Window, status: u8, output: []const u8) void {
+    const path = std.mem.trim(u8, output, " \n");
+    if (status != 0 or path.len == 0) return win.notify("zoxide knows no folder for that", true);
+    win.cd(path);
+}
+
 fn cdXdg(ctx: Ctx) void {
     const app = ctx.win.app;
     const want = if (std.ascii.eqlIgnoreCase(ctx.args, "DOWNLOAD")) "Downloads" else if (std.ascii.eqlIgnoreCase(ctx.args, "DOCUMENTS")) "Documents" else if (std.ascii.eqlIgnoreCase(ctx.args, "PICTURES")) "Pictures" else if (std.ascii.eqlIgnoreCase(ctx.args, "MUSIC")) "Music" else if (std.ascii.eqlIgnoreCase(ctx.args, "VIDEOS")) "Videos" else if (std.ascii.eqlIgnoreCase(ctx.args, "DESKTOP")) "Desktop" else ctx.args;

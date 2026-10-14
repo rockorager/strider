@@ -16,4 +16,5 @@ test {
     _ = @import("highlight.zig");
     _ = @import("proc.zig");
     _ = @import("archive.zig");
+    _ = @import("fuzzy.zig");
 }

@@ -768,6 +768,91 @@ fn dispatchFor(h: *Harness, ms: usize) !void {
     for (0..ms / 10) |_| try siv.check(c.siv_app_dispatch(h.sapp, 10));
 }
 
+test "gf finds files below; gz and :z jump with zoxide, which hears of each folder" {
+    var f: Fixture = .{};
+    try fixture(&f, "picker");
+    defer f.remove();
+    // A stand-in zoxide: it logs what it is told and knows three folders.
+    var cmd: [2048]u8 = undefined;
+    const setup = try std.fmt.bufPrintSentinel(&cmd,
+        \\mkdir -p '{s}/bin' && cat > '{s}/bin/zoxide' <<'EOF'
+        \\#!/bin/sh
+        \\case "$1" in
+        \\add) echo "$3" >> "{s}/zoxide.log" ;;
+        \\query) if [ "$2" = "--list" ]; then printf '%s\n' "{s}/Music" "{s}/Documents" "{s}/work/docs"
+        \\  else for a; do last=$a; done; case "$last" in doc*) echo "{s}/work/docs" ;; *) exit 1 ;; esac; fi ;;
+        \\esac
+        \\EOF
+        \\chmod +x '{s}/bin/zoxide'
+    , .{ f.path, f.path, f.path, f.path, f.path, f.path, f.path, f.path }, 0);
+    try testing.expectEqual(@as(c_int, 0), system(setup.ptr));
+    const old_path = try testing.allocator.dupeSentinel(u8, std.mem.span(getenv("PATH") orelse "/usr/bin:/bin"), 0);
+    defer testing.allocator.free(old_path);
+    defer _ = setenv("PATH", old_path.ptr, 1);
+    var pbuf: [1024]u8 = undefined;
+    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&pbuf, "{s}/bin:{s}", .{ f.path, old_path }, 0)).ptr, 1);
+
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    const w = h.win.?;
+    var tb: [256]u8 = undefined;
+    // gf: everything below, best match first; Enter shows a file in its
+    // folder.
+    try h.typeText("gf");
+    try testing.expectEqual(App.Window.PromptKind.pick, w.prompt.?);
+    try testing.expect(h.reads("Find a file or folder"));
+    try testing.expect(w.picker.paths.len() >= 12);
+    try h.typeText("mainz");
+    try testing.expectEqualStrings("src/main.zig", w.picker.paths.get(w.picker.matches.items[0].index));
+    try h.typeText("\n");
+    try testing.expect(w.prompt == null);
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+    try testing.expectEqualStrings("main.zig", h.hovered());
+    // A folder opens; Ctrl+N and Ctrl+P move; Esc leaves.
+    try h.typeText("hgfutil");
+    try testing.expectEqualStrings("src/util/", w.picker.chosen(&tb).?[w.picker.root.items.len + 1 ..]);
+    try h.typeText("\n");
+    try testing.expectEqualStrings("util", model.basename(h.dir().path));
+    try h.typeText("hhgfzig");
+    const second = w.picker.paths.get(w.picker.matches.items[1].index);
+    var sbuf: [256]u8 = undefined;
+    const want = sbuf[0..second.len];
+    @memcpy(want, second);
+    try h.key(@enumFromInt('n'), .{ .ctrl = true }, "\x0e");
+    try h.key(@enumFromInt('n'), .{ .ctrl = true }, "\x0e");
+    try h.key(@enumFromInt('p'), .{ .ctrl = true }, "\x10");
+    try testing.expectEqual(@as(usize, 1), w.picker.selected);
+    try h.expectGolden(h.window(), "picker");
+    try h.typeText("\x1b");
+    try testing.expect(w.prompt == null and !w.picker.open);
+    // zoxide heard of every folder visited.
+    var lb: [4096]u8 = undefined;
+    const log = try readFile(&f, "zoxide.log", &lb);
+    try testing.expect(std.mem.indexOf(u8, log, "/work/src\n") != null);
+    try testing.expect(std.mem.indexOf(u8, log, "/work/src/util\n") != null);
+    // gz: zoxide's folders, filtered as you type.
+    try h.typeText("gz");
+    try testing.expectEqual(@as(usize, 3), w.picker.paths.len());
+    try h.typeText("mus\n");
+    try testing.expectEqualStrings("Music", model.basename(h.dir().path));
+    // :z words: zoxide's best folder for them.
+    try h.typeText(":z doc\n");
+    try testing.expectEqualStrings("docs", model.basename(h.dir().path));
+    try h.typeText(":z nothing\n");
+    try testing.expectEqualStrings("zoxide knows no folder for that", w.message.items);
+}
+
+fn readFile(f: *const Fixture, rel: []const u8, buf: []u8) ![]const u8 {
+    var pb: [512]u8 = undefined;
+    const p = try std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ f.path, rel }, 0);
+    const rc = std.os.linux.openat(std.os.linux.AT.FDCWD, p, .{ .ACCMODE = .RDONLY }, 0);
+    if (std.os.linux.errno(rc) != .SUCCESS) return error.FileNotFound;
+    defer _ = std.os.linux.close(@intCast(rc));
+    const n = std.os.linux.read(@intCast(rc), buf.ptr, buf.len);
+    return buf[0..n];
+}
+
 test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
     var f: Fixture = .{};
     try fixture(&f, "tasks");
