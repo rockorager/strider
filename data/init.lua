@@ -2,17 +2,17 @@
 --
 -- Copy it to $XDG_CONFIG_HOME/strider/init.lua (~/.config/...) and
 -- change what you like; without one, these defaults apply anyway. The
--- file runs once at startup in Lua 5.5. require("fm") is the file manager;
+-- file runs once at startup in Lua 5.5. require("strider") is the file manager;
 -- require("siv") is the siv toolkit's own Lua binding, for timers, jobs,
--- notifications, D-Bus and the like (fm.siv_app() is the running app).
+-- notifications, D-Bus and the like (strider.siv_app() is the running app).
 --
 -- Every key runs a named command; `:help` (or g? or F1) lists them all,
 -- and `:` runs one by hand, with Tab completing names and paths.
 
-local fm = require("fm")
+local strider = require("strider")
 
 -- Options (also `:set name value` while running).
-fm.set {
+strider.set {
 	hidden = false, -- zh toggles
 	sort = "name", -- name, size, modified, type, extension
 	sort_reverse = false,
@@ -26,35 +26,35 @@ fm.set {
 	scroll_off = 3,
 	confirm_delete = true,
 }
--- fm.opt is the same, one at a time:
-fm.opt.syntax = true
+-- strider.opt is the same, one at a time:
+strider.opt.syntax = true
 
--- Keys: fm.map(mode, keys, command or function, description).
+-- Keys: strider.map(mode, keys, command or function, description).
 -- Modes are "n" (normal) and "v" (visual); a table maps both.
-fm.map("n", "gp", "cd ~/Projects", "Projects")
-fm.map("n", "gs", "cd ~/Pictures/Screenshots", "Screenshots")
-fm.map({ "n", "v" }, "<C-c>", "yank", "Copy")
+strider.map("n", "gp", "cd ~/Projects", "Projects")
+strider.map("n", "gs", "cd ~/Pictures/Screenshots", "Screenshots")
+strider.map({ "n", "v" }, "<C-c>", "yank", "Copy")
 
 -- A Lua function gets the count typed before the keys (or nil).
-fm.map("n", "gi", function(count)
-	local n = #fm.selected()
-	fm.notify(("%d item%s under the cursor or marked"):format(n, n == 1 and "" or "s"))
+strider.map("n", "gi", function(count)
+	local n = #strider.selected()
+	strider.notify(("%d item%s under the cursor or marked"):format(n, n == 1 and "" or "s"))
 end, "How many targets")
 
--- fm.unmap("n", "dD") would remove a default binding.
+-- strider.unmap("n", "dD") would remove a default binding.
 
--- Commands: run them with `:name args`, bind them, or call fm.exec.
-fm.command("archive", function(args)
+-- Commands: run them with `:name args`, bind them, or call strider.exec.
+strider.command("archive", function(args)
 	local name = args ~= "" and args or "archive.tar.gz"
 	-- shell runs in the current folder with the targets as "$@".
-	fm.exec("shell tar -czf " .. ("%q"):format(name) .. ' "$@"')
+	strider.exec("shell tar -czf " .. ("%q"):format(name) .. ' "$@"')
 end, "Pack the targets into a tarball")
-fm.map("n", "ca", "archive", "Pack into archive.tar.gz")
+strider.map("n", "ca", "archive", "Pack into archive.tar.gz")
 
 -- Previewers: by file name (a glob), MIME type ("text/*" works), or a
 -- match function; `run` returns the text to show, `cmd` shows a
 -- program's output ("%s" is the file). Later ones win.
-fm.previewer {
+strider.previewer {
 	name = "*.csv",
 	run = function(path)
 		local out, n = {}, 0
@@ -66,12 +66,12 @@ fm.previewer {
 		return table.concat(out, "\n")
 	end,
 }
--- fm.previewer { mime = "video/*", cmd = { "mediainfo", "%s" } }
+-- strider.previewer { mime = "video/*", cmd = { "mediainfo", "%s" } }
 
 -- Bookmarks: ' and a key jumps, m and a key sets.
-fm.bookmark("c", os.getenv("HOME") .. "/.config")
+strider.bookmark("c", os.getenv("HOME") .. "/.config")
 
 -- Events: "cd" runs with the folder entered.
-fm.on("cd", function(path)
-	-- fm.notify("Now in " .. path)
+strider.on("cd", function(path)
+	-- strider.notify("Now in " .. path)
 end)

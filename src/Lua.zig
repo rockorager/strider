@@ -1,8 +1,8 @@
 //! The Lua configuration: $XDG_CONFIG_HOME/strider/init.lua, run in a
 //! Lua 5.5 state from siv's Lua binding (libsiv-lua, linked in). Lua
-//! reaches the file manager through require("fm") — keymaps, options,
+//! reaches the file manager through require("strider") — keymaps, options,
 //! commands, previewers, and events — and siv itself through
-//! require("siv"), with the running application from fm.siv_app().
+//! require("siv"), with the running application from strider.siv_app().
 
 const std = @import("std");
 const linux = std.os.linux;
@@ -45,11 +45,11 @@ pub fn create(app: *App) !*Lua {
     const L = sl.siv_lua_new(~@as(c_int, 0)) orelse return error.OutOfMemory;
     const self = try app.gpa.create(Lua);
     self.* = .{ .gpa = app.gpa, .app = app, .L = L };
-    // require("fm").
+    // require("strider").
     _ = lc.lua_getfield(L, lh.registry, "_PRELOAD");
     lc.lua_pushlightuserdata(L, self);
-    lc.lua_pushcclosure(L, openFm, 1);
-    lc.lua_setfield(L, -2, "fm");
+    lc.lua_pushcclosure(L, openStrider, 1);
+    lc.lua_setfield(L, -2, "strider");
     lh.pop(L, 1);
     return self;
 }
@@ -184,7 +184,7 @@ pub fn callBinding(self: *Lua, win: *Window, ref: c_int, count: ?u32) void {
     _ = self.pcall(1, 0);
 }
 
-/// A command fm.command defined; false if there is none by that name.
+/// A command strider.command defined; false if there is none by that name.
 pub fn runCommand(self: *Lua, win: *Window, name: []const u8, args: []const u8, count: ?u32) bool {
     const u = for (self.user_commands.items) |u| {
         if (std.mem.eql(u8, u.name, name)) break u;
@@ -209,7 +209,7 @@ pub fn appendCommands(self: *Lua, out: *std.ArrayList(u8)) void {
     for (self.user_commands.items) |u| out.print(self.gpa, "  {s: <18} {s}\n", .{ u.name, u.desc }) catch return;
 }
 
-/// Tells handlers registered with fm.on about an event.
+/// Tells handlers registered with strider.on about an event.
 pub fn emit(self: *Lua, event: []const u8, arg: []const u8) void {
     for (self.handlers.items) |h| {
         if (!std.mem.eql(u8, h.event, event)) continue;
@@ -280,34 +280,34 @@ pub fn previewer(self: *Lua, path: []const u8, name: []const u8, type_name: []co
     return null;
 }
 
-// The fm module ----------------------------------------------------------------------------
+// The strider module ----------------------------------------------------------------------------
 
 fn pushFn(L: *State, self: *Lua, f: lh.CFunction) void {
     lc.lua_pushlightuserdata(L, self);
     lc.lua_pushcclosure(L, f, 1);
 }
 
-fn openFm(Lq: ?*State) callconv(.c) c_int {
+fn openStrider(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     lc.lua_createtable(L, 0, 24);
     const fns = [_]struct { [:0]const u8, lh.CFunction }{
-        .{ "map", fmMap },
-        .{ "unmap", fmUnmap },
-        .{ "set", fmSet },
-        .{ "get", fmGet },
-        .{ "command", fmCommand },
-        .{ "exec", fmExec },
-        .{ "notify", fmNotify },
-        .{ "cwd", fmCwd },
-        .{ "hovered", fmHovered },
-        .{ "selected", fmSelected },
-        .{ "cd", fmCd },
-        .{ "previewer", fmPreviewer },
-        .{ "on", fmOn },
-        .{ "siv_app", fmSivApp },
-        .{ "siv_window", fmSivWindow },
-        .{ "bookmark", fmBookmark },
+        .{ "map", striderMap },
+        .{ "unmap", striderUnmap },
+        .{ "set", striderSet },
+        .{ "get", striderGet },
+        .{ "command", striderCommand },
+        .{ "exec", striderExec },
+        .{ "notify", striderNotify },
+        .{ "cwd", striderCwd },
+        .{ "hovered", striderHovered },
+        .{ "selected", striderSelected },
+        .{ "cd", striderCd },
+        .{ "previewer", striderPreviewer },
+        .{ "on", striderOn },
+        .{ "siv_app", striderSivApp },
+        .{ "siv_window", striderSivWindow },
+        .{ "bookmark", striderBookmark },
     };
     for (fns) |f| {
         pushFn(L, self, f[1]);
@@ -315,7 +315,7 @@ fn openFm(Lq: ?*State) callconv(.c) c_int {
     }
     lh.pushString(L, "0.1.0");
     lc.lua_setfield(L, -2, "version");
-    // fm.opt.name = value, as a shorthand for fm.set.
+    // strider.opt.name = value, as a shorthand for strider.set.
     lh.newtable(L);
     lc.lua_createtable(L, 0, 2);
     pushFn(L, self, optIndex);
@@ -359,8 +359,8 @@ fn modesOf(L: *State, i: c_int, out: *[3]keys.Mode) []keys.Mode {
     return out[0..1];
 }
 
-/// fm.map(mode, keys, command_or_function [, description])
-fn fmMap(Lq: ?*State) callconv(.c) c_int {
+/// strider.map(mode, keys, command_or_function [, description])
+fn striderMap(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     var mbuf: [3]keys.Mode = undefined;
@@ -378,14 +378,14 @@ fn fmMap(Lq: ?*State) callconv(.c) c_int {
         };
         self.app.keymap.map(mode, spec, action, desc) catch |err| {
             if (action == .lua) lc.luaL_unref(L, lh.registry, action.lua);
-            lh.raise(L, "fm.map: cannot bind '{s}': {s}", .{ spec, @errorName(err) });
+            lh.raise(L, "strider.map: cannot bind '{s}': {s}", .{ spec, @errorName(err) });
         };
     }
     return 0;
 }
 
-/// fm.unmap(mode, keys): true if it was bound.
-fn fmUnmap(Lq: ?*State) callconv(.c) c_int {
+/// strider.unmap(mode, keys): true if it was bound.
+fn striderUnmap(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     var mbuf: [3]keys.Mode = undefined;
@@ -463,8 +463,8 @@ fn pushOption(L: *State, self: *Lua, name: []const u8) c_int {
     return 1;
 }
 
-/// fm.set(name, value), or fm.set{ name = value, ... }
-fn fmSet(Lq: ?*State) callconv(.c) c_int {
+/// strider.set(name, value), or strider.set{ name = value, ... }
+fn striderSet(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     if (lc.lua_type(L, 1) == lh.ttable) {
@@ -480,7 +480,7 @@ fn fmSet(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-fn fmGet(Lq: ?*State) callconv(.c) c_int {
+fn striderGet(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     return pushOption(L, get(L), checkString(L, 1));
 }
@@ -496,8 +496,8 @@ fn optNewIndex(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-/// fm.command(name, function(args, count) ... end [, description])
-fn fmCommand(Lq: ?*State) callconv(.c) c_int {
+/// strider.command(name, function(args, count) ... end [, description])
+fn striderCommand(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const name = checkString(L, 1);
@@ -516,22 +516,22 @@ fn fmCommand(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-/// fm.exec(command_line [, count])
-fn fmExec(Lq: ?*State) callconv(.c) c_int {
+/// strider.exec(command_line [, count])
+fn striderExec(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const line = checkString(L, 1);
     const count: ?u32 = if (lh.isnoneornil(L, 2)) null else @intCast(@max(0, lc.luaL_checkinteger(L, 2)));
-    const w = self.windowOf(L) orelse lh.raise(L, "fm.exec: no window", .{});
+    const w = self.windowOf(L) orelse lh.raise(L, "strider.exec: no window", .{});
     var buf: [4096]u8 = undefined;
-    if (line.len > buf.len) lh.raise(L, "fm.exec: the line is too long", .{});
+    if (line.len > buf.len) lh.raise(L, "strider.exec: the line is too long", .{});
     @memcpy(buf[0..line.len], line);
     commands.execute(w, buf[0..line.len], count, false);
     return 0;
 }
 
-/// fm.notify(message [, "error"])
-fn fmNotify(Lq: ?*State) callconv(.c) c_int {
+/// strider.notify(message [, "error"])
+fn striderNotify(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     var len: usize = 0;
@@ -541,14 +541,14 @@ fn fmNotify(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-fn fmCwd(Lq: ?*State) callconv(.c) c_int {
+fn striderCwd(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const w = get(L).windowOf(L) orelse return 0;
     lh.pushString(L, w.curDir().path);
     return 1;
 }
 
-fn fmHovered(Lq: ?*State) callconv(.c) c_int {
+fn striderHovered(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const w = get(L).windowOf(L) orelse return 0;
     const d = w.curDir();
@@ -558,9 +558,9 @@ fn fmHovered(Lq: ?*State) callconv(.c) c_int {
     return 1;
 }
 
-/// fm.selected(): what commands act on — the visual range, the marks, or
+/// strider.selected(): what commands act on — the visual range, the marks, or
 /// the entry under the cursor — as a list of paths.
-fn fmSelected(Lq: ?*State) callconv(.c) c_int {
+fn striderSelected(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const w = self.windowOf(L) orelse return 0;
@@ -574,15 +574,15 @@ fn fmSelected(Lq: ?*State) callconv(.c) c_int {
     return 1;
 }
 
-fn fmCd(Lq: ?*State) callconv(.c) c_int {
+fn striderCd(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
-    const w = get(L).windowOf(L) orelse lh.raise(L, "fm.cd: no window", .{});
+    const w = get(L).windowOf(L) orelse lh.raise(L, "strider.cd: no window", .{});
     w.cd(checkString(L, 1));
     return 0;
 }
 
-/// fm.bookmark(key, path): sets a bookmark.
-fn fmBookmark(Lq: ?*State) callconv(.c) c_int {
+/// strider.bookmark(key, path): sets a bookmark.
+fn striderBookmark(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const k = checkString(L, 1);
@@ -593,9 +593,9 @@ fn fmBookmark(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-/// fm.previewer{ name = "*.csv", mime = "text/csv", match = fn,
+/// strider.previewer{ name = "*.csv", mime = "text/csv", match = fn,
 /// run = function(path, mime) return text end, cmd = { "prog", "%s" } }
-fn fmPreviewer(Lq: ?*State) callconv(.c) c_int {
+fn striderPreviewer(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     lc.luaL_checktype(L, 1, lh.ttable);
@@ -618,13 +618,13 @@ fn fmPreviewer(Lq: ?*State) callconv(.c) c_int {
         p.cmd = cmd;
     }
     lh.pop(L, 1);
-    if (p.run == lh.noref and p.cmd == null) lh.raise(L, "fm.previewer needs run or cmd", .{});
+    if (p.run == lh.noref and p.cmd == null) lh.raise(L, "strider.previewer needs run or cmd", .{});
     self.previewers.append(self.gpa, p) catch lh.raise(L, "out of memory", .{});
     return 0;
 }
 
-/// fm.on(event, function(arg) ... end): "cd" (the new folder).
-fn fmOn(Lq: ?*State) callconv(.c) c_int {
+/// strider.on(event, function(arg) ... end): "cd" (the new folder).
+fn striderOn(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const ev = checkString(L, 1);
@@ -636,17 +636,17 @@ fn fmOn(Lq: ?*State) callconv(.c) c_int {
     return 0;
 }
 
-/// fm.siv_app(): the running siv application, for siv's Lua API
+/// strider.siv_app(): the running siv application, for siv's Lua API
 /// (timers, jobs, notifications, D-Bus, ...).
-fn fmSivApp(Lq: ?*State) callconv(.c) c_int {
+fn striderSivApp(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     _ = sl.siv_lua_push_handle(L, "app", @intFromEnum(self.app.app));
     return 1;
 }
 
-/// fm.siv_window(): the current window's siv window.
-fn fmSivWindow(Lq: ?*State) callconv(.c) c_int {
+/// strider.siv_window(): the current window's siv window.
+fn striderSivWindow(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const w = self.windowOf(L) orelse return 0;

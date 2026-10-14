@@ -1,5 +1,5 @@
 //! Every action is a named command: keys are bound to command lines, the
-//! : prompt runs them, and Lua calls them with fm.exec. A command gets
+//! : prompt runs them, and Lua calls them with strider.exec. A command gets
 //! its arguments as text and the count typed before its keys.
 
 const std = @import("std");
@@ -149,7 +149,7 @@ pub fn find_(name: []const u8) ?*const Command {
     return null;
 }
 
-/// Runs a command line: "name args…". Lua commands (fm.command) come
+/// Runs a command line: "name args…". Lua commands (strider.command) come
 /// first, so a configuration can replace a built-in one.
 pub fn execute(win: *Window, line_in: []const u8, count: ?u32, from_key: bool) void {
     const line = std.mem.trim(u8, line_in, " \t");

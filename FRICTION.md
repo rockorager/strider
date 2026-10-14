@@ -29,8 +29,8 @@ what this project does about it, and its status:
    could `require("siv")` but had no way to reach the application the
    program had made (for timers, jobs, notifications, D-Bus).
    *Fixed:* `siv_lua_push_handle(L, "app", handle)` pushes any handle the
-   host made, never owned by Lua (same commit, D23). `fm.siv_app()` and
-   `fm.siv_window()` use it.
+   host made, never owned by Lua (same commit, D23). `strider.siv_app()` and
+   `strider.siv_window()` use it.
 
 3. **A view row handled keys before the application saw them.** A
    focused row's default handler took Space, Enter, the arrows, Home,
@@ -78,15 +78,16 @@ what this project does about it, and its status:
    (chooser windows `dev.rockorager.Strider.Chooser`), portal backend
    `org.freedesktop.impl.portal.desktop.strider` (`strider.portal`),
    config, state, and cache in `strider/`, environment variables
-   `STRIDER_*`; the Lua module stays `fm`. It was "Columns" (siv-columns,
-   org.siv.Columns) until then, with no fallback to the old paths. The
-   repository and Amp project keep their old name until the user
-   renames them. (siv-files' name is open.)
+   `STRIDER_*`, and the Lua module `require("strider")` (it was `fm`
+   until the user renamed it too). It was "Columns" (siv-columns,
+   org.siv.Columns) until then, with no fallback to the old paths or the
+   old module name. The repository is github.com/rockorager/strider.
+   (siv-files' name is open.)
 
 9. **`f` closes as soon as one name matches** (decided: as ranger
    does), so the letters typed after the match run as commands (`fpho`
    reaches photo.png at `ph`, then `o` opens "Open with").
-   `fm.set { find_auto_accept = false }` makes it wait for Enter.
+   `strider.set { find_auto_accept = false }` makes it wait for Enter.
 
 10. **Messages go to the status line, not toasts** (decided: as in ranger
    and vim, errors belong in the status line of a keyboard-driven app;
@@ -184,7 +185,7 @@ what this project does about it, and its status:
    file, runs `$VISUAL`/`$EDITOR` in a terminal, and renames when the
    editor exits, so the terminal must stay in the foreground until then:
    foot, alacritty, kitty, wezterm, and ghostty do; gnome-terminal does
-   with `--wait`, which the app passes. `fm.set { terminal = "...",
+   with `--wait`, which the app passes. `strider.set { terminal = "...",
    editor = "...", editor_in_terminal = false }` covers the rest.
 
 22. **Settling while a job waits for the user.** As in siv-files:

@@ -176,7 +176,7 @@ with what came of them. In it, `j` and `k` move, `p` or Space pauses and
 resumes (the operation stops at its next file or 4 MiB chunk), `x` or
 `dd` cancels a running one or takes a finished one off the list, and
 Esc, `q`, or `w` closes it. Its keys are a keymap mode of their own
-(`t` in `fm.map`), and `:task-pause` and `:task-cancel` act on the first
+(`t` in `strider.map`), and `:task-pause` and `:task-cancel` act on the first
 running operation with the view closed.
 
 The path in the header is a breadcrumb: hovering a folder in it
@@ -247,35 +247,35 @@ runs at startup in Lua 5.5, through siv's Lua binding. Nothing is
 required; [data/init.lua](data/init.lua) is an annotated example.
 
 ```lua
-local fm = require("fm")
+local strider = require("strider")
 
-fm.set { hidden = true, ratio = { 1, 3, 4 }, sort = "modified", sort_reverse = true }
-fm.opt.scroll_off = 5
+strider.set { hidden = true, ratio = { 1, 3, 4 }, sort = "modified", sort_reverse = true }
+strider.opt.scroll_off = 5
 
-fm.map("n", "gp", "cd ~/Projects", "Projects")          -- keys run commands…
-fm.map({ "n", "v" }, "<C-c>", "yank", "Copy")
-fm.map("n", "gi", function(count)                         -- …or Lua functions
-	fm.notify(#fm.selected() .. " targets")
+strider.map("n", "gp", "cd ~/Projects", "Projects")          -- keys run commands…
+strider.map({ "n", "v" }, "<C-c>", "yank", "Copy")
+strider.map("n", "gi", function(count)                         -- …or Lua functions
+	strider.notify(#strider.selected() .. " targets")
 end, "Count the targets")
-fm.unmap("n", "dD")
+strider.unmap("n", "dD")
 
-fm.command("archive", function(args, count)               -- :archive name.tar.gz
-	fm.exec("shell tar -czf " .. ("%q"):format(args) .. ' "$@"')
+strider.command("archive", function(args, count)               -- :archive name.tar.gz
+	strider.exec("shell tar -czf " .. ("%q"):format(args) .. ' "$@"')
 end, "Pack the targets")
 
-fm.previewer { name = "*.csv", run = function(path, mime) return "…" end }
-fm.previewer { mime = "video/*", cmd = { "mediainfo", "%s" } }
+strider.previewer { name = "*.csv", run = function(path, mime) return "…" end }
+strider.previewer { mime = "video/*", cmd = { "mediainfo", "%s" } }
 
-fm.on("cd", function(path) end)
-fm.bookmark("p", os.getenv("HOME") .. "/Projects")
+strider.on("cd", function(path) end)
+strider.bookmark("p", os.getenv("HOME") .. "/Projects")
 
 -- siv itself: timers, jobs, notifications, D-Bus…, on the running app.
-local app = fm.siv_app()
-app:timer_start(1000, function() fm.notify("a second later") end)
+local app = strider.siv_app()
+app:timer_start(1000, function() strider.notify("a second later") end)
 ```
 
-Modes for `fm.map` and `:map` are `n` (normal), `v` (visual), and `t`
-(the tasks view). `fm` also has `get`, `cwd`, `hovered`, `selected`, `cd`, `exec` (any
+Modes for `strider.map` and `:map` are `n` (normal), `v` (visual), and `t`
+(the tasks view). `strider` also has `get`, `cwd`, `hovered`, `selected`, `cd`, `exec` (any
 command line), `notify`, and `siv_window`. Every option is also `:set
 name value` while running (`:set hidden!` toggles); `:map` and `:unmap`
 bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
@@ -398,7 +398,7 @@ The chooser is the same three columns, with every key, preview, search,
   carries the application's label, and the window its title.
 - It starts in the folder the application suggests, else where the last
   chooser picked, else home.
-- Its window asks for `chooser_size` (960x640; `fm.set("chooser_size",
+- Its window asks for `chooser_size` (960x640; `strider.set("chooser_size",
   {1100, 700})` or `:set chooser_size 1100 700`) until you resize one:
   the size you give a chooser is the next one's. The bar fits any width
   (the buttons always show; filters and choices wrap onto a row above),

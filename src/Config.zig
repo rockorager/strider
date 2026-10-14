@@ -1,5 +1,5 @@
 //! Options and the default keymap. Lua (init.lua) changes both through
-//! the `fm` module; without a configuration these are what you get.
+//! the `strider` module; without a configuration these are what you get.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

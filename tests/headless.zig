@@ -816,7 +816,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&bin_buf, "{s}/bin", .{f.path}, 0)).ptr, 1);
 
     var cbuf: [512]u8 = undefined;
-    try f.writeFile("init.lua", "local fm = require('fm')\nfm.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
+    try f.writeFile("init.lua", "local strider = require('strider')\nstrider.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
     var h: Harness = .{};
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
@@ -864,25 +864,25 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
     defer f.remove();
     try f.writeFile("work/data.csv", "a,b\n1,2\n");
     try f.writeFile("init.lua",
-        \\local fm = require("fm")
-        \\fm.set { hidden = true, ratio = { 1, 2, 3 } }
-        \\fm.opt.scroll_off = 1
-        \\assert(fm.get("hidden") == true and fm.opt.scroll_off == 1)
-        \\fm.map("n", "gw", "cd ~/work/src", "Sources")
-        \\fm.map({ "n", "v" }, "X", function(count) fm.notify("count " .. tostring(count)) end, "Count")
-        \\fm.command("hello", function(args, count) fm.notify("hello " .. args) end, "Greets")
-        \\fm.previewer { name = "*.csv", run = function(path, mime) return "CSV: " .. path:match("[^/]*$") end }
-        \\fm.unmap("n", "dD")
-        \\fm.on("cd", function(path) entered = path end)
+        \\local strider = require("strider")
+        \\strider.set { hidden = true, ratio = { 1, 2, 3 } }
+        \\strider.opt.scroll_off = 1
+        \\assert(strider.get("hidden") == true and strider.opt.scroll_off == 1)
+        \\strider.map("n", "gw", "cd ~/work/src", "Sources")
+        \\strider.map({ "n", "v" }, "X", function(count) strider.notify("count " .. tostring(count)) end, "Count")
+        \\strider.command("hello", function(args, count) strider.notify("hello " .. args) end, "Greets")
+        \\strider.previewer { name = "*.csv", run = function(path, mime) return "CSV: " .. path:match("[^/]*$") end }
+        \\strider.unmap("n", "dD")
+        \\strider.on("cd", function(path) entered = path end)
         \\-- siv's own binding, with the running application.
         \\local siv = require("siv")
-        \\local app = fm.siv_app()
+        \\local app = strider.siv_app()
         \\assert(tostring(app):find("^siv.app"))
-        \\fm.command("timer", function()
-        \\  app:timer_start(0, function() fm.notify("timer fired") end)
+        \\strider.command("timer", function()
+        \\  app:timer_start(0, function() strider.notify("timer fired") end)
         \\end)
-        \\fm.command("where", function() fm.notify(fm.cwd() .. " " .. tostring(#fm.selected())) end)
-        \\fm.command("boom", function() error("boom!") end)
+        \\strider.command("where", function() strider.notify(strider.cwd() .. " " .. tostring(#strider.selected())) end)
+        \\strider.command("boom", function() error("boom!") end)
     );
     var h: Harness = .{};
     defer h.deinit();
@@ -1112,7 +1112,7 @@ test "column widths: the ratio, the parent fitted to its names, narrow windows" 
     try h.settle();
     try testing.expect(h.reads("Parent folder") and h.reads("Preview"));
     try testing.expectEqual(@as(f32, 250), widthOf(w.parent_box));
-    // :set (and fm.set in init.lua) change the ratio and the breakpoint.
+    // :set (and strider.set in init.lua) change the ratio and the breakpoint.
     try h.typeText(":set ratio 2,3,3\n:set narrow_width 1200\n");
     try testing.expect(!h.reads("Parent folder"));
     try testing.expectApproxEqAbs(@as(f32, 496.5), widthOf(w.current_box), 0.5);
@@ -1237,7 +1237,7 @@ test "context menus: entries, the selection, empty space, the Menu key, and init
     try fixture(&f, "menus");
     defer f.remove();
     var cbuf: [512]u8 = undefined;
-    try f.writeFile("init.lua", "local fm = require('fm')\nfm.command('hello', function() fm.notify('hi from init.lua') end, 'Say hello')\n");
+    try f.writeFile("init.lua", "local strider = require('strider')\nstrider.command('hello', function() strider.notify('hi from init.lua') end, 'Say hello')\n");
     var h: Harness = .{};
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
