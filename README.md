@@ -111,7 +111,7 @@ tenth entry.
 | `gx`, `dr` | the trash, restore from it |
 | `gv` | drives: open, mount (asks for LUKS passphrases), with `:unmount` and `:eject` |
 | `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
-| `!`, `S` | run a shell command on the selection, a terminal here |
+| `!`, `S` | run a shell command on the selection, a terminal here (`:terminal [folder]`) |
 | `=` | change permissions (`:chmod`); `:chown` changes owners |
 | `w` | the tasks view: running and recent file operations |
 | Menu key, `Shift+F10`, right click | the context menu |
@@ -156,6 +156,14 @@ resumes (the operation stops at its next file or 4 MiB chunk), `x` or
 Esc, `q`, or `w` closes it. Its keys are a keymap mode of their own
 (`t` in `fm.map`), and `:task-pause` and `:task-cancel` act on the first
 running operation with the view closed.
+
+The path in the header is a breadcrumb: hovering a folder in it
+underlines it, a click goes there as `h` would (in the tab's history,
+with the cursor on the folder you came from), and a middle click opens
+it in a new tab. The last segment, the folder shown, is not a link.
+Tabs (shown once there are two) close with their × button, on the
+active tab and the one under the pointer, or with a middle click; a
+click switches to them.
 
 Right-clicking an entry, the selection, or a column's empty space (or
 pressing the Menu key or Shift+F10 for the cursor's row) opens a menu of
@@ -301,7 +309,13 @@ Bookmarks and the command history persist in
   every application for the type. Terminal applications (nvim) run in
   `$TERMINAL` (with the flag it takes before a command, `-e` for one the
   app does not know), else `xdg-terminal-exec`, else the first common
-  terminal found.
+  terminal found. `o` on a folder lists a terminal there first, then
+  the applications for folders; `S`, `:terminal`, and "Open terminal
+  here" in the right-click menus (on a folder or a column's empty
+  space) start the same terminal, by itself, with an activation token
+  so that it takes focus: the `terminal` option, else `$TERMINAL`
+  without the flag it takes before a command, else `xdg-terminal-exec`,
+  else the first common terminal found.
 - Drives come from UDisks2: mount (polkit asks if it must), unmount,
   eject, and unlock encrypted volumes with a passphrase typed in a masked
   field.

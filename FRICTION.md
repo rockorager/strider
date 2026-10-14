@@ -302,13 +302,33 @@ what this project does about it, and its status:
     it gave none, so a save request titled "All Files" counts as
     untitled ("Save a File").
 
+33. **The breadcrumb, terminals in folders, and tab close buttons**
+    (chosen here, on the user's request).
+    - The header path underlines a folder only under the pointer (as
+      the user asked); the folder shown is the last segment and is not
+      a link. A middle click opens a segment in a new tab and switches
+      to it, as `gn` and the context menu's "Open in a new tab" do.
+      Folders above the current one ellipsize first when the path is
+      long, so the current folder stays whole. Right-clicking a segment
+      has no menu yet.
+    - `S` stays the key for `:terminal` (ranger's "shell"). The terminal
+      by itself is the `terminal` option, else `$TERMINAL` (without its
+      `-e`, `-x`, `--`, or `start`), else `xdg-terminal-exec`, else a
+      known terminal. `$TERMINAL` comes before `xdg-terminal-exec`, as
+      when running nvim, since a user who set it chose it; swap them if
+      xdg-terminal-exec's own configuration should win.
+    - The × shows on the active tab and the tab under the pointer, as in
+      browsers and GTK, with its space kept on every tab so labels never
+      move. Closing the last tab closes the window, as `gq` does.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
 principle in the README, but does not yet. None is built; pick any.
 
-- **The path in the header is plain text.** Each folder in it could be
-  a breadcrumb: click to go there, drop files on it to move them there.
+- **The breadcrumb takes no drops.** Its folders can be clicked (33);
+  dropping files on one could move them there, and a right click could
+  open that folder's menu.
 - **The mouse's back and forward buttons do nothing.** They could move
   through the tab's history, as `H` and `L` do.
 - **No Ctrl+click or Shift+click.** Marking with the mouse could toggle
