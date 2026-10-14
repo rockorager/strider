@@ -92,6 +92,12 @@ menu: Menu,
 dialogs: Dialogs,
 /// The FileChooser portal request this window serves, if it is one.
 chooser: ?*Chooser = null,
+/// Whether it was made for one (the request goes before the window).
+is_chooser: bool = false,
+/// The user resized it (after its first frame settled): a chooser's size
+/// is remembered for the next one.
+user_resized: bool = false,
+height: f32 = 0,
 parent_box: Node = .null,
 preview_box: Node = .null,
 current_box: Node = .null,
@@ -184,6 +190,7 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
         .menu = undefined,
         .dialogs = undefined,
         .chooser = chooser,
+        .is_chooser = chooser != null,
     };
     self.parent_col.win = self;
     self.current.win = self;
@@ -192,11 +199,12 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
     self.menu = Menu.init(self);
     self.dialogs = Dialogs.init(self);
     const parent: []const u8 = if (chooser) |ch| ch.parent_window else "";
+    const size = app.chooserSize();
     self.window = try siv.windowCreate(app.app, .{
         .title = if (chooser) |ch| ch.windowTitle() else "Columns",
-        .app_id = App.app_id,
-        .width = app.opts.window_width,
-        .height = app.opts.window_height,
+        .app_id = if (chooser != null) App.chooser_app_id else App.app_id,
+        .width = if (chooser != null) size[0] else app.opts.window_width,
+        .height = if (chooser != null) size[1] else app.opts.window_height,
         .min_width = 360,
         .min_height = 240,
         .user_data = self,
@@ -207,9 +215,16 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
         .parent_handle = parent,
         .flags = .{ .modal = chooser != null and chooser.?.modal and parent.len != 0 },
     });
-    if (chooser) |ch| ch.win = self;
-    var size: siv.Size = .{};
-    if (c.siv_window_get_size(self.window, &size) == .ok) self.width = size.width;
+    if (chooser) |ch| {
+        ch.win = self;
+        // Its own app id has no desktop file of its own to name the icon.
+        _ = c.siv_window_set_icon(self.window, App.app_id, App.app_id.len, .null);
+    }
+    var wsize: siv.Size = .{};
+    if (c.siv_window_get_size(self.window, &wsize) == .ok) {
+        self.width = wsize.width;
+        self.height = wsize.height;
+    }
     try self.build();
     const t = self.addTab(path) orelse return error.OutOfMemory;
     _ = t;
@@ -228,7 +243,11 @@ pub fn close(self: *Window) void {
 fn onWindowEvent(ud: ?*anyopaque, _: siv.Window, ev: *const siv.WindowEvent) callconv(.c) bool {
     const self: *Window = @ptrCast(@alignCast(ud.?));
     switch (ev.type) {
-        .resized => if (self.width != @as(f32, @floatFromInt(ev.width))) {
+        .resized => if (self.width != @as(f32, @floatFromInt(ev.width)) or self.height != @as(f32, @floatFromInt(ev.height))) {
+            // A resize well after the first frame is the user's (the
+            // compositor settles a new window's size before that).
+            if (self.first_frame_ns != 0 and Chooser.now() > self.first_frame_ns + 500 * std.time.ns_per_ms) self.user_resized = true;
+            self.height = @floatFromInt(ev.height);
             self.width = @floatFromInt(ev.width);
             if (self.tabs.items.len != 0) if (self.begin()) |txn| {
                 self.applyRatioTxn(txn);
@@ -258,6 +277,8 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     self.closing = true;
     if (self.whichkey_timer != .null) _ = c.siv_timer_cancel(self.whichkey_timer);
     if (self.probing) |pr| pr.win = null;
+    if (self.is_chooser and self.user_resized and self.width > 0)
+        self.app.rememberChooserSize(.{ @intFromFloat(self.width), @intFromFloat(self.height) });
     // Closed by the user: the request is cancelled.
     if (self.chooser) |ch| {
         self.chooser = null;
@@ -556,8 +577,11 @@ fn applyRatioTxn(self: *Window, txn: Txn) void {
     const r = o.ratio;
     const narrow: f32 = @floatFromInt(o.narrow_width);
     const w = self.width;
-    const show_parent = r[0] > 0 and (w == 0 or w >= narrow);
-    const show_preview = o.preview and r[2] > 0 and (w == 0 or w >= narrow * 2 / 3);
+    // A chooser keeps the parent (where it is) longer than the preview.
+    const parent_at = if (self.is_chooser) narrow * 2 / 3 else narrow;
+    const preview_at = if (self.is_chooser) narrow else narrow * 2 / 3;
+    const show_parent = r[0] > 0 and (w == 0 or w >= parent_at);
+    const show_preview = o.preview and r[2] > 0 and (w == 0 or w >= preview_at);
     // Chosen widths, or fitting the parent, fix it and the current column
     // at their widths and leave the rest to the preview.
     var parent_px: f32 = 0;

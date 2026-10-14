@@ -1086,6 +1086,8 @@ fn set(ctx: Ctx) void {
             error.OutOfMemory => "out of memory",
         } }) catch "Cannot set it", true);
     };
+    // Set by hand: the next chooser takes it over the remembered size.
+    if (std.mem.eql(u8, name, "chooser_size")) app.forgetChooserSize();
     app.applyViewOptions();
 }
 

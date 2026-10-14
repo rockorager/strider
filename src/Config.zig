@@ -19,6 +19,9 @@ pub const Options = struct {
     /// Logical pixels: a window narrower than this hides the parent
     /// column, and one narrower than two thirds of it the preview too.
     narrow_width: u32 = 640,
+    /// The size a file chooser window asks for, in logical pixels, until
+    /// the user resizes one (that size is remembered).
+    chooser_size: [2]u32 = .{ 960, 640 },
     /// Themed icons beside names.
     icons: bool = true,
     /// The preview column.
@@ -60,7 +63,7 @@ pub const Options = struct {
     stale_ms: u32 = 2000,
 };
 
-pub const Kind = enum { boolean, number, string, sort, ratio };
+pub const Kind = enum { boolean, number, string, sort, ratio, size };
 
 pub const Info = struct { name: []const u8, kind: Kind, desc: []const u8 };
 
@@ -73,6 +76,7 @@ pub const infos = [_]Info{
     .{ .name = "ratio", .kind = .ratio, .desc = "Column widths, e.g. {1, 3, 4}" },
     .{ .name = "fit_parent", .kind = .boolean, .desc = "Widen the parent column to fit its names" },
     .{ .name = "narrow_width", .kind = .number, .desc = "Hide the parent column below this window width" },
+    .{ .name = "chooser_size", .kind = .size, .desc = "File chooser window size, e.g. {960, 640}" },
     .{ .name = "icons", .kind = .boolean, .desc = "Icons beside names" },
     .{ .name = "preview", .kind = .boolean, .desc = "The preview column" },
     .{ .name = "preview_images", .kind = .boolean, .desc = "Image previews" },
@@ -147,7 +151,18 @@ pub fn setFromText(o: *Options, strings: *Strings, name: []const u8, value: ?[]c
             }
             o.ratio = r;
         },
+        .size => o.chooser_size = parseSize(value orelse return error.InvalidValue) orelse return error.InvalidValue,
     }
+}
+
+/// "960 640", "960x640", "{960, 640}": a width and a height of at least
+/// 200 and 150.
+pub fn parseSize(t: []const u8) ?[2]u32 {
+    var it = std.mem.tokenizeAny(u8, t, " ,x{}");
+    var out: [2]u32 = undefined;
+    for (&out) |*x| x.* = std.fmt.parseInt(u32, it.next() orelse return null, 10) catch return null;
+    if (out[0] < 200 or out[1] < 150) return null;
+    return out;
 }
 
 pub fn parseBool(t: []const u8) ?bool {

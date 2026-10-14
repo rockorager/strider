@@ -45,6 +45,19 @@ pub fn main(init: std.process.Init) !void {
             \\Exec={s} --new-window
             \\
         , .{ app_id, bin, bin }) },
+        // File chooser windows' app id: hidden from launchers, there for
+        // its name and icon (and for compositor rules to match).
+        .{ app_id ++ ".Chooser.desktop", try std.fmt.allocPrint(arena,
+            \\[Desktop Entry]
+            \\Type=Application
+            \\Name=Columns File Chooser
+            \\Comment=The desktop's file chooser, in Miller columns
+            \\Icon={s}
+            \\Exec={s} --service
+            \\NoDisplay=true
+            \\Terminal=false
+            \\
+        , .{ app_id, bin }) },
         .{ app_id ++ ".service", try std.fmt.allocPrint(arena,
             \\[D-BUS Service]
             \\Name={s}

@@ -34,6 +34,8 @@ pub const commands = @import("commands.zig");
 const App = @This();
 
 pub const app_id = "org.siv.Columns";
+/// File chooser windows' app id, for compositor rules (Hyprland's, say).
+pub const chooser_app_id = "org.siv.Columns.Chooser";
 pub const program = "siv-columns";
 
 pub const Options = struct {
@@ -111,6 +113,8 @@ history: std.ArrayList([]u8) = .empty,
 /// They win over `ratio` and `fit_parent` until `column-reset`, and
 /// persist in $XDG_STATE_HOME/siv-columns/columns.
 widths: ?[2]f32 = null,
+/// The size the user last gave a file chooser window, kept across starts.
+chooser_size: ?[2]u32 = null,
 /// File operations that finished, newest first, for the tasks view.
 recent: std.ArrayList(Finished) = .empty,
 /// zoxide is on $PATH (looked for once, at startup), and the folder
@@ -221,6 +225,7 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     self.loadBookmarks();
     self.loadHistory();
     self.loadWidths();
+    self.loadChooserSize();
     // The configuration: Lua changes options and the keymap.
     if (opts.config_file) |path| {
         self.lua = Lua.create(self) catch null;
@@ -761,6 +766,40 @@ pub fn setWidths(self: *App, w: ?[2]f32) void {
         const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
         _ = linux.unlinkat(linux.AT.FDCWD, z, 0);
     }
+}
+
+fn loadChooserSize(self: *App) void {
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const path = self.statePath(&pbuf, "chooser") orelse return;
+    const data = readAll(self.gpa, path) orelse return;
+    defer self.gpa.free(data);
+    self.chooser_size = Config.parseSize(std.mem.trim(u8, data, " \n"));
+}
+
+/// The size a new file chooser asks for: the one the user last gave a
+/// chooser, else `chooser_size`.
+pub fn chooserSize(self: *const App) [2]u32 {
+    return self.chooser_size orelse self.options.chooser_size;
+}
+
+/// A chooser the user resized: the next one opens at this size.
+pub fn rememberChooserSize(self: *App, size: [2]u32) void {
+    if (size[0] < 200 or size[1] < 150) return;
+    self.chooser_size = size;
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const path = self.statePath(&pbuf, "chooser") orelse return;
+    var buf: [32]u8 = undefined;
+    writeAll(self.opts.state_dir.?, path, std.fmt.bufPrint(&buf, "{d} {d}\n", .{ size[0], size[1] }) catch return);
+}
+
+/// `:set chooser_size`: the option wins again.
+pub fn forgetChooserSize(self: *App) void {
+    self.chooser_size = null;
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const path = self.statePath(&pbuf, "chooser") orelse return;
+    var zb: [linux.PATH_MAX]u8 = undefined;
+    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
+    _ = linux.unlinkat(linux.AT.FDCWD, z, 0);
 }
 
 fn loadBookmarks(self: *App) void {

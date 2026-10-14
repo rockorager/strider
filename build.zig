@@ -128,6 +128,7 @@ fn installData(b: *std.Build, filemanager1: bool) void {
     const out = run.addOutputDirectoryArg("data");
     const files = [_]struct { std.Build.LazyPath, []const u8 }{
         .{ out.path(b, app_id ++ ".desktop"), "share/applications/" ++ app_id ++ ".desktop" },
+        .{ out.path(b, app_id ++ ".Chooser.desktop"), "share/applications/" ++ app_id ++ ".Chooser.desktop" },
         .{ out.path(b, app_id ++ ".service"), "share/dbus-1/services/" ++ app_id ++ ".service" },
         // The FileChooser portal backend: started by the bus, found by
         // xdg-desktop-portal (1.20.3 and later search every data dir,

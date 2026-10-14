@@ -309,18 +309,51 @@ pub fn types(ch: *const Chooser) ?*const model.TypeFilter {
 
 // The bar ---------------------------------------------------------------------------------
 
-/// The bar, in the window's column under the columns.
+/// The bar, in the window's column under the columns: a row of the
+/// request's filters and choices, which wraps, over a row of the name to
+/// save as (or a hint) and the buttons. Only the name or the hint gives
+/// way when the window is narrow, so the buttons always show.
 pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
     if (ch.filter == null and ch.filters.len != 0) ch.filter = 0;
-    ch.bar = c.siv_flex(txn, parent, &.{ .axis = .row, .gap = 10, .align_items = .center });
+    ch.bar = c.siv_flex(txn, parent, &.{ .axis = .column, .gap = 8 });
     _ = c.siv_set_layout(txn, ch.bar, &.{ .padding = .{ .start = 12, .end = 12, .top = 8, .bottom = 8 } });
     _ = c.siv_set_visual(txn, ch.bar, &.{ .background_token = .window_bg });
     _ = c.siv_set_semantics(txn, ch.bar, &.{ .role = .group, .label = "File chooser", .label_len = 12 });
+    const has_filter = ch.filters.len != 0 and !ch.picksFolders();
+    if (has_filter or ch.choices.len != 0) {
+        const opts = c.siv_flex(txn, ch.bar, &.{ .axis = .row, .gap = 10, .line_gap = 6, .align_items = .center, .flags = .{ .wrap = true, .line_gap = true } });
+        if (has_filter) {
+            ch.filter_combo = c.siv_combo_box(txn, opts, &.{ .label = "Filter", .label_len = 6 });
+            for (ch.filters) |f| _ = c.siv_combo_box_item(txn, ch.filter_combo, &.{ .label = f.name.ptr, .label_len = f.name.len });
+            _ = c.siv_widget_set_value(txn, ch.filter_combo, @floatFromInt(ch.filter orelse 0));
+            _ = c.siv_on(txn, ch.filter_combo, .change, onFilter, null, ch);
+            combo(txn, ch.filter_combo);
+        }
+        for (ch.choices) |*x| {
+            if (x.options.len == 0) {
+                x.node = c.siv_check_box(txn, opts, &.{ .label = x.label.ptr, .label_len = x.label.len, .checked = if (std.mem.eql(u8, x.initial, "true")) .on else .off });
+                fixed(txn, x.node);
+                continue;
+            }
+            // The label and its combo box wrap together.
+            const pair = c.siv_flex(txn, opts, &.{ .axis = .row, .gap = 6, .align_items = .center });
+            fixed(txn, ui.text(txn, pair, x.label, .window_fg, .body));
+            x.node = c.siv_combo_box(txn, pair, &.{ .label = x.label.ptr, .label_len = x.label.len });
+            var selected: usize = 0;
+            for (x.options, 0..) |o, i| {
+                _ = c.siv_combo_box_item(txn, x.node, &.{ .label = o.label.ptr, .label_len = o.label.len });
+                if (std.mem.eql(u8, o.id, x.initial)) selected = i;
+            }
+            _ = c.siv_widget_set_value(txn, x.node, @floatFromInt(selected));
+            combo(txn, x.node);
+        }
+    }
+    const row = c.siv_flex(txn, ch.bar, &.{ .axis = .row, .gap = 10, .align_items = .center });
     if (ch.kind == .save) {
-        fixed(txn, ui.text(txn, ch.bar, "Name", .window_fg, .body));
-        ch.name_field = c.siv_editor(txn, ch.bar, .{});
-        _ = c.siv_set_layout(txn, ch.name_field, &.{ .grow = 1, .basis = ui.px(120), .min_width = 160, .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 } });
-        _ = c.siv_set_visual(txn, ch.name_field, &.{ .background_token = .view_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 } });
+        fixed(txn, ui.text(txn, row, "Name", .window_fg, .body));
+        ch.name_field = c.siv_editor(txn, row, .{});
+        _ = c.siv_set_layout(txn, ch.name_field, &.{ .grow = 1, .shrink = 1, .basis = ui.px(0), .min_width = 60, .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 } });
+        _ = c.siv_set_visual(txn, ch.name_field, &.{ .background_token = .view_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 }, .flags = .{ .clip = true } });
         _ = c.siv_set_text_style(txn, ch.name_field, &.{ .color_token = .view_fg, .size_role = .body, .flags = .{ .no_wrap = true } });
         _ = c.siv_set_semantics(txn, ch.name_field, &.{ .role = .text_input, .label = "Name", .label_len = 4, .flags = .{ .focusable = true } });
         _ = c.siv_set_text(txn, ch.name_field, ch.current_name.ptr, ch.current_name.len);
@@ -330,39 +363,22 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
         _ = c.siv_on(txn, ch.name_field, .key, onNameKey, null, ch);
     } else {
         // The hint gives way first when the bar is narrow.
-        const t = ui.text(txn, ch.bar, ch.hint(), .muted_fg, .caption);
+        const t = ui.text(txn, row, ch.hint(), .muted_fg, .caption);
         _ = c.siv_set_layout(txn, t, &.{ .grow = 1, .basis = ui.px(0), .shrink = 1 });
     }
-    if (ch.filters.len != 0 and !ch.picksFolders()) {
-        ch.filter_combo = c.siv_combo_box(txn, ch.bar, &.{ .label = "Filter", .label_len = 6 });
-        for (ch.filters) |f| _ = c.siv_combo_box_item(txn, ch.filter_combo, &.{ .label = f.name.ptr, .label_len = f.name.len });
-        _ = c.siv_widget_set_value(txn, ch.filter_combo, @floatFromInt(ch.filter orelse 0));
-        fixed(txn, ch.filter_combo);
-        _ = c.siv_on(txn, ch.filter_combo, .change, onFilter, null, ch);
-    }
-    for (ch.choices) |*x| {
-        if (x.options.len == 0) {
-            x.node = c.siv_check_box(txn, ch.bar, &.{ .label = x.label.ptr, .label_len = x.label.len, .checked = if (std.mem.eql(u8, x.initial, "true")) .on else .off });
-            fixed(txn, x.node);
-            continue;
-        }
-        fixed(txn, ui.text(txn, ch.bar, x.label, .window_fg, .body));
-        x.node = c.siv_combo_box(txn, ch.bar, &.{ .label = x.label.ptr, .label_len = x.label.len });
-        var selected: usize = 0;
-        for (x.options, 0..) |o, i| {
-            _ = c.siv_combo_box_item(txn, x.node, &.{ .label = o.label.ptr, .label_len = o.label.len });
-            if (std.mem.eql(u8, o.id, x.initial)) selected = i;
-        }
-        _ = c.siv_widget_set_value(txn, x.node, @floatFromInt(selected));
-        fixed(txn, x.node);
-    }
-    ch.cancel_button = c.siv_push_button(txn, ch.bar, &.{ .label = "Cancel", .label_len = 6 });
+    ch.cancel_button = c.siv_push_button(txn, row, &.{ .label = "Cancel", .label_len = 6 });
     _ = c.siv_on(txn, ch.cancel_button, .activate, onCancelButton, null, ch);
     fixed(txn, ch.cancel_button);
     const label = ch.acceptText();
-    ch.accept_button = c.siv_push_button(txn, ch.bar, &.{ .label = label.ptr, .label_len = label.len, .style = .primary });
+    ch.accept_button = c.siv_push_button(txn, row, &.{ .label = label.ptr, .label_len = label.len, .style = .primary });
     _ = c.siv_on(txn, ch.accept_button, .activate, onAcceptButton, null, ch);
     fixed(txn, ch.accept_button);
+}
+
+/// A combo box as wide as its options, up to a limit, narrower when the
+/// window is.
+fn combo(txn: Txn, n: Node) void {
+    _ = c.siv_set_layout(txn, n, &.{ .max_width = 260, .shrink = 1 });
 }
 
 /// Labels, boxes, and buttons keep their size; the hint or the name gives.
@@ -408,8 +424,12 @@ fn onNameKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.Ev
             ch.saveAs(ch.nameText());
             return .handled;
         },
-        // Back to the columns, as Escape leaves insert mode.
-        .escape, .tab => {
+        // Escape cancels from here as from anywhere in a dialog.
+        .escape => {
+            ch.finish(1);
+            return .handled;
+        },
+        .tab => {
             _ = c.siv_node_focus(w.current.view);
             return .handled;
         },

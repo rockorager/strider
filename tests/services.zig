@@ -941,9 +941,10 @@ test "FileChooser: save with a name, asking before replacing; save several into 
     _ = try h.expect(.button, "Replace");
     try h.key(.escape, .{}, "");
     try testing.expect(!win2.dialogs.isOpen() and !over.done);
-    // Enter on the file in the columns saves over it, asking again.
-    try h.typeText("\x1b");
-    try testing.expect(!over.done);
+    // Tab goes to the columns (Escape would cancel); Enter on the file
+    // there saves over it, asking again.
+    try h.key(.tab, .{}, "");
+    try testing.expect(!over.done and !win2.chooser.?.nameFocused());
     try h.typeText("\n");
     try testing.expect(win2.dialogs.isOpen());
     try h.click(h.window(), try h.expect(.button, "Replace"), .primary);
@@ -1025,4 +1026,107 @@ test "FileChooser: Escape and q cancel; the caller's Close ends it" {
     }.ok);
     try testing.expectEqualStrings("", close_reply.err[0..close_reply.err_len]);
     try testing.expectEqual(@as(usize, 1), h.app.?.windows.items.len);
+}
+
+/// Firefox's Save Page As: its four filters and a suggested name.
+fn firefoxSave(m: siv.DbusMessage, fx: *const Fixture) void {
+    folderOption(m, fx, "work");
+    entry(m, "current_name", "s");
+    writeStr(m, 's', "New Tab.html");
+    endEntry(m);
+    entry(m, "filters", "a(sa(us))");
+    open(m, 'a', "(sa(us))");
+    for ([_][2][]const u8{ .{ "Web Page, complete", "*.html" }, .{ "Web Page, HTML only", "*.htm" }, .{ "Text Files", "*.txt" }, .{ "All Files", "*" } }) |f| {
+        open(m, 'r', "");
+        writeStr(m, 's', f[0]);
+        open(m, 'a', "(us)");
+        open(m, 'r', "");
+        c.siv_dbus_message_write_int(m, 'u', 0);
+        writeStr(m, 's', f[1]);
+        close(m);
+        close(m);
+        close(m);
+    }
+    close(m);
+    endEntry(m);
+}
+
+/// Both buttons lie inside the window.
+fn buttonsShow(h: *Harness, width: f32) !void {
+    for ([_][]const u8{ "Cancel", "Save" }) |name| {
+        const b = (try h.expect(.button, name)).bounds;
+        try testing.expect(b.width > 20 and b.x >= 0 and b.x + b.width <= width);
+    }
+}
+
+test "FileChooser: a narrow window keeps its buttons; Escape in the name and closing the window cancel; the size is kept" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-narrow");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr(), .state = true });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+
+    // As small as Hyprland made it on the user's desktop, and half of a
+    // 1920x1080 screen: the buttons stay on screen.
+    var narrow: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "Save As", firefoxSave, &narrow);
+    const win = try chooserWindow(&h);
+    try siv.check(c.siv_test_resize(h.window(), 600, 400));
+    try h.settle();
+    try buttonsShow(&h, 600);
+    // The parent column stays before the preview does.
+    try testing.expect(h.reads("home"));
+    try h.expectGolden(h.window(), "chooser-narrow");
+    // Even at the window's least size.
+    try siv.check(c.siv_test_resize(h.window(), 360, 240));
+    try h.settle();
+    try buttonsShow(&h, 360);
+    try siv.check(c.siv_test_resize(h.window(), 960, 1040));
+    try h.settle();
+    try buttonsShow(&h, 960);
+    try h.expectGolden(h.window(), "chooser-half");
+    // Escape in the name field cancels.
+    try testing.expect(win.chooser.?.nameFocused());
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &narrow);
+    try testing.expectEqual(@as(u32, 1), narrow.response);
+
+    // The compositor's close (Super+W, killactive) cancels too.
+    var closed: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", firefoxSave, &closed);
+    _ = try chooserWindow(&h);
+    try siv.check(c.siv_test_close(h.window()));
+    try answered(&h, main, &closed);
+    try testing.expectEqual(@as(u32, 1), closed.response);
+    try testing.expectEqual(@as(usize, 1), h.app.?.windows.items.len);
+
+    // A size the user gives a chooser is the next one's.
+    var sized: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", firefoxSave, &sized);
+    _ = try chooserWindow(&h);
+    var size: siv.Size = .{};
+    try siv.check(c.siv_window_get_size(h.window(), &size));
+    try testing.expectEqual(@as(u32, 960), size.width);
+    try testing.expectEqual(@as(u32, 640), size.height);
+    for (0..30) |_| try siv.check(c.siv_app_dispatch(h.sapp, 25));
+    try siv.check(c.siv_test_resize(h.window(), 820, 560));
+    try h.settle();
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &sized);
+    var again: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", firefoxSave, &again);
+    _ = try chooserWindow(&h);
+    try siv.check(c.siv_window_get_size(h.window(), &size));
+    try testing.expectEqual(@as(u32, 820), size.width);
+    try testing.expectEqual(@as(u32, 560), size.height);
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &again);
 }

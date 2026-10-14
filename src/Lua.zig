@@ -422,6 +422,18 @@ fn setOption(L: *State, self: *Lua, name: []const u8, vi: c_int) void {
             }
             o.ratio = r;
         },
+        .size => {
+            lc.luaL_checktype(L, vi, lh.ttable);
+            var sz: [2]u32 = undefined;
+            for (&sz, 1..) |*x, k| {
+                _ = lc.lua_rawgeti(L, vi, @intCast(k));
+                const n = lc.luaL_checkinteger(L, -1);
+                lh.pop(L, 1);
+                if (n < (if (k == 1) @as(i64, 200) else 150)) lh.argError(L, vi, "a width of 200 or more and a height of 150 or more", .{});
+                x.* = @intCast(@min(n, 100_000));
+            }
+            o.chooser_size = sz;
+        },
     }
     self.app.applyViewOptions();
 }
@@ -437,6 +449,13 @@ fn pushOption(L: *State, self: *Lua, name: []const u8) c_int {
             lc.lua_createtable(L, 3, 0);
             for (o.ratio, 1..) |x, k| {
                 lc.lua_pushnumber(L, x);
+                lc.lua_rawseti(L, -2, @intCast(k));
+            }
+        },
+        .size => {
+            lc.lua_createtable(L, 2, 0);
+            for (o.chooser_size, 1..) |x, k| {
+                lc.lua_pushinteger(L, x);
                 lc.lua_rawseti(L, -2, @intCast(k));
             }
         },
