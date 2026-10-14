@@ -126,8 +126,9 @@ Measured 2026-10-14 with the commits above. `raw/` has every run;
 `fork`) to the photon.
 
 Median (worst); 5 runs of siv-columns, 5 runs of Nautilus. These runs
-predate siv 66cdcfc, which removed a 16 MiB step in GPU memory; see
-**GPU memory** below for three runs with it.
+predate siv 66cdcfc and cb24e9b, which removed 16 MiB and 8 MiB of
+siv-columns's GPU memory; see **GPU memory** below for three runs with
+them.
 
 | Measurement | siv-columns | Nautilus |
 | --- | --- | --- |
@@ -207,8 +208,25 @@ What the numbers say:
   pages to the frame's masks. With it (siv-columns 5962120, 3 runs,
   `raw/siv-66cdcfc/`) siv-columns holds 46.9 MiB after starting and
   48.2 MiB with the big folder open, against 63.0 MiB for the same app
-  with siv cdfb9be. The other numbers in those runs matched the table
-  within noise.
+  with siv cdfb9be. siv cb24e9b then makes each glyph atlas with its
+  first glyph, and siv-columns draws no color glyphs, so the 8 MiB color
+  atlas is never made. With it (3 runs, `raw/siv-cb24e9b/`) siv-columns
+  holds **38.9 MiB after starting and 40.2 MiB with the big folder
+  open**. The other numbers in all these runs matched the table within
+  noise.
+
+  Where the rest goes, of 38.9 MiB at the start: five swapchain images
+  of 4.4 MiB (22 MiB; Mesa's minimum for MAILBOX is four, and siv asks
+  for one more), the FP16 working image siv composites in (8.2 MiB),
+  the 2048 px glyph mask atlas (4 MiB), about 1 MiB of RADV's own
+  buffers, and about 3.5 MiB of GTT (lookup tables, frame data, command
+  buffers, page tables). Nautilus has four larger swapchain images
+  (19.3 MiB), a 4 MiB atlas, and no FP16 image. Three cuts were left
+  out because each costs something: four swapchain images (−4.4 MiB;
+  siv skips a frame when the compositor holds every image, which would
+  happen more often), an 8-bit working image (−4.1 MiB; loses linear
+  FP16 compositing), and a 1024 px mask atlas to start (−3 MiB; a full
+  atlas makes siv wait for the GPU and rasterize its glyphs again).
 
 ## What is not measured fairly
 

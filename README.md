@@ -361,8 +361,9 @@ not what is in the folder.
 Against GNOME Files (Nautilus 50.3, list view), measured from outside
 both on a laptop's panel under sway (Radeon 760M, Vulkan, 1280×800 at
 60 Hz, real vblank), median of five runs of e022a62; times to the photon.
-GPU memory is from three later runs with siv 66cdcfc, which removed a
-16 MiB step in siv's renderer. Method, caveats, and every number:
+GPU memory is from three later runs with siv cb24e9b, after siv's
+renderer stopped making a 16 MiB path mask step and an unused 8 MiB
+color glyph atlas. Method, caveats, and every number:
 [bench/README.md](bench/README.md).
 
 | | siv-columns | Nautilus |
@@ -375,7 +376,7 @@ GPU memory is from three later runs with siv 66cdcfc, which removed a
 | End, Home: median | 12, 12 ms | 44, 72 ms |
 | Filtering "12345": each key; the result after the last key | 13 ms; 13 ms | 408 ms; 1.8 s |
 | Idle wakeups: after starting, with 100 100 entries open | 0, 0.2 per second | 0.6, 98 per second |
-| GPU memory with 100 100 entries open (after starting) | 48 MiB (47 MiB) | 31 MiB (30 MiB) |
+| GPU memory with 100 100 entries open (after starting) | 40 MiB (39 MiB) | 31 MiB (30 MiB) |
 
 ## License
 
