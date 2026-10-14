@@ -302,6 +302,12 @@ pub fn main() !void {
     try timed(&r, "zh (hidden files on)", "zh");
     try timed(&r, "zf filter typed \"-12\" and Enter", "zf-12\n");
     report("filtered to {d} entries", .{r.win.curDir().count()});
+    try timed(&r, "Escape (the filter off)", "\x1b");
+    try timed(&r, "gf (the picker, walking the 100 100 entries below)", "gf");
+    report("picker: {d} candidates", .{r.win.picker.paths.len()});
+    try timed(&r, "fuzzy query typed \"f9999\" (every keystroke scores the candidates)", "f9999");
+    report("picker: {d} matches", .{r.win.picker.matches.items.len});
+    try timed(&r, "Escape (the picker closed)", "\x1b");
     report("peak memory {d:.1} MiB", .{mib(status("VmHWM"))});
 }
 

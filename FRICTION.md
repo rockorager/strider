@@ -48,21 +48,28 @@ what this project does about it, and its status:
    9868565, "abi: siv_test_resize, the compositor resizing a window"),
    also `window:test_resize` in Lua.
 
+5. **Typing crashed when a change handler built many nodes.** siv's
+   editor read its node data after running the change handlers, which
+   can move the tree's storage; the picker's results list, rebuilt on
+   every keystroke in a big window, made it crash. *Fixed:* siv 4bb9cdf,
+   "ui: read nothing of an editor after its change handlers ran", with a
+   test that crashed before.
+
 ## Decided
 
-5. **The application's name and id are placeholders** (decided: they
+6. **The application's name and id are placeholders** (decided: they
    stay until the user picks names): "Columns",
    `org.siv.Columns`, program `siv-columns`, Lua module `fm`, config in
    `$XDG_CONFIG_HOME/siv-columns/`. Renaming touches `App.app_id` and
    `App.program`, `build.zig`, `tools/desktop_files.zig`, `data/`, and
    the README. (siv-files' name is open too.)
 
-6. **`f` closes as soon as one name matches** (decided: as ranger
+7. **`f` closes as soon as one name matches** (decided: as ranger
    does), so the letters typed after the match run as commands (`fpho`
    reaches photo.png at `ph`, then `o` opens "Open with").
    `fm.set { find_auto_accept = false }` makes it wait for Enter.
 
-7. **Messages go to the status line, not toasts** (decided: as in ranger
+8. **Messages go to the status line, not toasts** (decided: as in ranger
    and vim, errors belong in the status line of a keyboard-driven app).
    An error is in the error color; a message stays until the next key;
    `:messages` lists the last 200, newest first. The status line is a
@@ -73,31 +80,40 @@ what this project does about it, and its status:
 These are defaults this project chose; each works now, and each is one
 line to change.
 
-8. **Column widths.** The parent column widens to its longest name up to
+9. **Column widths.** The parent column widens to its longest name up to
    a quarter of the window (`fit_parent`), taking the room from the
    preview, never the current column; under 640 logical pixels
    (`narrow_width`) the parent column hides, and under two thirds of
    that the preview too. ranger instead keeps every column and
    truncates; yazi keeps its fixed ratio.
 
-9. **The filter stays on `zf`.** yazi filters with `f`, but `f` is
-   ranger's find here (item 6); `zf` is free of conflicts, and the
+10. **The filter stays on `zf`.** yazi filters with `f`, but `f` is
+   ranger's find here (item 7); `zf` is free of conflicts, and the
    filter and `/` search stay separate. A filter stays on its folder
    until Esc (the status line says so), as ranger's does.
 
-10. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`.**
+11. **chmod is `=`, as in ranger; chmod and chown are not undone by `u`.**
     Undo reverses what moved, not attributes; reversing them would mean
     recording every file's old mode and owner first.
 
-11. **The tasks view is `w`, as in ranger,** and an overlay rather than a
+12. **The tasks view is `w`, as in ranger,** and an overlay rather than a
     column: it lists running operations, then the last 20 finished ones
     (kept in memory, not across restarts). Pausing stops an operation at
     its next file or 4 MiB chunk; a copy paused mid-file keeps its
     partial target until it resumes or is cancelled (which removes it).
 
+13. **zoxide is `gz`, fuzzy finding `gf`, and fzf is not used.** yazi
+    binds `z` and `Z`, but `z` is the prefix for toggles here (`zh`,
+    `zf`, `zp`); `g` is "go" (`gh`, `gd`). The built-in finder walks
+    100 000 entries in about 50 ms and scores a keystroke in a few
+    milliseconds, in the window's own list with its highlighting and
+    keys; fzf would need a terminal (or `--filter`, which scores the
+    same way without the live list), so it would not clearly help.
+    `.gitignore` is not read; hidden entries follow `zh`.
+
 ## Noted
 
-12. **Image previews read on siv's workers, outside the app's limit.**
+14. **Image previews read on siv's workers, outside the app's limit.**
   siv decodes images (`siv_image_load`) on its own threads, so the
   two-job limit on previews covers text, archives, renderers, and
   previewers but not images; an image on a hung mount holds one of
@@ -106,39 +122,39 @@ line to change.
   fill it. Neither has happened in testing; a per-application lane in
   siv would close both.
 
-13. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
+15. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
    a git submodule (`deps/siv`) and a path dependency; clone with
    `--recurse-submodules`.
 
-14. **The focus ring.** siv draws a focus ring when focus moved by
+16. **The focus ring.** siv draws a focus ring when focus moved by
    keyboard; focus returns to the cursor's row from a key handler when a
    prompt closes, so the ring appears then and not before (when focus
    came from creating the window). Both are siv's documented rule; the
    selection highlight is the cursor either way.
 
-15. **Bulk rename waits for the editor.** `R` writes the names to a
+17. **Bulk rename waits for the editor.** `R` writes the names to a
    file, runs `$VISUAL`/`$EDITOR` in a terminal, and renames when the
    editor exits, so the terminal must stay in the foreground until then:
    foot, alacritty, kitty, wezterm, and ghostty do; gnome-terminal does
    with `--wait`, which the app passes. `fm.set { terminal = "...",
    editor = "...", editor_in_terminal = false }` covers the rest.
 
-16. **Settling while a job waits for the user.** As in siv-files:
+18. **Settling while a job waits for the user.** As in siv-files:
     `siv_test_settle` waits for running jobs, so a test cannot settle
     while a copy waits for the conflict question; the tests dispatch
     until the question shows.
 
-17. **No monospace font in the tests.** The text preview asks for the
+19. **No monospace font in the tests.** The text preview asks for the
     generic `monospace` family; the headless tests load only Droid Sans,
     so their goldens show code in it. Real desktops get their monospace
     font.
 
-18. **A large static binary.** ReleaseSafe with libsiv, its decoders,
+20. **A large static binary.** ReleaseSafe with libsiv, its decoders,
     and Lua linked in is 46 MB unstripped (`-Doptimize=ReleaseSmall` or
     stripping makes it much smaller); it maps lazily, so startup does
     not pay for it.
 
-19. **Driving the app on a headless sway.** With no keyboard attached,
+21. **Driving the app on a headless sway.** With no keyboard attached,
     each `wtype` adds a virtual keyboard, so the seat gains its keyboard
     as wtype starts typing; without a pause (`wtype -s 300 ...`) the
     first press can arrive before siv has the keyboard and is lost. siv's

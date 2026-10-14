@@ -87,6 +87,8 @@ tenth entry.
 | `sn` `ss` `sm` `st` `se`, `sr` `sd` | sort by name, size, modified, type, extension; reverse; folders first |
 | `m` + key, `'` + key, `''`, `dm` + key | set a bookmark, go to one, back, remove one |
 | `gh` `g/` `gd` `gD` `gc` `gm` | home, root, Downloads, Documents, ~/.config, mounted media |
+| `gf` | find a file or folder below, fuzzily (`:fuzzy`) |
+| `gz`, `:z words` | jump to a folder zoxide knows: pick one, or its best for the words |
 | `gx`, `dr` | the trash, restore from it |
 | `gv` | drives: open, mount (asks for LUKS passphrases), with `:unmount` and `:eject` |
 | `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
@@ -114,6 +116,16 @@ the filter wants every space-separated word.
 operations, with progress, and work on the visual range, the marked
 entries, or the entry under the cursor.
 
+`gf` lists every file and folder below the current folder (read on a
+worker, breadth first, without hidden ones unless they are shown, never
+.git, up to 200 000) and ranks them as you type, fzf-style: each word's
+letters in order, best at word starts, after slashes, in runs, and in
+the base name; smart case. Up, Down, Tab, Ctrl+N, and Ctrl+P move; Enter
+opens a folder or shows a file in its folder; Esc leaves. With zoxide
+installed, every folder visited is added to its database (`zoxide add`,
+off the UI thread), `gz` (`:zi`) picks from its folders the same way,
+and `:z words` jumps to its best match.
+
 The tasks view (`w`, `:tasks`) lists running file operations with their
 progress, bytes, items, and current file, then the last 20 finished ones
 with what came of them. In it, `j` and `k` move, `p` or Space pauses and
@@ -140,7 +152,7 @@ workers at the size the column shows them; archives list their entries
 PDFs show their first page (poppler's `pdftoppm`, else MuPDF's `mutool`,
 else a thumbnail another program cached); videos a frame
 (`ffmpegthumbnailer`, else `ffmpeg`, else a cached thumbnail); binary
-files their first 4 KiB in hex; other files their details, with a link's
+files their first 1 KiB in hex; other files their details, with a link's
 target. When a program is missing the details say what to install.
 
 Limits: text previews read `preview_max_bytes` (128 KiB); images larger
@@ -261,19 +273,21 @@ fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
 | The same with the example `data/init.lua` loaded | 18 ms |
 | Resident memory with that window open | 36 MiB (heap in use 19.8 MiB) |
 | Idle for 2 s | no wakeups |
-| A 100 100-entry folder: read, typed, and sorted | 265 ms, rows shown at 271 ms; the first frame at 24 ms |
-| Memory for those entries | 8.2 MiB of heap (86 bytes each); 61 MiB resident in all |
-| `j`, 300 times, each frame presented and the preview updated | 0.69 ms UI thread CPU per key (1.8 ms worst), each on the next 60 Hz frame |
-| 100 `j`s queued at once (a held key) | 28 ms UI thread CPU in all |
-| `G`, `gg` | 1.5 ms each |
-| `Ctrl+f` (a page) | 1.2 ms (2.0 ms worst) |
-| `/file-99999` typed, every keystroke searching all names | 21 ms for the eleven keystrokes |
-| `n` (the next match, wrapping around) | 5.4 ms |
-| `h` to the parent and `l` back in (both folders cached and watched) | 3.4 ms |
-| `Ctrl+a` marking all 100 100 | 1.4 ms |
-| `sS` (by size, largest first, the cursor kept on its entry), `sn` | 59 ms, 85 ms |
+| A 100 100-entry folder: read, typed, and sorted | 248 ms, rows shown at 252 ms; the first frame at 18 ms |
+| Memory for those entries | 8.3 MiB of heap (87 bytes each); 64 MiB resident in all |
+| `j`, 300 times, each frame presented and the preview updated | 0.89 ms UI thread CPU per key (4.3 ms worst, a hex view), each on the next 60 Hz frame |
+| 100 `j`s queued at once (a held key) | 15 ms UI thread CPU in all |
+| `G`, `gg` | 1.7 ms each |
+| `Ctrl+f` (a page) | 1.3 ms (1.7 ms worst) |
+| `/file-99999` typed, every keystroke searching all names | 23 ms for the eleven keystrokes |
+| `n` (the next match, wrapping around) | 11 ms |
+| `h` to the parent and `l` back in (both folders cached and watched) | 4.2 ms |
+| `Ctrl+a` marking all 100 100 | 1.6 ms |
+| `sS` (by size, largest first, the cursor kept on its entry), `sn` | 68 ms, 86 ms |
 | `zf-12` typed (filtering as you type) | 22 ms for the three keystrokes |
-| Peak memory | 62 MiB |
+| `gf`: the picker, every one of the 100 100 entries walked | 52 ms (17 ms UI thread CPU) |
+| `f9999` typed in it, every keystroke scoring the candidates | 30 ms for the five keystrokes |
+| Peak memory | 86 MiB |
 
 Rows are virtualized by siv's views, so a frame costs what is on screen,
 not what is in the folder.
