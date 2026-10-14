@@ -310,6 +310,68 @@ Bookmarks and the command history persist in
 - The trash: browse every trash with `gx`, restore with `dr`,
   `:empty-trash`.
 
+## The desktop's file chooser
+
+siv-columns can be every application's Open and Save dialog: an
+xdg-desktop-portal FileChooser backend (`OpenFile`, `SaveFile`,
+`SaveFiles`), like xdg-desktop-portal-termfilechooser does for ranger
+and yazi, but native. A request opens a chooser window in the running
+instance (or starts one through D-Bus), over the window that asked
+(xdg-foreign) and modal to it.
+
+The chooser is the same three columns, with every key, preview, search,
+`gf`, `gz`, bookmark, and file operation:
+
+- Enter picks the file under the cursor, or the marked files (Space)
+  when the application allows several; on a folder it goes in. `l` and
+  double clicks go into folders and pick files.
+- Choosing folders: Enter picks the folder under the cursor (or the
+  marked ones), else the folder shown; `l` goes in.
+- Saving: a name field under the columns, filled from the application's
+  suggestion with the name before its extension selected. Enter saves;
+  Tab and Escape go between the field and the columns; Enter on a file
+  in the columns saves over it. A file that exists asks first (a
+  dialog). Saving several files picks a folder.
+- The application's filters are a combo box in the bar: they hide other
+  files in the folder shown, never folders. Its choices are check boxes
+  and combo boxes; their values go back with the answer.
+- Escape clears marks, the visual range, or a filter first, then
+  cancels; `q` and the Cancel button cancel. The accept button carries
+  the application's label, and the window its title.
+- It starts in the folder the application suggests, else where the last
+  chooser picked, else home.
+
+Set it up once, after `zig build install --prefix ~/.local` (which puts
+`siv-columns.portal` in `~/.local/share/xdg-desktop-portal/portals` and
+its D-Bus service in `~/.local/share/dbus-1/services`):
+
+1. Name it in `[preferred]` of your portals.conf. On Hyprland (Omarchy
+   too) that is `~/.config/xdg-desktop-portal/hyprland-portals.conf`;
+   elsewhere `~/.config/xdg-desktop-portal/DESKTOP-portals.conf` for
+   your desktop, else `portals.conf` there (a desktop's file wins over
+   `portals.conf` in the same directory):
+
+   ```ini
+   [preferred]
+   default=hyprland;gtk
+   org.freedesktop.impl.portal.FileChooser=siv-columns
+   ```
+
+2. Quit siv-columns if it runs (an older build does not serve the
+   portal), and restart the portal: `systemctl --user restart
+   xdg-desktop-portal`.
+
+xdg-desktop-portal 1.20.3 and later (Arch has 1.22) find portals in
+`~/.local/share`. With an older one, copy the portal file where it
+looks: `sudo install -Dm644 ~/.local/share/xdg-desktop-portal/portals/siv-columns.portal
+/usr/share/xdg-desktop-portal/portals/siv-columns.portal`, or install
+system-wide with `--prefix /usr`. The bus starts siv-columns with its
+activation environment, which needs `WAYLAND_DISPLAY`: Omarchy, GNOME,
+and KDE set it; under other compositors run `dbus-update-activation-environment
+--systemd WAYLAND_DISPLAY` at login. `/usr/lib/xdg-desktop-portal -r -v`
+shows which backend serves FileChooser. A chooser started by the bus
+quits 30 seconds after its last window.
+
 ## Develop
 
 ```sh

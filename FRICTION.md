@@ -247,6 +247,35 @@ what this project does about it, and its status:
     folder icon stays symbolic, in the accent, and in the selection's
     text color on the cursor's row.
 
+30. **The file chooser** (chosen here; FileChooser portal backend).
+    - Keys: Enter picks (in folder mode, the folder under the cursor,
+      else the folder shown), `l` and double clicks go into folders and
+      pick files, Space marks several, Escape clears marks, the visual
+      range, or a filter before it cancels, `q` cancels, Tab goes to
+      the save name and back.
+    - The filter applies to the folder shown only (not the parent
+      column or a previewed folder), and, like `zf`, it is the folder's:
+      another window showing the same folder meanwhile is filtered too.
+      Globs ignore case (`IMG.JPG` matches `*.jpg`; GTK's are
+      case-sensitive), MIME types match their subclasses, and
+      `image/*` every image.
+    - Saving over a file asks in a dialog; SaveFiles asks once for the
+      names that exist instead of inventing new names.
+    - OpenFile answers `writable` true: a sandboxed application gets
+      the file to write, as GTK's chooser gives it.
+    - The portal file's `UseIn` is empty, so it is only used when
+      portals.conf names it, never picked for a desktop by default.
+    - The chooser is modal to its caller's window when it has one: siv
+      0395c55 imports the caller's xdg-foreign handle; "x11:" parents
+      and none leave a plain window. It starts where the last chooser
+      picked when the application suggests no folder.
+
+31. **A moved bar painted its controls where they had been** (fixed in
+    siv c1a7973). Opening the command line under the chooser's bar
+    moved the bar up, but the controls after the first combo box (a
+    combo box roots a compositor layer) stayed behind: siv repainted
+    only the moved node, not its descendants in other layers.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
