@@ -21,13 +21,14 @@ const sync = @import("sync.zig");
 /// `move_back` moves each source to the exact path in `targets` (undoing
 /// a move); `restore` does the same from the trash and removes the info
 /// files.
-pub const Kind = enum { copy, move, trash, delete, restore, move_back, chmod, chown };
+pub const Kind = enum { copy, move, link, trash, delete, restore, move_back, chmod, chown };
 
 /// "Copying", for progress.
 pub fn doing(kind: Kind) []const u8 {
     return switch (kind) {
         .copy => "Copying",
         .move, .move_back => "Moving",
+        .link => "Linking",
         .trash => "Trashing",
         .delete => "Deleting",
         .restore => "Restoring",
@@ -41,6 +42,7 @@ pub fn verb(kind: Kind) []const u8 {
     return switch (kind) {
         .copy => "copy",
         .move, .move_back => "move",
+        .link => "link",
         .trash => "move to the trash",
         .delete => "delete",
         .restore => "restore",
@@ -290,6 +292,7 @@ pub const Op = struct {
         return (switch (op.kind) {
             .copy => std.fmt.bufPrint(buf, "Copying {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
             .move => std.fmt.bufPrint(buf, "Moving {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .link => std.fmt.bufPrint(buf, "Linking {s} in {s}", .{ what, if (dest.len == 0) "/" else dest }),
             .move_back => std.fmt.bufPrint(buf, "Moving {s} back", .{what}),
             .trash => std.fmt.bufPrint(buf, "Moving {s} to the trash", .{what}),
             .delete => std.fmt.bufPrint(buf, "Deleting {s}", .{what}),
@@ -323,6 +326,7 @@ pub const Op = struct {
         const msg = (switch (op.kind) {
             .copy => if (single) std.fmt.bufPrint(buf, "Copied “{s}”", .{what}) else std.fmt.bufPrint(buf, "Copied {d} items", .{cnt}),
             .move, .move_back => if (single) std.fmt.bufPrint(buf, "Moved “{s}”", .{what}) else std.fmt.bufPrint(buf, "Moved {d} items", .{cnt}),
+            .link => if (single) std.fmt.bufPrint(buf, "Linked “{s}”", .{what}) else std.fmt.bufPrint(buf, "Linked {d} items", .{cnt}),
             .trash => if (single) std.fmt.bufPrint(buf, "“{s}” moved to the trash", .{what}) else std.fmt.bufPrint(buf, "{d} items moved to the trash", .{cnt}),
             .delete => if (single) std.fmt.bufPrint(buf, "“{s}” deleted", .{what}) else std.fmt.bufPrint(buf, "{d} items deleted", .{cnt}),
             .restore => if (single) std.fmt.bufPrint(buf, "“{s}” restored", .{what}) else std.fmt.bufPrint(buf, "{d} items restored", .{cnt}),
@@ -371,9 +375,9 @@ pub const Op = struct {
         try op.checkCancel();
         op.setCurrent(src);
         switch (op.kind) {
-            .copy, .move => {
+            .copy, .move, .link => {
                 // A folder into itself or below itself.
-                if (model.isWithin(op.dest, src)) return op.fail(src, error.IntoItself);
+                if (op.kind != .link and model.isWithin(op.dest, src)) return op.fail(src, error.IntoItself);
                 const same_dir = std.mem.eql(u8, model.parent(src), op.dest);
                 if (op.kind == .move and same_dir) return; // nothing to do
                 var buf: [linux.PATH_MAX]u8 = undefined;
@@ -459,10 +463,18 @@ pub const Op = struct {
                 },
             }
         }
-        if (op.kind == .move) {
-            try op.move(src, target);
-        } else {
-            try op.copyTree(src, target, true);
+        switch (op.kind) {
+            .move => try op.move(src, target),
+            // A symbolic link to the source, by its absolute path.
+            .link => {
+                var sb: [linux.PATH_MAX]u8 = undefined;
+                const z = zpath(&sb, src) catch return op.fail(src, error.NameTooLong);
+                switch (linux.errno(linux.symlinkat(z, linux.AT.FDCWD, target))) {
+                    .SUCCESS => _ = op.done_items.fetchAdd(1, .monotonic),
+                    else => |e| return op.fail(src, mapErrno(e)),
+                }
+            },
+            else => try op.copyTree(src, target, true),
         }
         try op.record(src, target, replaced);
         return target;

@@ -95,7 +95,7 @@ pub const Stack = struct {
     /// undone and are left out of copies).
     pub fn pushOp(s: *Stack, op: *const fsops.Op) void {
         const kind: Kind = switch (op.kind) {
-            .copy => .copied,
+            .copy, .link => .copied,
             .move => .moved,
             .trash => .trashed,
             .restore => .restored,
