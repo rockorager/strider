@@ -1,3 +1,5 @@
+<img src="data/dev.rockorager.Strider.svg" width="96" align="right" alt="Strider's icon: a gold hooded cloak">
+
 # Strider
 
 A fully keyboard-driven file manager for Linux on Wayland in the style of

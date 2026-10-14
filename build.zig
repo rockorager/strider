@@ -136,6 +136,7 @@ fn installData(b: *std.Build, filemanager1: bool) void {
         .{ out.path(b, "org.freedesktop.impl.portal.desktop.strider.service"), "share/dbus-1/services/org.freedesktop.impl.portal.desktop.strider.service" },
         .{ b.path("data/" ++ program ++ ".portal"), "share/xdg-desktop-portal/portals/" ++ program ++ ".portal" },
         .{ b.path("data/" ++ app_id ++ ".svg"), "share/icons/hicolor/scalable/apps/" ++ app_id ++ ".svg" },
+        .{ b.path("data/" ++ app_id ++ ".svg"), "share/" ++ program ++ "/icons/" ++ app_id ++ ".svg" },
         .{ b.path("data/" ++ app_id ++ ".metainfo.xml"), "share/metainfo/" ++ app_id ++ ".metainfo.xml" },
         .{ b.path("data/init.lua"), "share/doc/" ++ program ++ "/init.lua" },
     };

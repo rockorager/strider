@@ -236,11 +236,12 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
         .parent_handle = parent,
         .flags = .{ .modal = chooser != null and chooser.?.modal and parent.len != 0 },
     });
-    if (chooser) |ch| {
-        ch.win = self;
-        // Its own app id has no desktop file of its own to name the icon.
-        _ = c.siv_window_set_icon(self.window, App.app_id, App.app_id.len, .null);
-    }
+    if (chooser) |ch| ch.win = self;
+    // The icon by name, for compositors that do not find it from the app
+    // id: the chooser's app id has no desktop file naming it, and a build
+    // run from zig-out has none at all. siv draws it from the app's own
+    // icons, where the build installs it too.
+    _ = c.siv_window_set_icon(self.window, App.app_id, App.app_id.len, .null);
     var wsize: siv.Size = .{};
     if (c.siv_window_get_size(self.window, &wsize) == .ok) {
         self.width = wsize.width;
