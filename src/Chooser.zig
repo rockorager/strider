@@ -21,6 +21,7 @@ const siv = @import("siv");
 const c = siv.c;
 const App = @import("App.zig");
 const Window = @import("Window.zig");
+const commands = @import("commands.zig");
 const model = @import("model.zig");
 const uri = @import("uri.zig");
 const ui = @import("ui.zig");
@@ -89,7 +90,7 @@ called_ns: u64 = 0,
 pending: std.ArrayList([]const u8) = .empty,
 
 bar: Node = .null,
-name_field: Node = .null,
+field: Node = .null,
 filter_combo: Node = .null,
 accept_button: Node = .null,
 cancel_button: Node = .null,
@@ -358,21 +359,26 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
     const row = c.siv_flex(txn, ch.bar, &.{ .axis = .row, .gap = 10, .align_items = .center });
     if (ch.kind == .save) {
         fixed(txn, ui.text(txn, row, "Name", .window_fg, .body));
-        ch.name_field = c.siv_editor(txn, row, .{});
-        _ = c.siv_set_layout(txn, ch.name_field, &.{ .grow = 1, .shrink = 1, .basis = ui.px(0), .min_width = 60, .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 } });
-        _ = c.siv_set_visual(txn, ch.name_field, &.{ .background_token = .view_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 }, .flags = .{ .clip = true } });
-        _ = c.siv_set_text_style(txn, ch.name_field, &.{ .color_token = .view_fg, .size_role = .body, .flags = .{ .no_wrap = true } });
-        _ = c.siv_set_semantics(txn, ch.name_field, &.{ .role = .text_input, .label = "Name", .label_len = 4, .flags = .{ .focusable = true } });
-        _ = c.siv_set_text(txn, ch.name_field, ch.current_name.ptr, ch.current_name.len);
+        ch.field = c.siv_editor(txn, row, .{});
+        ch.styleField(txn);
+        _ = c.siv_set_semantics(txn, ch.field, &.{ .role = .text_input, .label = "Name", .label_len = 4, .flags = .{ .focusable = true } });
+        _ = c.siv_set_text(txn, ch.field, ch.current_name.ptr, ch.current_name.len);
         // The name without its extension selected, ready to type over.
         const stem = if (std.mem.lastIndexOfScalar(u8, ch.current_name, '.')) |dot| (if (dot > 0) dot else ch.current_name.len) else ch.current_name.len;
-        _ = c.siv_set_selection(txn, ch.name_field, @intCast(stem), 0);
-        _ = c.siv_on(txn, ch.name_field, .key, onNameKey, null, ch);
-        _ = c.siv_on(txn, ch.name_field, .focus, onNameFocus, null, ch);
+        _ = c.siv_set_selection(txn, ch.field, @intCast(stem), 0);
+        _ = c.siv_on(txn, ch.field, .key, onNameKey, null, ch);
+        _ = c.siv_on(txn, ch.field, .focus, onNameFocus, null, ch);
     } else {
-        // The hint gives way first when the bar is narrow.
-        const t = ui.text(txn, row, ch.hint(), .muted_fg, .caption);
-        _ = c.siv_set_layout(txn, t, &.{ .grow = 1, .basis = ui.px(0), .shrink = 1 });
+        // A path to type (insert mode), where Save has its name; empty in
+        // normal mode, showing the keys instead.
+        fixed(txn, ui.text(txn, row, "Path", .window_fg, .body));
+        ch.field = c.siv_editor(txn, row, .{});
+        ch.styleField(txn);
+        _ = c.siv_set_semantics(txn, ch.field, &.{ .role = .text_input, .label = "Path", .label_len = 4, .flags = .{ .focusable = true } });
+        const h = ch.hint();
+        _ = c.siv_set_placeholder(txn, ch.field, h.ptr, h.len);
+        _ = c.siv_on(txn, ch.field, .key, onNameKey, null, ch);
+        _ = c.siv_on(txn, ch.field, .focus, onNameFocus, null, ch);
     }
     ch.cancel_button = c.siv_push_button(txn, row, &.{ .label = "Cancel", .label_len = 6 });
     _ = c.siv_on(txn, ch.cancel_button, .activate, onCancelButton, null, ch);
@@ -381,6 +387,13 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
     ch.accept_button = c.siv_push_button(txn, row, &.{ .label = label.ptr, .label_len = label.len, .style = .primary });
     _ = c.siv_on(txn, ch.accept_button, .activate, onAcceptButton, null, ch);
     fixed(txn, ch.accept_button);
+}
+
+/// The name or path field: it takes what the row has left.
+fn styleField(ch: *Chooser, txn: Txn) void {
+    _ = c.siv_set_layout(txn, ch.field, &.{ .grow = 1, .shrink = 1, .basis = ui.px(0), .min_width = 60, .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 } });
+    _ = c.siv_set_visual(txn, ch.field, &.{ .background_token = .view_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 }, .flags = .{ .clip = true } });
+    _ = c.siv_set_text_style(txn, ch.field, &.{ .color_token = .view_fg, .size_role = .body, .flags = .{ .no_wrap = true } });
 }
 
 /// A combo box as wide as its options, up to a limit, narrower when the
@@ -398,37 +411,64 @@ fn fixed(txn: Txn, n: Node) void {
 fn hint(ch: *const Chooser) []const u8 {
     return switch (ch.kind) {
         .open => if (ch.directory)
-            (if (ch.multiple) "Enter chooses the folder under the cursor, or the marked ones · Space marks · l goes in · Esc cancels" else "Enter chooses the folder under the cursor · l goes in · Esc cancels")
-        else if (ch.multiple) "Enter opens the file, or the marked ones · Space marks · Esc cancels" else "Enter opens the file · Esc cancels",
+            (if (ch.multiple) "Enter chooses the folder under the cursor, or the marked ones · Space marks · l goes in · i types a path · Esc cancels" else "Enter chooses the folder under the cursor · l goes in · i types a path · Esc cancels")
+        else if (ch.multiple) "Enter opens the file, or the marked ones · Space marks · i types a path · Esc cancels" else "Enter opens the file · i types a path · Esc cancels",
         .save => "",
-        .save_files => "Enter chooses the folder under the cursor, else this folder · l goes in · Esc cancels",
+        .save_files => "Enter chooses the folder under the cursor, else this folder · l goes in · i types a path · Esc cancels",
     };
 }
 
-/// Called once the window shows its first tab: the name field takes the
-/// keys when saving.
+/// Called once the window shows its first tab: Save starts in insert
+/// mode, in its name; the others in normal mode, in the columns.
 pub fn shown(ch: *Chooser) void {
-    if (ch.name_field != .null) _ = c.siv_node_focus(ch.name_field);
+    if (ch.kind == .save) _ = c.siv_node_focus(ch.field);
 }
 
 pub fn nameFocused(ch: *const Chooser) bool {
     const w = ch.win orelse return false;
-    return ch.name_field != .null and c.siv_window_get_focus(w.window) == ch.name_field;
+    return ch.field != .null and c.siv_window_get_focus(w.window) == ch.field;
 }
 
 /// Tab between the columns and the name field.
 pub fn focusName(ch: *Chooser) bool {
-    if (ch.name_field == .null) return false;
-    _ = c.siv_node_focus(ch.name_field);
+    if (ch.field == .null) return false;
+    _ = c.siv_node_focus(ch.field);
     return true;
 }
 
 /// Insert mode is the name field having focus: the badge follows it,
 /// however it moved (Escape, Tab, i, or a click).
-fn onNameFocus(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.EventResult {
+fn onNameFocus(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const ch: *Chooser = @ptrCast(@alignCast(ud.?));
-    if (ch.win) |w| w.updateStatus();
+    const w = ch.win orelse return .pass;
+    // The path field starts from the folder shown, and empties again (to
+    // show the keys) in normal mode.
+    if (ch.kind != .save) if (w.begin()) |txn| {
+        var tb: [8]u8 = undefined;
+        if (!ev.flags.gained) {
+            _ = c.siv_set_text(txn, ch.field, "", 0);
+            w.hideWhichKey();
+        } else if (ui.getText(ch.field, &tb).len == 0) {
+            var buf: [linux.PATH_MAX + 2]u8 = undefined;
+            const p = ch.shownPath(&buf, w);
+            _ = c.siv_set_text(txn, ch.field, p.ptr, p.len);
+            _ = c.siv_set_selection(txn, ch.field, @intCast(p.len), @intCast(p.len));
+        }
+        _ = ui.commit(txn);
+    };
+    w.updateStatus();
     return .pass;
+}
+
+/// The folder shown, as the path field starts: ~ for home, and a slash
+/// to type a name after.
+fn shownPath(ch: *Chooser, buf: []u8, w: *Window) []const u8 {
+    const p = w.curDir().path;
+    const home = ch.app.home;
+    if (std.mem.eql(u8, p, "/")) return "/";
+    if (home.len > 1 and std.mem.eql(u8, p, home)) return "~/";
+    if (home.len > 1 and model.isWithin(p, home)) return std.fmt.bufPrint(buf, "~{s}/", .{p[home.len..]}) catch p;
+    return std.fmt.bufPrint(buf, "{s}/", .{p}) catch p;
 }
 
 /// Where insert mode puts the caret in the name.
@@ -448,20 +488,22 @@ pub const Insert = enum {
 /// Normal mode to insert mode (Save only).
 pub fn insert(ch: *Chooser, how: Insert) bool {
     const w = ch.win orelse return false;
-    if (ch.name_field == .null) return false;
-    if (how != .keep) if (w.begin()) |txn| {
+    if (ch.field == .null) return false;
+    _ = c.siv_node_focus(ch.field);
+    // A path is typed at its end; only a name keeps its selection.
+    const at_end = how == .keep and ch.kind != .save;
+    if (how != .keep or at_end) if (w.begin()) |txn| {
         var buf: [1024]u8 = undefined;
-        const name = ui.getText(ch.name_field, &buf);
+        const name = ui.getText(ch.field, &buf);
         const at: usize = switch (how) {
-            .keep, .clear, .start => 0,
-            .end => name.len,
-            .stem => if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
+            .clear, .start => 0,
+            .keep, .end => name.len,
+            .stem => if (ch.kind != .save) name.len else if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
         };
-        if (how == .clear) _ = c.siv_set_text(txn, ch.name_field, "", 0);
-        _ = c.siv_set_selection(txn, ch.name_field, @intCast(at), @intCast(at));
+        if (how == .clear) _ = c.siv_set_text(txn, ch.field, "", 0);
+        _ = c.siv_set_selection(txn, ch.field, @intCast(at), @intCast(at));
         _ = ui.commit(txn);
     };
-    _ = c.siv_node_focus(ch.name_field);
     return true;
 }
 
@@ -471,7 +513,7 @@ fn onNameKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.Ev
     const w = ch.win orelse return .pass;
     switch (ev.keysym) {
         .@"return", .kp_enter => {
-            ch.saveAs(ch.nameText());
+            if (ch.kind == .save) ch.saveAs(ch.nameText()) else ch.goPath(ch.nameText());
             return .handled;
         },
         // Escape leaves insert mode for the columns (normal mode), as in
@@ -480,8 +522,12 @@ fn onNameKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.Ev
             _ = c.siv_node_focus(w.current.view);
             return .handled;
         },
+        // Tab goes between Save's name and the columns; a path completes,
+        // as :cd's does.
         .tab => {
-            _ = c.siv_node_focus(w.current.view);
+            if (ch.kind == .save) {
+                _ = c.siv_node_focus(w.current.view);
+            } else ch.completePath(w);
             return .handled;
         },
         else => return .pass,
@@ -533,7 +579,7 @@ fn onCancelButton(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
 fn onAcceptButton(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.EventResult {
     const ch: *Chooser = @ptrCast(@alignCast(ud.?));
     const w = ch.win orelse return .handled;
-    if (ch.kind == .save) ch.saveAs(ch.nameText()) else ch.open(w);
+    if (ch.kind == .save) ch.saveAs(ch.nameText()) else if (ch.nameText().len != 0) ch.goPath(ch.nameText()) else ch.open(w);
     return .handled;
 }
 
@@ -541,7 +587,7 @@ pub fn nameText(ch: *Chooser) []const u8 {
     const S = struct {
         var buf: [1024]u8 = undefined;
     };
-    return std.mem.trim(u8, ui.getText(ch.name_field, &S.buf), " ");
+    return std.mem.trim(u8, ui.getText(ch.field, &S.buf), " ");
 }
 
 // Picking ----------------------------------------------------------------------------------
@@ -603,12 +649,55 @@ pub fn open(ch: *Chooser, w: *Window) void {
             // A file: saving over it, by that name.
             const name = model.basename(p);
             if (w.begin()) |txn| {
-                _ = c.siv_set_text(txn, ch.name_field, name.ptr, name.len);
+                _ = c.siv_set_text(txn, ch.field, name.ptr, name.len);
                 _ = ui.commit(txn);
             }
             ch.saveAs(name);
         },
     }
+}
+
+/// Enter on a typed path (Open and folder choosers): a folder is gone to
+/// (or, choosing folders, picked), a file picked; nothing there stays in
+/// insert mode with an error.
+pub fn goPath(ch: *Chooser, typed: []const u8) void {
+    const w = ch.win orelse return;
+    if (typed.len == 0) return w.notify("Type a path", true);
+    var xbuf: [linux.PATH_MAX]u8 = undefined;
+    var pbuf: [linux.PATH_MAX]u8 = undefined;
+    const p = model.normalize(&pbuf, w.expandPath(&xbuf, typed));
+    switch (pathKind(p)) {
+        .missing => {
+            var mb: [linux.PATH_MAX + 32]u8 = undefined;
+            w.notify(std.fmt.bufPrint(&mb, "No such file or folder: {s}", .{typed}) catch "No such file or folder", true);
+        },
+        .dir => if (ch.kind == .save_files)
+            ch.saveInto(p)
+        else if (ch.picksFolders())
+            ch.answerPaths(&.{p})
+        else {
+            // Normal mode, in that folder.
+            _ = c.siv_node_focus(w.current.view);
+            w.cd(p);
+        },
+        .file => if (ch.picksFolders()) w.notify("Choose a folder", true) else ch.answerPaths(&.{p}),
+    }
+}
+
+/// Tab in the path field: the longest common start of the names that
+/// fit, the candidates shown when there are several.
+fn completePath(ch: *Chooser, w: *Window) void {
+    var arena: std.heap.ArenaAllocator = .init(ch.app.gpa);
+    defer arena.deinit();
+    const text = ch.nameText();
+    const r = commands.completePath(w, arena.allocator(), text, ch.picksFolders()) catch return;
+    if (r.candidates.len == 0) return;
+    if (!std.mem.eql(u8, r.completed, text)) if (w.begin()) |txn| {
+        _ = c.siv_set_text(txn, ch.field, r.completed.ptr, r.completed.len);
+        _ = c.siv_set_selection(txn, ch.field, @intCast(r.completed.len), @intCast(r.completed.len));
+        _ = ui.commit(txn);
+    };
+    if (r.candidates.len > 1) w.showCandidates(r.candidates) else w.hideWhichKey();
 }
 
 /// Saves as `name` in the folder shown, asking before replacing a file.

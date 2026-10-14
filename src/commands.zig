@@ -99,7 +99,7 @@ pub const list = [_]Command{
     .{ .name = "chown", .desc = "Owner: chown [-R] user, user:group, :group", .run = chown },
     .{ .name = "shell", .desc = "Run a shell command (-t in a terminal)", .run = shell, .complete = .path },
     .{ .name = "shell-prompt", .desc = "Type a shell command", .run = shellPrompt },
-    .{ .name = "insert", .desc = "Save chooser: type the name (stem, start, end, or clear)", .run = insert },
+    .{ .name = "insert", .desc = "Chooser: type the name or path (stem, start, end, or clear)", .run = insert },
     .{ .name = "terminal", .desc = "A terminal in this folder", .run = terminal, .complete = .dir },
     .{ .name = "reload", .desc = "Read the folders again", .run = reload },
     .{ .name = "toggle-hidden", .desc = "Show or hide hidden files", .run = toggleHidden },
@@ -845,14 +845,14 @@ pub fn terminalCommand(app: *App) TermCmd {
     return .{ .arena = arena, .items = &.{ "xterm", "-e" } };
 }
 
-/// :insert [stem|start|end|clear]: a Save chooser's name field, with
-/// the caret where vim's i, a, I, A, or cc would put it.
+/// :insert [stem|start|end|clear]: a chooser's name or path field,
+/// with the caret where vim's i, a, I, A, or cc would put it.
 fn insert(ctx: Ctx) void {
     const win = ctx.win;
-    const ch = win.chooser orelse return win.notify("Only a Save chooser has a name to type", true);
+    const ch = win.chooser orelse return win.notify("Only a chooser has a name or path to type", true);
     const a = std.mem.trim(u8, ctx.args, " ");
     const how: App.Chooser.Insert = if (a.len == 0) .keep else std.meta.stringToEnum(App.Chooser.Insert, a) orelse return win.notify("insert takes stem, start, end, or clear", true);
-    if (!ch.insert(how)) win.notify("Only a Save chooser has a name to type", true);
+    _ = ch.insert(how);
 }
 
 /// :terminal [folder]: the user's terminal in the folder shown (or
@@ -1375,7 +1375,7 @@ pub fn complete(win: *Window, a: Allocator, text: []const u8, shell_line: bool) 
     switch (kind) {
         .option => for (Config.infos) |i| if (std.mem.startsWith(u8, i.name, word)) try cands.append(a, i.name),
         .sort => for ([_][]const u8{ "name", "size", "modified", "type", "extension" }) |s| if (std.mem.startsWith(u8, s, word)) try cands.append(a, s),
-        .command, .none, .path, .dir => try completePath(win, a, word, kind == .dir, &cands),
+        .command, .none, .path, .dir => try pathCandidates(win, a, word, kind == .dir, &cands),
     }
     return finish(a, head, word, cands.items, kind != .path and kind != .dir);
 }
@@ -1394,7 +1394,15 @@ fn finish(a: Allocator, head: []const u8, word: []const u8, cands: []const []con
     return .{ .completed = completed, .candidates = cands };
 }
 
-fn completePath(win: *Window, a: Allocator, word: []const u8, dirs_only: bool, cands: *std.ArrayList([]const u8)) !void {
+/// Completes a path by itself (a chooser's path field), as :cd's
+/// argument completes.
+pub fn completePath(win: *Window, a: Allocator, word: []const u8, dirs_only: bool) !Completion {
+    var cands: std.ArrayList([]const u8) = .empty;
+    try pathCandidates(win, a, word, dirs_only, &cands);
+    return finish(a, "", word, cands.items, false);
+}
+
+fn pathCandidates(win: *Window, a: Allocator, word: []const u8, dirs_only: bool, cands: *std.ArrayList([]const u8)) !void {
     // Split into the folder typed so far and the name being completed.
     const slash = std.mem.lastIndexOfScalar(u8, word, '/');
     const dir_part = if (slash) |i| word[0 .. i + 1] else "";

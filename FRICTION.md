@@ -320,7 +320,7 @@ what this project does about it, and its status:
       browsers and GTK, with its space kept on every tab so labels never
       move. Closing the last tab closes the window, as `gq` does.
 
-34. **Save is modal like vim** (decided by the user). The name field
+34. **The chooser is modal like vim** (decided by the user). The name field
     is insert mode and the columns are normal mode, with the status
     line's badge saying which; the mode is where the keyboard focus is,
     so Escape, Tab, `i`, and clicks all switch it. Escape in the name
@@ -333,6 +333,24 @@ what this project does about it, and its status:
       the caret after the stem, before the extension, the place a name
       usually grows; `A` at the very end. They are not keymap bindings
       but call `:insert [stem|start|end|clear]`, which init.lua can bind.
+    - Open and folder choosers have the same modes (decided by the
+      user), with a path field where Save has its name. It is empty in
+      normal mode and shows the chooser's keys as its placeholder (the
+      hint that sat there before), so the bar keeps one layout and a
+      click in the field is a way into insert mode; `i` fills it with
+      the folder shown, `~/work/`, typed at the end. `a` and `A` go to
+      the end there too, `I` to the start, `cc` and `S` clear, with the
+      same overrides as Save. Tab completes (as `:cd`) instead of
+      leaving the field; Escape leaves it. The columns follow the path
+      on Enter only: following as you type would read folders on the
+      UI thread at every key, which a network filesystem can stall.
+      Choosing folders (and SaveFiles), Enter on a folder's path picks
+      it rather than going in; navigating is the columns' job.
+    - Escape from the path into an empty folder found a siv bug (fixed
+      in siv f38f6d0): an empty view took no focus, so the field kept
+      it. Focus now rests in an empty view and follows its rows; a
+      folder emptied under the cursor no longer loses the keyboard
+      focus either.
     - Other pickers: termfilechooser's Save (yazi, ranger, lf) has no
       name field, only a placeholder file to pick or replace, which
       Enter on a file in normal mode matches. Emacs' write-file prompt

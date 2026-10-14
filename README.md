@@ -341,8 +341,19 @@ The chooser is the same three columns, with every key, preview, search,
   double clicks go into folders and pick files.
 - Choosing folders: Enter picks the folder under the cursor (or the
   marked ones), else the folder shown; `l` goes in.
-- Saving works like vim's modes, shown in the status line's badge.
-  It starts in INSERT: the name field, filled from the application's
+- Every chooser has vim's modes, with the status line's badge saying
+  which. Open and folder choosers start in NORMAL, in the columns, with
+  a path field in the bottom row that shows their keys while empty.
+  `i` (or a click in it) is INSERT: the field holds the folder shown
+  (`~/work/`), typed at its end; `I` goes to its start, and `cc` or `S`
+  clear it. Type or paste a path, absolute, from `~`, or from the
+  folder shown; Tab completes it as `:cd` does. Enter on a folder goes
+  there, back in NORMAL; on a file it picks it; choosing folders (and
+  SaveFiles), it picks the folder. A path that does not exist is an
+  error in the status line, and the field keeps it to fix. Escape is
+  NORMAL again; the columns follow the path on Enter, not as you type
+  (reading a folder per key could stall on a network filesystem).
+- Saving starts in INSERT: the name field, filled from the application's
   suggestion with the name before its extension selected. Escape goes
   to NORMAL, the columns, with every key; `i` goes back to the name as
   it was, `a` after the name before its extension, `I` to its start,
@@ -353,13 +364,13 @@ The chooser is the same three columns, with every key, preview, search,
   over it. A name with slashes saves in that folder, as Emacs takes one
   (`../notes.txt`, `~/Documents/a.pdf`). A file that exists asks first
   (a dialog). Saving several files picks a folder. `:insert [stem|start|end|clear]`
-  is the same, for init.lua.
+  is the same, for init.lua, in every chooser.
 - The application's filters are a combo box in the bar: they hide other
   files in the folder shown, never folders. Its choices are check boxes
   and combo boxes; their values go back with the answer.
 - Escape cancels from the columns, once it has cleared marks, the
-  visual range, or a filter; from the name field it goes to the columns
-  first, so Escape Escape cancels a Save. `q`, the Cancel
+  visual range, or a filter; from the name or path field it goes to the
+  columns first, so Escape Escape cancels from INSERT. `q`, the Cancel
   button, and closing the window (Super+W) cancel too. The accept button
   carries the application's label, and the window its title.
 - It starts in the folder the application suggests, else where the last

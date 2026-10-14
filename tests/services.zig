@@ -1141,6 +1141,122 @@ test "FileChooser: Save has vim's modes: insert in the name, normal in the colum
     try testing.expectEqual(@as(u32, 1), quit.response);
 }
 
+fn workFolder(m: siv.DbusMessage, fx: *const Fixture) void {
+    folderOption(m, fx, "work");
+}
+
+test "FileChooser: Open and folder choosers type a path in insert mode" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-path");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    var ub: [512]u8 = undefined;
+
+    // Normal mode first, the path field empty (its placeholder the keys);
+    // i fills it with the folder shown, ~ for home, typed at the end.
+    var opened: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", workFolder, &opened);
+    const win = try chooserWindow(&h);
+    const ch = win.chooser.?;
+    try testing.expect(!ch.nameFocused() and h.reads("NORMAL"));
+    try testing.expectEqualStrings("", ch.nameText());
+    try h.typeText("i");
+    try testing.expect(ch.nameFocused() and h.reads("INSERT"));
+    try testing.expectEqualStrings("~/work/", ch.nameText());
+    try h.expectGolden(h.window(), "chooser-open-insert");
+    // Escape: normal mode again, the field empty.
+    try h.key(.escape, .{}, "");
+    try testing.expect(!ch.nameFocused() and h.reads("NORMAL") and !opened.done);
+    try testing.expectEqualStrings("", ch.nameText());
+    // Tab completes as :cd does; Enter on a folder goes there, in normal
+    // mode.
+    try h.typeText("i");
+    try h.typeText("sr");
+    try h.key(.tab, .{}, "");
+    try testing.expectEqualStrings("~/work/src/", ch.nameText());
+    try h.typeText("\n");
+    try testing.expect(std.mem.endsWith(u8, h.dir().path, "/work/src"));
+    try testing.expect(!ch.nameFocused() and h.reads("NORMAL"));
+    // Several that fit: their common start, and the candidates shown.
+    try h.typeText("cc");
+    try h.typeText("../");
+    try h.key(.tab, .{}, "");
+    try testing.expectEqualStrings("../", ch.nameText());
+    try testing.expect(h.reads("photo.png") and h.reads("report.txt"));
+    // Nothing there: an error, still in insert mode.
+    try h.typeText("nothing\n");
+    try testing.expect(ch.nameFocused() and !opened.done);
+    try testing.expect(std.mem.startsWith(u8, win.message.items, "No such file or folder"));
+    // A file, relative to the folder shown: picked.
+    try h.key(.escape, .{}, "");
+    try testing.expect(!ch.nameFocused());
+    try testing.expectEqualStrings("", ch.nameText());
+    try h.typeText("S");
+    try h.typeText("../no");
+    try h.key(.tab, .{}, "");
+    try testing.expectEqualStrings("../notes.txt", ch.nameText());
+    try h.typeText("\n");
+    try answered(&h, main, &opened);
+    try testing.expectEqual(@as(u32, 0), opened.response);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/notes.txt"), opened.uri(0));
+
+    // Choosing folders: Enter on a folder's path picks it, the one shown
+    // at first; a file's path is refused.
+    var folder: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            boolOption(m, "directory", true);
+        }
+    }.w, &folder);
+    _ = try chooserWindow(&h);
+    try h.typeText("Anotes.txt\n");
+    try testing.expectEqualStrings("Choose a folder", h.win.?.message.items);
+    try h.key(.escape, .{}, "");
+    try h.typeText("cc");
+    var pb: [512]u8 = undefined;
+    try h.typeText(f.sub(&pb, "work/src"));
+    try h.typeText("\n");
+    try answered(&h, main, &folder);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src"), folder.uri(0));
+
+    // SaveFiles: the folder typed gets the names.
+    var many: Chosen = .{};
+    _ = try callChooser(client, "SaveFiles", &f, "", struct {
+        fn w(m: siv.DbusMessage, fx: *const Fixture) void {
+            folderOption(m, fx, "work");
+            entry(m, "files", "aay");
+            open(m, 'a', "ay");
+            writeBytePath(m, "a.txt");
+            close(m);
+            endEntry(m);
+        }
+    }.w, &many);
+    _ = try chooserWindow(&h);
+    try h.typeText("Asrc\n");
+    try answered(&h, main, &many);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src/a.txt"), many.uri(0));
+
+    // Escape twice from the path cancels.
+    var twice: Chosen = .{};
+    _ = try callChooser(client, "OpenFile", &f, "", workFolder, &twice);
+    _ = try chooserWindow(&h);
+    try h.typeText("i");
+    try h.key(.escape, .{}, "");
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &twice);
+    try testing.expectEqual(@as(u32, 1), twice.response);
+}
+
 test "FileChooser: a narrow window keeps its buttons; Escape twice from the name and closing the window cancel; the size is kept" {
     var f: Fixture = .{};
     try chooserFixture(&f, "chooser-narrow");

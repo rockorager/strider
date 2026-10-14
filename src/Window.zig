@@ -1074,13 +1074,12 @@ fn applyStatus(self: *Window, txn: Txn) void {
     const d = self.curDir();
     const app = self.app;
     // The mode badge.
-    // A Save chooser has two modes, as vim: typing the name, or moving
-    // in the columns.
-    const saving = if (self.chooser) |ch| ch.kind == .save else false;
+    // A chooser has two modes, as vim: typing the name or a path, or
+    // moving in the columns.
     const mode_text: []const u8 = switch (self.mode) {
         .visual => "VISUAL",
         .tasks => "TASKS",
-        .normal => if (!saving) "" else if (self.chooser.?.nameFocused()) "INSERT" else "NORMAL",
+        .normal => if (self.chooser) |ch| (if (ch.nameFocused()) "INSERT" else "NORMAL") else "",
     };
     _ = c.siv_set_text(txn, self.status_mode, mode_text.ptr, mode_text.len);
     _ = c.siv_set_hidden(txn, self.status_mode, mode_text.len == 0);
@@ -1556,11 +1555,11 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     return if (self.handleKey(k)) .handled else .pass;
 }
 
-/// A Save chooser's way back to insert mode, as in vim: i, a, I, A, cc,
+/// A chooser's way into insert mode, as in vim: i, a, I, A, cc,
 /// and S, over what the keymap binds to them (create, rename, terminal).
 fn chooserInsertKey(self: *Window, k: keys.Key) bool {
-    const ch = self.chooser orelse return false;
-    if (ch.kind != .save or self.mode != .normal or self.await_key != .none or self.count != null) return false;
+    if (self.chooser == null) return false;
+    if (self.mode != .normal or self.await_key != .none or self.count != null) return false;
     if (!k.isChar() or k.mods.ctrl or k.mods.alt or k.mods.super) return false;
     const arg: []const u8 = if (self.pending_len == 0) switch (k.code) {
         'i' => "",
@@ -2260,7 +2259,7 @@ fn complete(self: *Window) void {
     if (r.candidates.len > 1) self.showCandidates(r.candidates) else self.hideWhichKey();
 }
 
-fn showCandidates(self: *Window, cands: []const []const u8) void {
+pub fn showCandidates(self: *Window, cands: []const []const u8) void {
     const txn = self.begin() orelse return;
     ui.clear(txn, self.whichkey);
     const shown = @min(cands.len, 60);
