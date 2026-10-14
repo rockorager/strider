@@ -134,6 +134,8 @@ pub const Op = struct {
     recursive: bool = false,
 
     cancel: std.atomic.Value(bool) = .init(false),
+    /// 1 while paused: the worker waits at its next item or chunk.
+    paused: std.atomic.Value(u32) = .init(0),
     total_bytes: std.atomic.Value(u64) = .init(0),
     done_bytes: std.atomic.Value(u64) = .init(0),
     total_items: std.atomic.Value(u32) = .init(0),
@@ -258,8 +260,75 @@ pub const Op = struct {
         return op.err_path[0..op.err_path_len];
     }
 
+    /// Waits while paused, then stops if cancelled (worker).
     fn checkCancel(op: *Op) Error!void {
+        while (op.paused.load(.acquire) == 1 and !op.cancel.load(.acquire)) {
+            _ = linux.futex_4arg(&op.paused.raw, .{ .cmd = .WAIT, .private = true }, 1, null);
+        }
         if (op.cancel.load(.acquire)) return error.Canceled;
+    }
+
+    /// Pauses or resumes the worker (UI thread).
+    pub fn setPaused(op: *Op, on: bool) void {
+        op.paused.store(@intFromBool(on), .release);
+        if (!on) _ = linux.futex_3arg(&op.paused.raw, .{ .cmd = .WAKE, .private = true }, std.math.maxInt(i32));
+    }
+
+    pub fn isPaused(op: *const Op) bool {
+        return op.paused.load(.acquire) == 1;
+    }
+
+    /// What the operation does, for the tasks view: "Copying 3 items to
+    /// Music".
+    pub fn title(op: *const Op, buf: []u8) []const u8 {
+        var nbuf: [300]u8 = undefined;
+        const what = if (op.sources.len == 1)
+            std.fmt.bufPrint(&nbuf, "“{s}”", .{model.basename(op.sources[0])}) catch "1 item"
+        else
+            std.fmt.bufPrint(&nbuf, "{d} items", .{op.sources.len}) catch "items";
+        const dest = model.basename(trimSlash(op.dest));
+        return (switch (op.kind) {
+            .copy => std.fmt.bufPrint(buf, "Copying {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .move => std.fmt.bufPrint(buf, "Moving {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .move_back => std.fmt.bufPrint(buf, "Moving {s} back", .{what}),
+            .trash => std.fmt.bufPrint(buf, "Moving {s} to the trash", .{what}),
+            .delete => std.fmt.bufPrint(buf, "Deleting {s}", .{what}),
+            .restore => std.fmt.bufPrint(buf, "Restoring {s}", .{what}),
+            .chmod => std.fmt.bufPrint(buf, "Changing the permissions of {s}", .{what}),
+            .chown => std.fmt.bufPrint(buf, "Changing the owner of {s}", .{what}),
+        }) catch "";
+    }
+
+    /// What a finished operation did, as the status line says it, and
+    /// whether that is an error. Empty when there is nothing to say.
+    pub fn summary(op: *const Op, buf: []u8) struct { []const u8, bool } {
+        if (op.result) |err| {
+            if (err == error.Canceled) return .{ "Canceled", false };
+            return .{ std.fmt.bufPrint(buf, "Could not {s} “{s}”: {s}", .{ verb(op.kind), model.basename(op.errPath()), describe(err) }) catch "The operation failed", true };
+        }
+        if (op.kind == .chmod or op.kind == .chown) {
+            const n = op.done_items.load(.monotonic);
+            const what = if (op.kind == .chmod) "permissions" else "owner";
+            const msg = if (n == 1)
+                std.fmt.bufPrint(buf, "Changed the {s} of “{s}”", .{ what, model.basename(op.sources[0]) })
+            else
+                std.fmt.bufPrint(buf, "Changed the {s} of {d} items", .{ what, n });
+            return .{ msg catch "Changed", false };
+        }
+        const n = op.done.items.len;
+        if (n == 0 and op.kind != .delete) return .{ if (op.skipped != 0) "Nothing changed: every item was skipped" else "", false };
+        const what = if (op.done.items.len == 1) model.basename(op.done.items[0].from) else if (op.sources.len == 1) model.basename(op.sources[0]) else "";
+        const single = n == 1 or (op.kind == .delete and op.sources.len == 1);
+        const cnt = if (op.kind == .delete) op.sources.len else n;
+        const msg = (switch (op.kind) {
+            .copy => if (single) std.fmt.bufPrint(buf, "Copied “{s}”", .{what}) else std.fmt.bufPrint(buf, "Copied {d} items", .{cnt}),
+            .move, .move_back => if (single) std.fmt.bufPrint(buf, "Moved “{s}”", .{what}) else std.fmt.bufPrint(buf, "Moved {d} items", .{cnt}),
+            .trash => if (single) std.fmt.bufPrint(buf, "“{s}” moved to the trash", .{what}) else std.fmt.bufPrint(buf, "{d} items moved to the trash", .{cnt}),
+            .delete => if (single) std.fmt.bufPrint(buf, "“{s}” deleted", .{what}) else std.fmt.bufPrint(buf, "{d} items deleted", .{cnt}),
+            .restore => if (single) std.fmt.bufPrint(buf, "“{s}” restored", .{what}) else std.fmt.bufPrint(buf, "{d} items restored", .{cnt}),
+            .chmod, .chown => unreachable,
+        }) catch "";
+        return .{ msg, false };
     }
 
     fn record(op: *Op, from: []const u8, to: []const u8, replaced: bool) Error!void {
@@ -479,6 +548,7 @@ pub const Op = struct {
     pub fn requestCancel(op: *Op) void {
         op.cancel.store(true, .release);
         op.answered.set();
+        op.setPaused(false);
     }
 
     /// `dir/name`, or with " (2)", " (3)", ... before the extension if

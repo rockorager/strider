@@ -1321,37 +1321,9 @@ pub fn confirmDelete(self: *Window, paths: []const []const u8) void {
 pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {
     _ = undoable;
     var buf: [512]u8 = undefined;
-    if (op.result) |err| {
-        if (err == error.Canceled) return self.notify("Canceled", false);
-        self.notify(std.fmt.bufPrint(&buf, "Could not {s} “{s}”: {s}", .{ fsops.verb(op.kind), model.basename(op.errPath()), fsops.describe(err) }) catch "The operation failed", true);
-        return;
-    }
-    if (op.kind == .chmod or op.kind == .chown) {
-        const n = op.done_items.load(.monotonic);
-        const what = if (op.kind == .chmod) "permissions" else "owner";
-        const msg = if (n == 1)
-            std.fmt.bufPrint(&buf, "Changed the {s} of “{s}”", .{ what, model.basename(op.sources[0]) })
-        else
-            std.fmt.bufPrint(&buf, "Changed the {s} of {d} items", .{ what, n });
-        return self.notify(msg catch "Changed", false);
-    }
-    const n = op.done.items.len;
-    if (n == 0 and op.kind != .delete) {
-        if (op.skipped != 0) self.notify("Nothing changed: every item was skipped", false);
-        return;
-    }
-    const what = if (op.done.items.len == 1) model.basename(op.done.items[0].from) else if (op.sources.len == 1) model.basename(op.sources[0]) else "";
-    const one = n == 1 or (op.kind == .delete and op.sources.len == 1);
-    const cnt = if (op.kind == .delete) op.sources.len else n;
-    const msg = (switch (op.kind) {
-        .copy => if (one) std.fmt.bufPrint(&buf, "Copied “{s}”", .{what}) else std.fmt.bufPrint(&buf, "Copied {d} items", .{cnt}),
-        .move, .move_back => if (one) std.fmt.bufPrint(&buf, "Moved “{s}”", .{what}) else std.fmt.bufPrint(&buf, "Moved {d} items", .{cnt}),
-        .trash => if (one) std.fmt.bufPrint(&buf, "“{s}” moved to the trash", .{what}) else std.fmt.bufPrint(&buf, "{d} items moved to the trash", .{cnt}),
-        .delete => if (one) std.fmt.bufPrint(&buf, "“{s}” deleted", .{what}) else std.fmt.bufPrint(&buf, "{d} items deleted", .{cnt}),
-        .restore => if (one) std.fmt.bufPrint(&buf, "“{s}” restored", .{what}) else std.fmt.bufPrint(&buf, "{d} items restored", .{cnt}),
-        .chmod, .chown => unreachable,
-    }) catch "";
-    self.notify(msg, false);
+    const msg, const is_error = op.summary(&buf);
+    if (msg.len != 0) self.notify(msg, is_error);
+    if (op.result != null) return;
     // The cursor on the first thing a paste brought here.
     if (op.kind == .copy or op.kind == .move) {
         const d = self.curDir();
