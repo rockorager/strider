@@ -219,6 +219,15 @@ what this project does about it, and its status:
     databases without a TypeScript type show `.ts` source as plain text,
     still highlighted by its extension.
 
+27. **The columns are flat views** (fixed in siv, 404add3). A siv view
+    draws a frame, and since siv 59d01d9 its scroll's corners are rounded
+    to the frame's inner curve; replacing the view's visual left that
+    clip, so a selected first row had round top corners over square
+    bottom ones. Columns are surfaces edge to edge between separators,
+    not boxes, so siv gained `SIV_VIEW_FLAT` (no border, radius, or
+    inset) and the columns use it. The tasks view and the pickers keep
+    their inset pill rows, rounded alike on every row.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design

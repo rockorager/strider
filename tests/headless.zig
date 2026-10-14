@@ -1224,7 +1224,44 @@ test "themes and right to left" {
         try h.start(.{ .path = f.sub(&path_buf, "work/src"), .scheme = l[1], .contrast = l[2], .rtl = l[3] });
         try h.typeText("G v");
         try h.expectGolden(h.window(), l[0]);
+        // The cursor on the first row: square at the top as at the bottom
+        // (the columns are flat views, with no frame to round them).
+        try h.typeText("\x1bgg");
+        try expectSquareFirstRow(&h);
+        if (l[1] == .dark) try h.expectGolden(h.window(), "first-row-dark");
     }
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work/src") });
+    try expectSquareFirstRow(&h);
+}
+
+/// The current column's first row (the cursor's) has the same color at
+/// all four corners.
+fn expectSquareFirstRow(h: *Harness) !void {
+    try testing.expectEqual(@as(u32, 0), h.dir().cursor);
+    const r = (try h.expect(.list, "Files")).bounds;
+    var len: usize = 0;
+    var cw: u32 = 0;
+    var chh: u32 = 0;
+    try siv.check(c.siv_test_capture(h.window(), null, 0, &len, &cw, &chh));
+    const px = try testing.allocator.alloc(u8, len);
+    defer testing.allocator.free(px);
+    try siv.check(c.siv_test_capture(h.window(), px.ptr, len, &len, &cw, &chh));
+    const x0: u32 = @intFromFloat(@ceil(r.x));
+    const x1: u32 = @intFromFloat(@floor(r.x + r.width) - 1);
+    const y0: u32 = @intFromFloat(@ceil(r.y));
+    const y1: u32 = y0 + @as(u32, @intFromFloat(@TypeOf(h.win.?.current).row_height)) - 1;
+    const at = struct {
+        fn f(p: []const u8, width: u32, x: u32, y: u32) [3]u8 {
+            const i = (y * width + x) * 4;
+            return p[i..][0..3].*;
+        }
+    }.f;
+    const tl = at(px, cw, x0, y0);
+    try testing.expectEqual(tl, at(px, cw, x1, y0));
+    try testing.expectEqual(tl, at(px, cw, x0, y1));
+    try testing.expectEqual(tl, at(px, cw, x1, y1));
 }
 
 test "the mouse: clicks in each column, double clicks, and drops" {

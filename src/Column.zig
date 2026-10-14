@@ -55,6 +55,9 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
         .bind = bindRow,
         .item_height = row_height,
         .selection = .single,
+        // Edge to edge on the column's surface, between separators: no
+        // frame, so the cursor row is square at the top as at the bottom.
+        .flags = .{ .flat = true },
     });
     _ = c.siv_set_layout(txn, col.view, &.{ .width = ui.fill(), .height = ui.fill() });
     _ = c.siv_set_visual(txn, col.view, &.{ .background_token = col.surface(), .flags = .{ .clip = true } });
