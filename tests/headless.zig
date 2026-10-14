@@ -171,6 +171,63 @@ fn countIn(f: *const Fixture, rel: []const u8) usize {
     return n;
 }
 
+fn modeOf(f: *const Fixture, rel: []const u8) u32 {
+    var buf: [512]u8 = undefined;
+    const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;
+    var st: std.os.linux.Statx = undefined;
+    if (std.os.linux.statx(std.os.linux.AT.FDCWD, p, 0, .{ .MODE = true }, &st) != 0) return 0;
+    return st.mode & 0o7777;
+}
+
+fn opsDone(x: *Harness) bool {
+    return x.app.?.ops.items.len == 0;
+}
+
+test "chmod and chown on the targets, into folders with -R" {
+    var f: Fixture = .{};
+    try fixture(&f, "perms");
+    defer f.remove();
+    try f.add(.{ .name = "work/assets/logo.svg", .size = 10 });
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    try testing.expectEqual(@as(u32, 0o644), modeOf(&f, "work/build.zig"));
+    // = opens the command line with chmod.
+    try h.typeText("fbu=");
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("chmod ", h.win.?.promptText(&buf));
+    try h.typeText("u+x,go-r\n");
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqual(@as(u32, 0o700), modeOf(&f, "work/build.zig"));
+    try testing.expectEqualStrings("Changed the permissions of “build.zig”", h.win.?.message.items);
+    // Marked entries, into folders.
+    try h.typeText(" gg :chmod -R a-w\n");
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqual(@as(u32, 0o555), modeOf(&f, "work/assets"));
+    try testing.expectEqual(@as(u32, 0o444), modeOf(&f, "work/assets/logo.svg"));
+    try testing.expectEqual(@as(u32, 0o500), modeOf(&f, "work/build.zig"));
+    try testing.expectEqualStrings("Changed the permissions of 3 items", h.win.?.message.items);
+    try h.typeText("gg:chmod -R u+w\n");
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqual(@as(u32, 0o755), modeOf(&f, "work/assets"));
+    try h.typeText(":chmod u+q\n");
+    try testing.expect(h.win.?.message_error);
+    try testing.expect(std.mem.startsWith(u8, h.win.?.message.items, "Not a mode: u+q"));
+    // chown: to oneself works; to root needs root.
+    const uid = std.os.linux.getuid();
+    var cmd: [64]u8 = undefined;
+    try h.typeText(try std.fmt.bufPrint(&cmd, ":chown {d}:{d}\n", .{ uid, std.os.linux.getgid() }));
+    try h.waitFor(&h, opsDone);
+    try testing.expectEqualStrings("Changed the owner of “assets”", h.win.?.message.items);
+    try h.typeText(":chown nosuchuser\n");
+    try testing.expectEqualStrings("No such user: nosuchuser", h.win.?.message.items);
+    if (uid != 0) {
+        try h.typeText(":chown 0\n");
+        try h.waitFor(&h, opsDone);
+        try testing.expectEqualStrings("Could not change the owner of “assets”: Permission denied", h.win.?.message.items);
+    }
+}
+
 test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
     var f: Fixture = .{};
     try fixture(&f, "ops");

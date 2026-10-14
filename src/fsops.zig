@@ -21,7 +21,33 @@ const sync = @import("sync.zig");
 /// `move_back` moves each source to the exact path in `targets` (undoing
 /// a move); `restore` does the same from the trash and removes the info
 /// files.
-pub const Kind = enum { copy, move, trash, delete, restore, move_back };
+pub const Kind = enum { copy, move, trash, delete, restore, move_back, chmod, chown };
+
+/// "Copying", for progress.
+pub fn doing(kind: Kind) []const u8 {
+    return switch (kind) {
+        .copy => "Copying",
+        .move, .move_back => "Moving",
+        .trash => "Trashing",
+        .delete => "Deleting",
+        .restore => "Restoring",
+        .chmod => "Changing permissions",
+        .chown => "Changing owners",
+    };
+}
+
+/// "copy", for "Could not copy …".
+pub fn verb(kind: Kind) []const u8 {
+    return switch (kind) {
+        .copy => "copy",
+        .move, .move_back => "move",
+        .trash => "move to the trash",
+        .delete => "delete",
+        .restore => "restore",
+        .chmod => "change the permissions of",
+        .chown => "change the owner of",
+    };
+}
 
 pub const Error = error{
     Canceled,
@@ -98,6 +124,14 @@ pub const Op = struct {
     targets: [][]u8 = &.{},
     /// The home trash ($XDG_DATA_HOME/Trash).
     home_trash: []u8 = &.{},
+    /// chmod: what to do to the permissions, as chmod(1) takes it (owned;
+    /// checked with `parseMode` first).
+    mode_spec: []u8 = &.{},
+    /// chown: the new owner and group; null keeps one.
+    uid: ?u32 = null,
+    gid: ?u32 = null,
+    /// chmod and chown: into folders too.
+    recursive: bool = false,
 
     cancel: std.atomic.Value(bool) = .init(false),
     total_bytes: std.atomic.Value(u64) = .init(0),
@@ -163,6 +197,7 @@ pub const Op = struct {
         freeAll(gpa, op.targets);
         gpa.free(op.dest);
         gpa.free(op.home_trash);
+        gpa.free(op.mode_spec);
         op.created.deinit(gpa);
         for (op.done.items) |d| {
             gpa.free(d.from);
@@ -251,7 +286,8 @@ pub const Op = struct {
         if (linux.errno(linux.statx(linux.AT.FDCWD, path, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true, .SIZE = true }, &st)) != .SUCCESS) return;
         _ = op.total_items.fetchAdd(1, .monotonic);
         if (st.mode & linux.S.IFMT == linux.S.IFREG and bytes) _ = op.total_bytes.fetchAdd(st.size, .monotonic);
-        if (st.mode & linux.S.IFMT != linux.S.IFDIR or (op.kind != .copy and op.kind != .delete)) return;
+        const walks = op.kind == .copy or op.kind == .delete or ((op.kind == .chmod or op.kind == .chown) and op.recursive);
+        if (st.mode & linux.S.IFMT != linux.S.IFDIR or !walks) return;
         var it = DirIter.open(path) catch return;
         defer it.close();
         while (it.next()) |nm| {
@@ -282,6 +318,46 @@ pub const Op = struct {
             .trash => try op.trash(src),
             .delete => try op.deleteTree(src),
             .restore, .move_back => try op.restore(src, op.targets[index]),
+            .chmod, .chown => {
+                var buf: [linux.PATH_MAX]u8 = undefined;
+                const z = zpath(&buf, src) catch return op.fail(src, error.NameTooLong);
+                // Links named on the command line are followed, as
+                // chmod(1) and chown(1) do; links inside folders are not.
+                try op.attrTree(z, true);
+            },
+        }
+    }
+
+    /// chmod or chown on `path`, and below it when recursive.
+    fn attrTree(op: *Op, path: [:0]const u8, follow: bool) Error!void {
+        try op.checkCancel();
+        var st: linux.Statx = undefined;
+        const flags: u32 = if (follow) 0 else linux.AT.SYMLINK_NOFOLLOW;
+        switch (linux.errno(linux.statx(linux.AT.FDCWD, path, flags, .{ .TYPE = true, .MODE = true }, &st))) {
+            .SUCCESS => {},
+            else => |e| return op.fail(path, mapErrno(e)),
+        }
+        const kind = st.mode & linux.S.IFMT;
+        const rc = if (op.kind == .chmod) blk: {
+            // chmod cannot change a link's own bits.
+            if (kind == linux.S.IFLNK) break :blk 0;
+            const mode = applyMode(op.mode_spec, st.mode & 0o7777, kind == linux.S.IFDIR, fileUmask()) orelse return op.fail(path, error.Unexpected);
+            break :blk linux.fchmodat(linux.AT.FDCWD, path, mode);
+        } else linux.fchownat(linux.AT.FDCWD, path, op.uid orelse std.math.maxInt(u32), op.gid orelse std.math.maxInt(u32), flags);
+        switch (linux.errno(rc)) {
+            .SUCCESS => {},
+            .PERM => return op.fail(path, error.AccessDenied),
+            else => |e| return op.fail(path, mapErrno(e)),
+        }
+        _ = op.done_items.fetchAdd(1, .monotonic);
+        if (!op.recursive or kind != linux.S.IFDIR) return;
+        var it = DirIter.open(path) catch |err| return op.fail(path, err);
+        defer it.close();
+        while (it.next()) |nm| {
+            var buf: [linux.PATH_MAX]u8 = undefined;
+            const child = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ path, nm }, 0) catch return op.fail(path, error.NameTooLong);
+            op.setCurrent(child);
+            try op.attrTree(child, false);
         }
     }
 
@@ -840,6 +916,92 @@ pub fn renamePath(from: []const u8, to: []const u8) Error!void {
     }
 }
 
+/// Whether `spec` is a mode chmod(1) takes: octal ("755"), or symbolic
+/// clauses separated by commas ("u+x", "go-w", "a=rX", "+x").
+pub fn parseMode(spec: []const u8) bool {
+    return applyMode(spec, 0o644, false, 0o022) != null;
+}
+
+/// The permission bits `spec` makes of `old`, as chmod(1) does: X adds
+/// execute only to folders and files executable by someone already;
+/// clauses without u, g, o, or a leave the bits the umask masks alone.
+/// Null if `spec` is not a mode.
+pub fn applyMode(spec: []const u8, old: u32, is_dir: bool, umask: u32) ?u32 {
+    if (spec.len == 0) return null;
+    if (std.fmt.parseInt(u32, spec, 8)) |m| {
+        if (spec.len > 4 or m > 0o7777) return null;
+        // Like GNU chmod, a short octal mode keeps a folder's setuid
+        // and setgid bits.
+        return if (is_dir and spec.len < 4) m | (old & 0o6000) else m;
+    } else |_| {}
+    var mode = old;
+    var clauses = std.mem.splitScalar(u8, spec, ',');
+    while (clauses.next()) |clause| {
+        var i: usize = 0;
+        var who: u32 = 0;
+        while (i < clause.len) : (i += 1) switch (clause[i]) {
+            'u' => who |= 0o4700,
+            'g' => who |= 0o2070,
+            'o' => who |= 0o1007,
+            'a' => who |= 0o7777,
+            else => break,
+        };
+        const masked = who == 0;
+        if (masked) who = 0o7777;
+        if (i == clause.len) return null;
+        while (i < clause.len) {
+            const action = clause[i];
+            if (action != '+' and action != '-' and action != '=') return null;
+            i += 1;
+            var bits: u32 = 0;
+            while (i < clause.len and clause[i] != '+' and clause[i] != '-' and clause[i] != '=') : (i += 1) switch (clause[i]) {
+                'r' => bits |= 0o444,
+                'w' => bits |= 0o222,
+                'x' => bits |= 0o111,
+                'X' => if (is_dir or mode & 0o111 != 0) {
+                    bits |= 0o111;
+                },
+                's' => bits |= 0o6000,
+                't' => bits |= 0o1000,
+                else => return null,
+            };
+            var affected = bits & who;
+            if (masked) affected &= ~umask;
+            switch (action) {
+                '+' => mode |= affected,
+                '-' => mode &= ~affected,
+                '=' => mode = (mode & ~(who & if (masked) ~umask else @as(u32, 0o7777))) | affected,
+                else => unreachable,
+            }
+        }
+    }
+    return mode & 0o7777;
+}
+
+/// The process's umask, read once from /proc (the umask call would
+/// change it while reading it).
+fn fileUmask() u32 {
+    const S = struct {
+        var value: std.atomic.Value(u32) = .init(0xffff_ffff);
+    };
+    const v = S.value.load(.monotonic);
+    if (v != 0xffff_ffff) return v;
+    var m: u32 = 0o022;
+    var buf: [4096]u8 = undefined;
+    const fd = linux.open("/proc/self/status", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    if (linux.errno(fd) == .SUCCESS) {
+        defer _ = linux.close(@intCast(fd));
+        const n = linux.read(@intCast(fd), &buf, buf.len);
+        if (linux.errno(n) == .SUCCESS) if (std.mem.indexOf(u8, buf[0..n], "Umask:\t")) |at| {
+            const rest = buf[at + 7 ..n];
+            const end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+            m = std.fmt.parseInt(u32, rest[0..end], 8) catch m;
+        };
+    }
+    S.value.store(m, .monotonic);
+    return m;
+}
+
 /// Sets a file's permission bits.
 pub fn chmod(path: []const u8, mode: u32) Error!void {
     var buf: [linux.PATH_MAX]u8 = undefined;
@@ -1121,4 +1283,31 @@ test "free names keep compound extensions" {
     var buf: [linux.PATH_MAX]u8 = undefined;
     const p = try freeNameIn(&buf, t.path, "x.tar.gz");
     try testing.expectEqualStrings("x (2).tar.gz", model.basename(p));
+}
+
+test "modes as chmod(1) takes them" {
+    const T = struct {
+        fn check(spec: []const u8, old: u32, dir: bool, want: ?u32) !void {
+            try std.testing.expectEqual(want, applyMode(spec, old, dir, 0o022));
+        }
+    };
+    try T.check("755", 0o644, false, 0o755);
+    try T.check("0600", 0o2755, true, 0o600);
+    // Short octal modes keep a folder's setgid bit, as GNU chmod does.
+    try T.check("755", 0o2700, true, 0o2755);
+    try T.check("u+x", 0o644, false, 0o744);
+    try T.check("go-w", 0o666, false, 0o644);
+    try T.check("u=rw,go=", 0o777, false, 0o600);
+    try T.check("ug+rw,o-rwx", 0o604, false, 0o660);
+    // X: execute only for folders and files someone may run already.
+    try T.check("a=rX", 0o644, false, 0o444);
+    try T.check("a=rX", 0o744, false, 0o555);
+    try T.check("a=rX", 0o700, true, 0o555);
+    // Without u, g, o, or a, the umask's bits stay as they were.
+    try T.check("+w", 0o444, false, 0o644);
+    try T.check("+x", 0o644, false, 0o755);
+    try T.check("=r", 0o666, false, 0o444 | 0o022);
+    try T.check("g+s,+t", 0o755, true, 0o3755);
+    try T.check("u+x-w", 0o644, false, 0o544);
+    for ([_][]const u8{ "", "u", "u+q", "8", "77777", "u+x,", "+x y" }) |bad| try T.check(bad, 0o644, false, null);
 }

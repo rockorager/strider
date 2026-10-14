@@ -99,7 +99,7 @@ pub const Stack = struct {
             .move => .moved,
             .trash => .trashed,
             .restore => .restored,
-            .delete, .move_back => return,
+            .delete, .move_back, .chmod, .chown => return,
         };
         var pairs: std.ArrayList([2][]const u8) = .empty;
         defer pairs.deinit(s.gpa);

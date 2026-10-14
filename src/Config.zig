@@ -316,6 +316,7 @@ pub const default_bindings = [_]struct { keys.Mode, []const u8, []const u8, []co
     .{ .normal, "o", "open-with", "Open with…" },
     .{ .normal, "!", "shell-prompt", "Run a shell command" },
     .{ .normal, "S", "terminal", "Terminal here" },
+    .{ .normal, "=", "chmod", "Change permissions" },
     .{ .normal, "<C-r>", "reload", "Reload" },
     // Views.
     .{ .normal, "zh", "toggle-hidden", "Hidden files" },

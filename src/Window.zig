@@ -683,17 +683,14 @@ fn applyStatus(self: *Window, txn: Txn) void {
         const op = app.ops.items[0].op;
         const total = op.total_bytes.load(.monotonic);
         const done = op.done_bytes.load(.monotonic);
-        const verb = switch (op.kind) {
-            .copy => "Copying",
-            .move, .move_back => "Moving",
-            .trash => "Trashing",
-            .delete => "Deleting",
-            .restore => "Restoring",
-        };
+        const verb = fsops.doing(op.kind);
+        const items = op.total_items.load(.monotonic);
         if (op.asking.load(.acquire)) {
             w.print("{s}: waiting   ", .{verb}) catch {};
         } else if (total > 0) {
             w.print("{s} {d}%   ", .{ verb, done * 100 / total }) catch {};
+        } else if (items > 0 and !op.scanning.load(.acquire)) {
+            w.print("{s} {d}%   ", .{ verb, @min(100, @as(u64, op.done_items.load(.monotonic)) * 100 / items) }) catch {};
         } else w.print("{s}…   ", .{verb}) catch {};
     }
     if (self.mode == .visual) {
@@ -1254,15 +1251,17 @@ pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {
     var buf: [512]u8 = undefined;
     if (op.result) |err| {
         if (err == error.Canceled) return self.notify("Canceled", false);
-        const verb = switch (op.kind) {
-            .copy => "copy",
-            .move, .move_back => "move",
-            .trash => "move to the trash",
-            .delete => "delete",
-            .restore => "restore",
-        };
-        self.notify(std.fmt.bufPrint(&buf, "Could not {s} “{s}”: {s}", .{ verb, model.basename(op.errPath()), fsops.describe(err) }) catch "The operation failed", true);
+        self.notify(std.fmt.bufPrint(&buf, "Could not {s} “{s}”: {s}", .{ fsops.verb(op.kind), model.basename(op.errPath()), fsops.describe(err) }) catch "The operation failed", true);
         return;
+    }
+    if (op.kind == .chmod or op.kind == .chown) {
+        const n = op.done_items.load(.monotonic);
+        const what = if (op.kind == .chmod) "permissions" else "owner";
+        const msg = if (n == 1)
+            std.fmt.bufPrint(&buf, "Changed the {s} of “{s}”", .{ what, model.basename(op.sources[0]) })
+        else
+            std.fmt.bufPrint(&buf, "Changed the {s} of {d} items", .{ what, n });
+        return self.notify(msg catch "Changed", false);
     }
     const n = op.done.items.len;
     if (n == 0 and op.kind != .delete) {
@@ -1278,6 +1277,7 @@ pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {
         .trash => if (one) std.fmt.bufPrint(&buf, "“{s}” moved to the trash", .{what}) else std.fmt.bufPrint(&buf, "{d} items moved to the trash", .{cnt}),
         .delete => if (one) std.fmt.bufPrint(&buf, "“{s}” deleted", .{what}) else std.fmt.bufPrint(&buf, "{d} items deleted", .{cnt}),
         .restore => if (one) std.fmt.bufPrint(&buf, "“{s}” restored", .{what}) else std.fmt.bufPrint(&buf, "{d} items restored", .{cnt}),
+        .chmod, .chown => unreachable,
     }) catch "";
     self.notify(msg, false);
     // The cursor on the first thing a paste brought here.

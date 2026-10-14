@@ -801,6 +801,27 @@ pub fn startOpWith(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const
     const op = (if (targets.len != 0) fsops.Op.createTargeted(gpa, kind, sources, targets) else fsops.Op.create(gpa, kind, sources, dest)) catch return;
     op.home_trash = gpa.dupe(u8, self.places.trash_dir) catch &.{};
     op.policy = policy;
+    self.launchOp(win, op, undoable);
+}
+
+/// chmod (`spec`, as chmod(1) takes it) or chown (`uid` and `gid`) on
+/// `sources`, into folders when `recursive`.
+pub fn startAttrOp(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const []const u8, spec: []const u8, uid: ?u32, gid: ?u32, recursive: bool) void {
+    const gpa = self.gpa;
+    const op = fsops.Op.create(gpa, kind, sources, "") catch return;
+    op.mode_spec = gpa.dupe(u8, spec) catch {
+        op.destroy();
+        return;
+    };
+    op.uid = uid;
+    op.gid = gid;
+    op.recursive = recursive;
+    self.launchOp(win, op, false);
+}
+
+/// Runs `op` (owned from here) on a blocking worker.
+fn launchOp(self: *App, win: ?*Window, op: *fsops.Op, undoable: bool) void {
+    const gpa = self.gpa;
     const e = gpa.create(OpEntry) catch {
         op.destroy();
         return;

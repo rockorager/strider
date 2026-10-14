@@ -92,6 +92,8 @@ pub const list = [_]Command{
     .{ .name = "mkdir", .desc = "New folder", .run = mkdir },
     .{ .name = "touch", .desc = "New file", .run = touch },
     .{ .name = "open-with", .desc = "Open with an application", .run = openWith },
+    .{ .name = "chmod", .desc = "Permissions: chmod [-R] 755, u+x, go-w, a=rX…", .run = chmod },
+    .{ .name = "chown", .desc = "Owner: chown [-R] user, user:group, :group", .run = chown },
     .{ .name = "shell", .desc = "Run a shell command (-t in a terminal)", .run = shell, .complete = .path },
     .{ .name = "shell-prompt", .desc = "Type a shell command", .run = shellPrompt },
     .{ .name = "terminal", .desc = "A terminal in this folder", .run = terminal },
@@ -420,6 +422,69 @@ fn restore(ctx: Ctx) void {
     win.app.restoreFromTrash(win, Window.toConst(paths));
     win.consumeTargets();
 }
+/// "-R" before or after the rest of the arguments.
+fn recursiveFlag(args: []const u8) struct { bool, []const u8 } {
+    const t = std.mem.trim(u8, args, " ");
+    if (std.mem.startsWith(u8, t, "-R ")) return .{ true, std.mem.trim(u8, t[3..], " ") };
+    if (std.mem.endsWith(u8, t, " -R")) return .{ true, std.mem.trim(u8, t[0 .. t.len - 3], " ") };
+    return .{ false, t };
+}
+
+fn chmod(ctx: Ctx) void {
+    const win = ctx.win;
+    const recursive, const spec = recursiveFlag(ctx.args);
+    if (spec.len == 0) return win.startPrompt(.command, "chmod ", 6, 6);
+    if (!fsops.parseMode(spec)) {
+        var buf: [128]u8 = undefined;
+        return win.notify(std.fmt.bufPrint(&buf, "Not a mode: {s} (755, u+x, go-w, a=rX)", .{spec}) catch "Not a mode", true);
+    }
+    const paths = win.targets() catch return;
+    defer App.freePaths(win.gpa, paths);
+    if (paths.len == 0) return;
+    win.app.startAttrOp(win, .chmod, Window.toConst(paths), spec, null, null, recursive);
+    win.consumeTargets();
+}
+
+fn chown(ctx: Ctx) void {
+    const win = ctx.win;
+    const recursive, const spec = recursiveFlag(ctx.args);
+    if (spec.len == 0) return win.startPrompt(.command, "chown ", 6, 6);
+    const colon = std.mem.indexOfScalar(u8, spec, ':');
+    const user = spec[0 .. colon orelse spec.len];
+    const group = if (colon) |i| spec[i + 1 ..] else "";
+    var buf: [160]u8 = undefined;
+    const uid: ?u32 = if (user.len == 0) null else userId(user) orelse
+        return win.notify(std.fmt.bufPrint(&buf, "No such user: {s}", .{user}) catch "No such user", true);
+    const gid: ?u32 = if (group.len == 0) null else groupId(group) orelse
+        return win.notify(std.fmt.bufPrint(&buf, "No such group: {s}", .{group}) catch "No such group", true);
+    if (uid == null and gid == null) return win.notify("chown needs a user, user:group, or :group", true);
+    const paths = win.targets() catch return;
+    defer App.freePaths(win.gpa, paths);
+    if (paths.len == 0) return;
+    win.app.startAttrOp(win, .chown, Window.toConst(paths), "", uid, gid, recursive);
+    win.consumeTargets();
+}
+
+/// A user by name or number (getpwnam: /etc/passwd, or NSS).
+fn userId(name: []const u8) ?u32 {
+    if (std.fmt.parseInt(u32, name, 10)) |n| return n else |_| {}
+    var buf: [256]u8 = undefined;
+    const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{name}, 0) catch return null;
+    const pw = std.c.getpwnam(z) orelse return null;
+    return pw.uid;
+}
+
+fn groupId(name: []const u8) ?u32 {
+    if (std.fmt.parseInt(u32, name, 10)) |n| return n else |_| {}
+    var buf: [256]u8 = undefined;
+    const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{name}, 0) catch return null;
+    const gr = getgrnam(z) orelse return null;
+    return gr.gid;
+}
+
+const Group = extern struct { name: ?[*:0]u8, passwd: ?[*:0]u8, gid: u32, members: ?[*:null]?[*:0]u8 };
+extern "c" fn getgrnam(name: [*:0]const u8) ?*Group;
+
 fn emptyTrash(ctx: Ctx) void {
     ctx.win.awaitKey(.confirm_empty_trash);
 }
