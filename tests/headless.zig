@@ -562,9 +562,23 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
         try testing.expect(std.mem.indexOf(u8, t, "pkg/b.txt  1 byte\n") != null);
     }
     try h.expectGolden(h.window(), "preview-archive");
+    // Binary files: their start in hex.
     try h.typeText("fda");
+    try testing.expectEqual(App.Window.PreviewMode.text, p.applied);
+    try testing.expectEqual(@TypeOf(p.text_kind).binary, p.text_kind);
+    {
+        var tb: [256]u8 = undefined;
+        try testing.expectEqualStrings("00000000  00 01 02 62 69 6e 61 72  79 00                    |...binary.|\n", App.ui.getText(p.text, &tb));
+    }
+    try h.expectGolden(h.window(), "preview-hex");
+    // Images past the size limit show their details.
+    try h.typeText(":set preview_max_image_bytes 500\nfph");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
-    try testing.expect(h.reads("Binary file"));
+    {
+        var tb: [512]u8 = undefined;
+        try testing.expect(std.mem.endsWith(u8, App.ui.getText(p.info_body, &tb), "Too large to preview (preview_max_image_bytes)"));
+    }
+    try h.typeText(":set preview_max_image_bytes 67108864\n");
     try h.typeText("fR");
     try testing.expectEqual(App.Window.PreviewMode.text, p.applied);
     if (App.Window.isPath("/usr/bin/pdftoppm")) {
@@ -581,6 +595,93 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try h.settle();
     try testing.expectEqualStrings("photo.png", h.hovered());
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
+}
+
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
+
+fn infoText(h: *Harness, buf: []u8) []const u8 {
+    return App.ui.getText(h.win.?.preview.info_body, buf);
+}
+
+test "previews without poppler, of videos, and of links; slow previewers never hold the keys" {
+    var f: Fixture = .{};
+    try fixture(&f, "fallbacks");
+    defer f.remove();
+    try writePdf(&f, "work/report.pdf");
+    for ([_][]const u8{ "work/clip1.mp4", "work/clip2.mp4", "work/clip3.mp4" }) |n| try f.writeFile(n, "not really a video");
+    try f.add(.{ .name = "work/slow", .dir = true });
+    for ([_][]const u8{ "a", "b", "c", "d", "e", "f" }) |n| {
+        var nb: [64]u8 = undefined;
+        try f.writeFile(try std.fmt.bufPrint(&nb, "work/slow/{s}.slow", .{n}), "x");
+    }
+    {
+        const gpa = testing.allocator;
+        const px = try gpa.alloc(u8, 32 * 24 * 4);
+        defer gpa.free(px);
+        @memset(px, 200);
+        const enc = try png.encode(gpa, 32, 24, px);
+        defer gpa.free(enc);
+        try f.writeFile("frame.png", enc);
+    }
+    // Stand-ins for the renderers: each copies frame.png where it was
+    // told to write.
+    var cmd: [1024]u8 = undefined;
+    const setup = try std.fmt.bufPrintSentinel(&cmd,
+        \\cd '{s}' && mkdir -p bin && ln -s nowhere work/dangling &&
+        \\printf '#!/bin/sh\n/bin/cp "{s}/frame.png" "$4"\n' > bin/mutool &&
+        \\printf '#!/bin/sh\n/bin/cp "{s}/frame.png" "$4"\n' > bin/ffmpegthumbnailer &&
+        \\printf '#!/bin/sh\nfor a; do last=$a; done\n/bin/cp "{s}/frame.png" "$last"\n' > bin/ffmpeg.off &&
+        \\chmod +x bin/*
+    , .{ f.path, f.path, f.path, f.path }, 0);
+    try testing.expectEqual(@as(c_int, 0), system(setup.ptr));
+    const old_path = try testing.allocator.dupeSentinel(u8, std.mem.span(getenv("PATH") orelse "/usr/bin:/bin"), 0);
+    defer testing.allocator.free(old_path);
+    defer _ = setenv("PATH", old_path.ptr, 1);
+    var bin_buf: [512]u8 = undefined;
+    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&bin_buf, "{s}/bin", .{f.path}, 0)).ptr, 1);
+
+    var cbuf: [512]u8 = undefined;
+    try f.writeFile("init.lua", "local fm = require('fm')\nfm.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
+    const p = &h.win.?.preview;
+    var tb: [1024]u8 = undefined;
+    // No pdftoppm: MuPDF renders the page.
+    try h.typeText("frep");
+    try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
+    // A video: ffmpegthumbnailer, else ffmpeg, else a word on what to
+    // install.
+    try h.typeText("fclip1");
+    try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
+    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "cd '{s}/bin' && /bin/rm mutool ffmpegthumbnailer && /bin/mv ffmpeg.off ffmpeg", .{f.path}, 0)).ptr));
+    try h.typeText("fclip2");
+    try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
+    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "/bin/rm '{s}/bin/ffmpeg'", .{f.path}, 0)).ptr));
+    try h.typeText("fclip3");
+    try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
+    try testing.expect(std.mem.endsWith(u8, infoText(&h, &tb), "Install ffmpegthumbnailer or ffmpeg to preview videos"));
+    // And a PDF with no renderer at all.
+    try h.typeText("frep");
+    try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
+    try testing.expect(std.mem.endsWith(u8, infoText(&h, &tb), "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs"));
+    // A link's details say where it goes (read in a job).
+    try h.typeText("fdan");
+    try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
+    try testing.expect(std.mem.indexOf(u8, infoText(&h, &tb), "Links to\tnowhere") != null);
+    // Previewers that never finish: moving over six of them and on to a
+    // folder kills each as the cursor leaves it, so settling (which waits
+    // for every job) is quick and the keys never wait.
+    try h.typeText("fsl");
+    try siv.check(c.siv_test_type(h.window(), "l", 1));
+    for (0..20) |_| try siv.check(c.siv_app_dispatch(h.sapp, 10));
+    try testing.expect(p.job != null); // a.slow's previewer runs
+    const t0 = App.Dir.now();
+    try siv.check(c.siv_test_type(h.window(), "jjjjjgg", 7));
+    try h.typeText("h");
+    try testing.expectEqualStrings("slow", h.hovered());
+    try testing.expect(App.Dir.now() - t0 < 5 * std.time.ns_per_s);
 }
 
 test "Lua: options, keys, commands, previewers, and siv from init.lua" {

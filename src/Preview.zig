@@ -2,9 +2,16 @@
 //! is on it. Folders show their entries (from the directory cache),
 //! text files their start with syntax coloring, images decode on siv's
 //! workers at the size shown, archives list their entries, PDFs show
-//! their first page (through poppler's pdftoppm), and other files their
-//! details. Each preview has a generation: moving on cancels decoding
-//! and reading that has not started, and drops results that arrive late.
+//! their first page (poppler's pdftoppm, else MuPDF's mutool), videos a
+//! frame (ffmpegthumbnailer, else ffmpeg), binary files their start in
+//! hex, and other files their details. Each preview has a generation:
+//! moving on cancels decoding and reading that has not started, kills the
+//! programs a preview runs, and drops results that arrive late.
+//!
+//! Nothing here touches the file system on the UI thread: reads,
+//! listings, renders, and even a link's target happen in jobs, and at
+//! most `max_jobs` of them run at once, so previews stuck on a slow or
+//! hung file system cannot take the workers that read folders.
 
 const std = @import("std");
 const linux = std.os.linux;
@@ -56,6 +63,8 @@ scroll_y: f32 = 0,
 applied: Mode = .none,
 /// What the text preview shows, for tests.
 text_kind: TextKind = .none,
+/// A job waiting for one of the `max_jobs` slots (the newest wins).
+pending: ?Pending = null,
 
 pub const TextKind = enum { none, text, archive, command, binary };
 
@@ -64,6 +73,7 @@ pub fn init(win: *Window) Preview {
 }
 
 pub fn deinit(p: *Preview) void {
+    p.dropPending();
     if (p.image_request != .null) _ = c.siv_image_request_cancel(p.image_request);
     if (p.image_ctx) |x| x.preview = null;
     if (p.job) |j| j.preview = null;
@@ -129,6 +139,7 @@ fn cancel(p: *Preview) void {
         j.preview = null;
     }
     p.job = null;
+    p.dropPending();
 }
 
 /// Shows nothing.
@@ -177,22 +188,26 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
         },
     };
     if (e.kind != .file) return p.showInfo(txn, d, e, path, null);
-    if (model.thumbnailable(name) and app.options.preview_images) {
+    const images = app.options.preview_images;
+    if (model.thumbnailable(name) and images) {
+        if (e.size > app.options.preview_max_image_bytes) return p.showInfo(txn, d, e, path, "Too large to preview (preview_max_image_bytes)");
         if (p.loadImage(path, e)) {
             p.applyCaption(txn, d, e);
             return;
         }
     }
     if (archive.kindOf(name)) |kind| return p.startJob(txn, .{ .archive = kind }, path, e);
-    if (std.mem.eql(u8, type_name, "application/pdf") or std.ascii.endsWithIgnoreCase(name, ".pdf")) {
-        if (proc.onPath("pdftoppm") and app.options.preview_images) {
+    const pdf = std.mem.eql(u8, type_name, "application/pdf") or std.ascii.endsWithIgnoreCase(name, ".pdf");
+    const video = std.mem.startsWith(u8, type_name, "video/");
+    if (pdf and images) {
+        const r: ?Renderer = if (proc.onPath("pdftoppm")) .pdftoppm else if (proc.onPath("mutool")) .mutool else null;
+        if (r) |x| {
             p.applyCaption(txn, d, e);
-            return p.startJob(txn, .pdf, path, e);
+            return p.startJob(txn, .{ .page = x }, path, e);
         }
-        return p.showInfo(txn, d, e, path, "Install poppler (pdftoppm) to preview PDFs");
     }
-    // Videos and others: a thumbnail another program cached.
-    if (!isTexty(type_name) and app.options.preview_images) {
+    // A thumbnail another program cached, for videos and others.
+    if (!isTexty(type_name) and images) {
         var tb: [linux.PATH_MAX]u8 = undefined;
         if (Thumbs.cachedPath(p.win.gpa, app.thumbnail_cache, path, e.mtime, &tb)) |thumb| {
             if (p.loadImage(thumb, e)) {
@@ -201,6 +216,15 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
             }
         }
     }
+    if (video and images) {
+        const r: ?Renderer = if (proc.onPath("ffmpegthumbnailer")) .ffmpegthumbnailer else if (proc.onPath("ffmpeg")) .ffmpeg else null;
+        if (r) |x| {
+            p.applyCaption(txn, d, e);
+            return p.startJob(txn, .{ .page = x }, path, e);
+        }
+        return p.showInfo(txn, d, e, path, "Install ffmpegthumbnailer or ffmpeg to preview videos");
+    }
+    if (pdf) return p.showInfo(txn, d, e, path, if (images) "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs" else null);
     if (e.size == 0) return p.showInfo(txn, d, e, path, "Empty file");
     if (isTexty(type_name) or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or std.mem.startsWith(u8, type_name, "application/x-unknown")) {
         return p.startJob(txn, .text, path, e);
@@ -309,14 +333,9 @@ pub fn showInfo(p: *Preview, txn: Txn, d: *Dir, e: model.Entry, path: []const u8
     if (e.kind == .file) w.line(&body, gpa, "Size", model.formatSize(&sbuf, e.size));
     w.line(&body, gpa, "Modified", model.formatTime(&tbuf, e.mtime, tz));
     w.line(&body, gpa, "Permissions", model.formatMode(&mbuf, e.mode));
-    if (e.link) {
-        var lbuf: [linux.PATH_MAX]u8 = undefined;
-        var zb: [linux.PATH_MAX]u8 = undefined;
-        if (std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0)) |z| {
-            const n = linux.readlinkat(linux.AT.FDCWD, z, &lbuf, lbuf.len);
-            if (linux.errno(n) == .SUCCESS) w.line(&body, gpa, "Links to", lbuf[0..n]);
-        } else |_| {}
-    }
+    // A link's target comes from a job (readlink can wait on the file
+    // system too) and joins these lines when it arrives.
+    if (e.link and p.job == null) p.startJob(txn, .link, path, e);
     if (d.trash_info) |*ti| {
         const i = for (d.visible.items) |vi| {
             if (std.meta.eql(d.listing.?.entries[vi], e)) break vi;
@@ -406,13 +425,32 @@ pub fn scrollBy(p: *Preview, lines: i32) void {
 
 // Jobs -----------------------------------------------------------------------------------
 
+/// Programs that render a file's first page or a video's frame to PNG.
+const Renderer = enum { pdftoppm, mutool, ffmpegthumbnailer, ffmpeg };
+
 const JobKind = union(enum) {
     text,
     archive: archive.Kind,
-    pdf,
+    page: Renderer,
     /// A Lua previewer's command; owned.
     command: [][]u8,
+    /// A symbolic link's target, for the details.
+    link,
 };
+
+/// Preview jobs that may run at once, over every window.
+pub const max_jobs = 2;
+/// Preview jobs running (UI thread).
+var running: u32 = 0;
+/// Previews whose next job waits for a slot, oldest first.
+var waiting: [32]?*Preview = @splat(null);
+
+/// Programs a preview runs are killed after this long.
+const program_timeout_ms = 15_000;
+/// How much of a binary file the hex view shows.
+const hex_bytes = 4096;
+
+const Pending = struct { kind: JobKind, path: []u8, e: model.Entry };
 
 /// Reads, lists, or renders a file on a worker.
 const Job = struct {
@@ -429,6 +467,8 @@ const Job = struct {
     width: f32,
     cache_dir: []u8,
     cancelled: std.atomic.Value(bool) = .init(false),
+    /// Holds one of the `max_jobs` slots.
+    started: bool = false,
     // Results.
     text: std.ArrayList(u8) = .empty,
     spans: []highlight.Span = &.{},
@@ -442,8 +482,15 @@ const Job = struct {
         switch (j.kind) {
             .text => j.readText(),
             .archive => |k| j.listArchive(k),
-            .pdf => j.renderPdf(),
+            .page => |r| j.renderPage(r),
             .command => |argv| j.runCommand(argv),
+            .link => {
+                var zb: [linux.PATH_MAX]u8 = undefined;
+                var lbuf: [linux.PATH_MAX]u8 = undefined;
+                const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{j.path}, 0) catch return;
+                const n = linux.readlinkat(linux.AT.FDCWD, z, &lbuf, lbuf.len);
+                if (linux.errno(n) == .SUCCESS) j.text.appendSlice(j.gpa, lbuf[0..n]) catch {};
+            },
         }
     }
 
@@ -469,7 +516,7 @@ const Job = struct {
         const head = j.text.items[0..@min(got, 8192)];
         if (std.mem.indexOfScalar(u8, head, 0) != null or !std.unicode.utf8ValidateSlice(trimPartial(head))) {
             j.text_kind = .binary;
-            j.text.clearRetainingCapacity();
+            j.hexDump(j.text.items[0..@min(got, hex_bytes)]) catch {};
             return;
         }
         // Cut at the last whole line or character.
@@ -515,9 +562,42 @@ const Job = struct {
         j.spans = spans.toOwnedSlice(j.gpa) catch &.{};
     }
 
-    fn renderPdf(j: *Job) void {
-        // $XDG_CACHE_HOME/siv-columns/previews/<hash>.png, by path, time,
-        // and width.
+    /// The start of a binary file as hexdump -C shows it: the offset, 16
+    /// bytes in hex, and those that are printable.
+    fn hexDump(j: *Job, bytes: []const u8) !void {
+        var out: std.ArrayList(u8) = .empty;
+        errdefer out.deinit(j.gpa);
+        var spans: std.ArrayList(highlight.Span) = .empty;
+        errdefer spans.deinit(j.gpa);
+        var off: usize = 0;
+        while (off < bytes.len) : (off += 16) {
+            const row = bytes[off..@min(off + 16, bytes.len)];
+            const start: u32 = @intCast(out.items.len);
+            try out.print(j.gpa, "{x:0>8}", .{off});
+            try spans.append(j.gpa, .{ .start = start, .end = start + 8, .class = .comment });
+            for (0..16) |k| {
+                if (k % 8 == 0) try out.append(j.gpa, ' ');
+                if (k < row.len) try out.print(j.gpa, " {x:0>2}", .{row[k]}) else try out.appendSlice(j.gpa, "   ");
+            }
+            try out.appendSlice(j.gpa, "  |");
+            const a: u32 = @intCast(out.items.len);
+            for (row) |b| try out.append(j.gpa, if (b >= 0x20 and b < 0x7f) b else '.');
+            try spans.append(j.gpa, .{ .start = a, .end = @intCast(out.items.len), .class = .string });
+            try out.appendSlice(j.gpa, "|\n");
+        }
+        if (j.size > bytes.len) {
+            var sbuf: [32]u8 = undefined;
+            try out.print(j.gpa, "… the first {d} bytes of {s}\n", .{ bytes.len, model.formatSize(&sbuf, j.size) });
+        }
+        j.text.deinit(j.gpa);
+        j.text = out;
+        j.spans = try spans.toOwnedSlice(j.gpa);
+    }
+
+    /// A PDF's first page or a video's frame, at the preview's width, as
+    /// a PNG in $XDG_CACHE_HOME/siv-columns/previews/<hash>.png (by path,
+    /// time, and width).
+    fn renderPage(j: *Job, r: Renderer) void {
         var h = std.hash.Wyhash.init(0);
         h.update(j.path);
         h.update(std.mem.asBytes(&j.mtime));
@@ -528,18 +608,34 @@ const Job = struct {
         const prefix = std.fmt.bufPrint(&obuf, "{s}/{x:0>16}", .{ j.cache_dir, key }) catch return;
         var pngbuf: [linux.PATH_MAX]u8 = undefined;
         const png = std.fmt.bufPrintSentinel(&pngbuf, "{s}.png", .{prefix}, 0) catch return;
-        var st: linux.Statx = undefined;
-        if (linux.errno(linux.statx(linux.AT.FDCWD, png, 0, .{ .SIZE = true }, &st)) != .SUCCESS or st.size == 0) {
+        if (!nonEmpty(png)) {
             mkdirs(j.cache_dir);
             var wbuf: [16]u8 = undefined;
             const ws = std.fmt.bufPrint(&wbuf, "{d}", .{w}) catch return;
-            var r = proc.run(j.gpa, &.{ "pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to-x", ws, "-scale-to-y", "-1", j.path, prefix }, .{ .max_output = 4096 }) catch {
-                j.failed = "pdftoppm could not run";
+            var sbuf: [48]u8 = undefined;
+            const scale = std.fmt.bufPrint(&sbuf, "scale={d}:-2", .{w}) catch return;
+            const pdf = r == .pdftoppm or r == .mutool;
+            const argv: []const []const u8 = switch (r) {
+                .pdftoppm => &.{ "pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to-x", ws, "-scale-to-y", "-1", j.path, prefix },
+                .mutool => &.{ "mutool", "draw", "-q", "-o", png, "-w", ws, "-F", "png", j.path, "1" },
+                .ffmpegthumbnailer => &.{ "ffmpegthumbnailer", "-i", j.path, "-o", png, "-s", ws, "-c", "png", "-t", "10%" },
+                // A few seconds in, past a fade from black; short videos
+                // have no frame there, so then the first.
+                .ffmpeg => &.{ "ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "3", "-i", j.path, "-frames:v", "1", "-vf", scale, png },
+            };
+            const opts: proc.Options = .{ .max_output = 4096, .cancel = &j.cancelled, .timeout_ms = program_timeout_ms };
+            var res = proc.run(j.gpa, argv, opts) catch {
+                j.failed = if (pdf) "The PDF renderer could not run" else "The video thumbnailer could not run";
                 return;
             };
-            defer r.deinit(j.gpa);
-            if (r.status != 0) {
-                j.failed = "This PDF could not be rendered";
+            res.deinit(j.gpa);
+            if (r == .ffmpeg and !nonEmpty(png) and !j.cancelled.load(.acquire)) {
+                var again = proc.run(j.gpa, &.{ "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", j.path, "-frames:v", "1", "-vf", scale, png }, opts) catch return;
+                again.deinit(j.gpa);
+            }
+            if (j.cancelled.load(.acquire)) return;
+            if (!nonEmpty(png)) {
+                j.failed = if (pdf) "This PDF could not be rendered" else "No frame could be taken from this video";
                 return;
             }
         }
@@ -550,7 +646,7 @@ const Job = struct {
         const views = j.gpa.alloc([]const u8, argv.len) catch return;
         defer j.gpa.free(views);
         for (argv, 0..) |a, i| views[i] = a;
-        var r = proc.run(j.gpa, views, .{ .max_output = j.max_bytes, .kill_after = j.max_bytes * 4, .cwd = std.fs.path.dirname(j.path) }) catch {
+        var r = proc.run(j.gpa, views, .{ .max_output = j.max_bytes, .kill_after = j.max_bytes * 4, .cwd = std.fs.path.dirname(j.path), .cancel = &j.cancelled, .timeout_ms = program_timeout_ms }) catch {
             j.failed = "The previewer could not run";
             return;
         };
@@ -568,19 +664,26 @@ const Job = struct {
         p.job = null;
         if (j.cancelled.load(.acquire)) return;
         const txn = p.win.begin() orelse return;
-        if (j.failed) |msg| {
+        if (j.kind == .link) {
+            // The details again, with where the link goes.
+            if (j.text.items.len != 0 and p.mode == .info) {
+                var buf: [8192]u8 = undefined;
+                const body = ui.getText(p.info_body, &buf);
+                var out: std.ArrayList(u8) = .empty;
+                defer out.deinit(j.gpa);
+                // Before a note (a blank line), if there is one.
+                const split = std.mem.indexOf(u8, body, "\n\n") orelse body.len;
+                out.print(j.gpa, "{s}\nLinks to\t{s}{s}", .{ body[0..split], j.text.items, body[split..] }) catch {};
+                _ = c.siv_set_text(txn, p.info_body, out.items.ptr, out.items.len);
+            }
+        } else if (j.failed) |msg| {
             p.setInfoText(txn, model.basename(j.path), msg);
             p.applyModeTxn(txn, .info);
             p.applied = .info;
         } else if (j.image_path) |img| {
             _ = ui.commit(txn);
-            if (!p.loadImage(img, undefined)) p.win.notify("The PDF page could not be shown", true);
+            if (!p.loadImage(img, undefined)) p.win.notify("The preview could not be shown", true);
             return;
-        } else if (j.text_kind == .binary) {
-            p.setInfoText(txn, model.basename(j.path), "Binary file");
-            p.applyModeTxn(txn, .info);
-            p.applied = .info;
-            p.text_kind = .binary;
         } else {
             p.showText(txn, j.text.items, j.spans, j.text_kind);
         }
@@ -590,6 +693,10 @@ const Job = struct {
     fn destroy(ud: ?*anyopaque) callconv(.c) void {
         const j: *Job = @ptrCast(@alignCast(ud.?));
         const gpa = j.gpa;
+        if (j.started) {
+            running -= 1;
+            startWaiting();
+        }
         j.text.deinit(gpa);
         gpa.free(j.spans);
         if (j.image_path) |x| gpa.free(x);
@@ -604,11 +711,61 @@ const Job = struct {
     }
 };
 
+/// Starts a job for the preview, or queues it while `max_jobs` run (the
+/// newest queued job replaces an older one).
 fn startJob(p: *Preview, txn: Txn, kind: JobKind, path: []const u8, e: model.Entry) void {
-    _ = txn;
+    if (running < max_jobs) return p.launch(kind, path, e);
+    p.dropPending();
+    const copy = p.win.gpa.dupe(u8, path) catch return freeKind(p.win.gpa, kind);
+    p.pending = .{ .kind = kind, .path = copy, .e = e };
+    for (&waiting) |*slot| if (slot.* == null) {
+        slot.* = p;
+        break;
+    };
+    // A link's target only adds a line; anything else says it waits.
+    if (kind != .link) {
+        p.setInfoText(txn, model.basename(path), "Waiting for the file system…");
+        p.applyModeTxn(txn, .info);
+    }
+}
+
+fn dropPending(p: *Preview) void {
+    for (&waiting) |*slot| if (slot.* == p) {
+        slot.* = null;
+    };
+    const pd = p.pending orelse return;
+    p.pending = null;
+    freeKind(p.win.gpa, pd.kind);
+    p.win.gpa.free(pd.path);
+}
+
+fn freeKind(gpa: Allocator, kind: JobKind) void {
+    if (kind == .command) {
+        for (kind.command) |a| gpa.free(a);
+        gpa.free(kind.command);
+    }
+}
+
+/// A slot came free: the longest-waiting preview's job starts.
+fn startWaiting() void {
+    while (running < max_jobs) {
+        const p = for (&waiting) |*slot| {
+            if (slot.*) |x| {
+                slot.* = null;
+                break x;
+            }
+        } else return;
+        const pd = p.pending orelse continue;
+        p.pending = null;
+        defer p.win.gpa.free(pd.path);
+        p.launch(pd.kind, pd.path, pd.e);
+    }
+}
+
+fn launch(p: *Preview, kind: JobKind, path: []const u8, e: model.Entry) void {
     const gpa = p.win.gpa;
     const app = p.win.app;
-    const j = gpa.create(Job) catch return;
+    const j = gpa.create(Job) catch return freeKind(gpa, kind);
     j.* = .{
         .preview = p,
         .gpa = gpa,
@@ -624,8 +781,15 @@ fn startJob(p: *Preview, txn: Txn, kind: JobKind, path: []const u8, e: model.Ent
         .cache_dir = gpa.dupe(u8, app.preview_cache) catch "",
     };
     p.job = j;
+    j.started = true;
+    running += 1;
     // The destroy-notify runs if the job cannot start.
     if (c.siv_job_start(app.app, .{}, Job.work, Job.done, Job.destroy, j) != .ok) p.job = null;
+}
+
+fn nonEmpty(path: [:0]const u8) bool {
+    var st: linux.Statx = undefined;
+    return linux.errno(linux.statx(linux.AT.FDCWD, path, 0, .{ .SIZE = true }, &st)) == .SUCCESS and st.size > 0;
 }
 
 fn trimPartial(s: []const u8) []const u8 {
