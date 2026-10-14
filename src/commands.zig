@@ -12,6 +12,7 @@ const Window = @import("Window.zig");
 const Config = @import("Config.zig");
 const Dir = @import("Dir.zig");
 const keys = @import("keys.zig");
+const highlight = @import("highlight.zig");
 const model = @import("model.zig");
 const fsops = @import("fsops.zig");
 const proc = @import("proc.zig");
@@ -118,6 +119,7 @@ pub const list = [_]Command{
     .{ .name = "unmap", .desc = "Unbind keys: unmap [mode] keys", .run = unmap },
     .{ .name = "lua", .desc = "Run Lua", .run = luaCmd },
     .{ .name = "help", .desc = "Every key and command", .run = help },
+    .{ .name = "messages", .desc = "Recent messages, newest first", .run = messages },
     .{ .name = "command", .desc = "Open the command line", .run = commandLine },
     .{ .name = "new-window", .desc = "A new window here", .run = newWindow },
     .{ .name = "quit", .desc = "Close the tab, or the window", .run = quit },
@@ -595,7 +597,7 @@ const ShellJob = struct {
         // The last line in the status line; all of it in the preview.
         const last = out[if (std.mem.lastIndexOfScalar(u8, out, '\n')) |i| i + 1 else 0..];
         w.notify(last, r.status != 0);
-        w.preview.showOutput(j.cmd, out);
+        w.preview.showOutput(j.cmd, out, null);
     }
 
     fn destroy(ud: ?*anyopaque) callconv(.c) void {
@@ -1103,7 +1105,36 @@ fn help(ctx: Ctx) void {
     out.appendSlice(gpa, "\nCOMMANDS (type : and Tab completes)\n\n") catch return;
     for (list) |cmd| out.print(gpa, "  {s: <18} {s}\n", .{ cmd.name, cmd.desc }) catch return;
     if (win.app.lua) |l| l.appendCommands(&out);
-    win.preview.showOutput("Keys and commands", out.items);
+    win.preview.showOutput("Keys and commands", out.items, null);
+}
+
+/// The status line's recent messages in the preview, newest first,
+/// errors in the error color.
+fn messages(ctx: Ctx) void {
+    const win = ctx.win;
+    const gpa = win.gpa;
+    const app = win.app;
+    // Not a message itself: it would list itself next time.
+    if (app.messages.items.len == 0) return win.preview.showOutput("Messages", "No messages yet.\n", null);
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(gpa);
+    var spans: std.ArrayList(highlight.Span) = .empty;
+    defer spans.deinit(gpa);
+    out.appendSlice(gpa, "MESSAGES (newest first)\n\n") catch return;
+    var i = app.messages.items.len;
+    while (i > 0) {
+        i -= 1;
+        const m = app.messages.items[i];
+        const start: u32 = @intCast(out.items.len);
+        const secs: u64 = @intCast(@max(0, m.time + app.tz_offset_s));
+        const ds = (std.time.epoch.EpochSeconds{ .secs = secs }).getDaySeconds();
+        out.print(gpa, "{d:0>2}:{d:0>2}:{d:0>2}  ", .{ ds.getHoursIntoDay(), ds.getMinutesIntoHour(), ds.getSecondsIntoMinute() }) catch return;
+        // One line each.
+        for (m.text) |ch| out.append(gpa, if (ch == '\n') ' ' else ch) catch return;
+        if (m.is_error) spans.append(gpa, .{ .start = start, .end = @intCast(out.items.len), .class = .removed }) catch {};
+        out.append(gpa, '\n') catch return;
+    }
+    win.preview.showOutput("Messages", out.items, spans.items);
 }
 
 fn commandLine(ctx: Ctx) void {

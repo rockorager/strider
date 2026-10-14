@@ -320,6 +320,37 @@ test "the which-key popup, the command line, and completion" {
     try testing.expectEqualStrings("Unknown command: frobnicate", h.win.?.message.items);
 }
 
+test "messages stay until the next key, and :messages lists them" {
+    var f: Fixture = .{};
+    try fixture(&f, "messages");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    // An error stays in the status line, however long nothing happens.
+    try h.typeText("/zzz\n");
+    try testing.expect(h.win.?.message_error);
+    for (0..20) |_| try siv.check(c.siv_app_dispatch(h.sapp, 10));
+    try h.settle();
+    try testing.expect(h.reads("No match"));
+    try h.expectGolden(h.window(), "status-error");
+    // The next key clears it, whatever the key does.
+    try h.typeText("j");
+    try testing.expect(!h.reads("No match"));
+    try h.typeText("p");
+    try testing.expect(h.reads("Nothing to paste"));
+    try h.typeText(":frobnicate\n");
+    try testing.expect(!h.reads("Nothing to paste"));
+    // Every one is kept, newest first, the errors in the error color.
+    const log = h.app.?.messages.items;
+    try testing.expectEqual(@as(usize, 3), log.len);
+    for (log, 0..) |*m, i| m.time = 9 * 3600 + 41 * 60 + @as(i64, @intCast(i)) * 7;
+    try h.typeText(":messages\n");
+    try h.expectGolden(h.window(), "messages");
+    // Listing them is not a message.
+    try testing.expectEqual(@as(usize, 3), h.app.?.messages.items.len);
+}
+
 test "tabs, bookmarks, sorting, and hidden files" {
     var f: Fixture = .{};
     try fixture(&f, "tabs");

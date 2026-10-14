@@ -649,8 +649,10 @@ fn questionText(self: *Window, buf: []u8) []const u8 {
 }
 
 /// A message in the status line, which screen readers announce (it is a
-/// live region), until the next key.
+/// live region), until the next key; errors in the error color.
+/// `:messages` lists them afterwards.
 pub fn notify(self: *Window, msg: []const u8, is_error: bool) void {
+    self.app.logMessage(msg, is_error);
     self.message.clearRetainingCapacity();
     self.message.appendSlice(self.gpa, msg) catch {};
     self.message_error = is_error;
@@ -1499,6 +1501,7 @@ fn askPassphraseAgain(self: *Window, block: []const u8, label: []const u8, new_t
     self.unlock_label.clearRetainingCapacity();
     self.unlock_label.appendSlice(self.gpa, label_copy) catch {};
     self.unlock_new_tab = new_tab;
+    if (failure) |f| self.app.logMessage(f, true);
     self.startPrompt(.passphrase, "", 0, 0);
     var buf: [600]u8 = undefined;
     self.message.clearRetainingCapacity();

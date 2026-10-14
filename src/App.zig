@@ -101,6 +101,8 @@ config_error: ?[]u8 = null,
 bookmarks: std.AutoArrayHashMapUnmanaged(u32, []u8) = .empty,
 /// Command lines entered, oldest first.
 history: std.ArrayList([]u8) = .empty,
+/// The status line's recent messages, oldest first (`:messages`).
+messages: std.ArrayList(Message) = .empty,
 /// What yy and dd took: paths, and whether pasting moves them.
 register: std.ArrayList([]u8) = .empty,
 register_cut: bool = false,
@@ -120,6 +122,16 @@ file_manager1: ?*FileManager1 = null,
 drives_arena: std.heap.ArenaAllocator,
 
 const PendingOpen = struct { win: *Window, paths: [][]u8, ask: bool };
+
+pub const Message = struct {
+    /// Wall clock, in seconds since the epoch.
+    time: i64,
+    is_error: bool,
+    text: []u8,
+};
+
+/// How many messages `:messages` keeps.
+pub const max_messages = 200;
 
 pub fn create(sapp: siv.App, opts: Options) !*App {
     const gpa = opts.gpa;
@@ -195,6 +207,8 @@ pub fn destroy(self: *App) void {
     self.bookmarks.deinit(gpa);
     for (self.history.items) |h| gpa.free(h);
     self.history.deinit(gpa);
+    for (self.messages.items) |m| gpa.free(m.text);
+    self.messages.deinit(gpa);
     freePathList(gpa, &self.register);
     if (self.config_error) |e| gpa.free(e);
     if (self.mime_db) |db| {
@@ -548,6 +562,17 @@ pub fn driveMounted(self: *App, win: *Window, mount_point: []const u8, new_tab: 
 /// A drive is about to go away: tabs on it go home.
 pub fn leaveMount(self: *App, mount_point: []const u8) void {
     for (self.windows.items) |w| w.leaveMount(mount_point);
+}
+
+/// Keeps a message for `:messages`, dropping the oldest past
+/// `max_messages`.
+pub fn logMessage(self: *App, text: []const u8, is_error: bool) void {
+    if (text.len == 0) return;
+    const copy = self.gpa.dupe(u8, text) catch return;
+    if (self.messages.items.len >= max_messages) self.gpa.free(self.messages.orderedRemove(0).text);
+    var ts: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+    self.messages.append(self.gpa, .{ .time = ts.sec, .is_error = is_error, .text = copy }) catch self.gpa.free(copy);
 }
 
 // Bookmarks and history ----------------------------------------------------------------------

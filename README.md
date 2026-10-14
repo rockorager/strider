@@ -104,6 +104,10 @@ folder's row.
 A file operation that meets a name already taken asks in the status line:
 replace, skip, keep both, or merge folders, Shift for all of them.
 
+Messages go to the status line, as in ranger and vim; errors are in the
+error color. A message stays until the next key, and `:messages` lists
+the last 200 in the preview column, newest first.
+
 ## Previews
 
 Folders show their entries; text files their start with syntax coloring

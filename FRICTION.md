@@ -56,13 +56,11 @@ what this project does about it, and its status:
    reaches photo.png at `ph`, then `o` opens "Open with").
    `fm.set { find_auto_accept = false }` makes it wait for Enter.
 
-## Decide
-
-6. **Messages go to the status line, not toasts.** The first version
-   showed every message twice, in the status line and in a siv toast
-   over the columns. The status line is a polite live region, so screen
-   readers announce messages either way; toasts are gone. Errors are red
-   in the status line. Say if errors should also toast.
+6. **Messages go to the status line, not toasts** (decided: as in ranger
+   and vim, errors belong in the status line of a keyboard-driven app).
+   An error is in the error color; a message stays until the next key;
+   `:messages` lists the last 200, newest first. The status line is a
+   polite live region, so screen readers announce each one.
 
 ## Noted
 

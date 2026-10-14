@@ -386,12 +386,12 @@ fn showText(p: *Preview, txn: Txn, text: []const u8, spans: ?[]const highlight.S
 }
 
 /// Shows text that is not a file: a command's output, the help.
-pub fn showOutput(p: *Preview, title: []const u8, text: []const u8) void {
+pub fn showOutput(p: *Preview, title: []const u8, text: []const u8, spans: ?[]const highlight.Span) void {
     _ = title;
     p.cancel();
     p.path.clearRetainingCapacity();
     const txn = p.win.begin() orelse return;
-    p.showText(txn, text, null, .command);
+    p.showText(txn, text, spans, .command);
     _ = ui.commit(txn);
 }
 
