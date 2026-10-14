@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepares a fresh Amp orb (Debian) to build and test siv-files.
+# Prepares a fresh Amp orb (Debian) to build and test siv-columns.
 # Idempotent: a warm orb skips downloads and package installs.
 set -euo pipefail
 
@@ -9,14 +9,15 @@ step() { printf '==> %s\n' "$*"; }
 
 # What siv links (libwayland-client, xkbcommon, Fontconfig, the Vulkan
 # headers), the keymaps its keyboard handling compiles, shared-mime-info
-# and desktop-file-utils for running the program, and dbus (with
-# dbus-daemon) for its single-instance and FileManager1 services and the
-# D-Bus tests.
+# and desktop-file-utils for running the program, dbus (with dbus-daemon)
+# for its single-instance and FileManager1 services and the D-Bus tests,
+# and what previews call: poppler's pdftoppm and libarchive's bsdtar.
 packages=(
 	ca-certificates curl xz-utils pkg-config git
 	libwayland-dev libxkbcommon-dev libfontconfig-dev xkb-data
 	libvulkan-dev mesa-vulkan-drivers
 	shared-mime-info desktop-file-utils dbus
+	poppler-utils libarchive-tools
 )
 
 install_packages() {
