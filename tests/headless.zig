@@ -562,3 +562,27 @@ test "the mouse: clicks in each column, double clicks, and drops" {
     try testing.expect(f.exists("work/docs/notes.txt"));
     try testing.expect(f.exists("notes.txt"));
 }
+
+test "folders follow changes on disk: the current one, its parent, and the previewed one" {
+    var f: Fixture = .{};
+    try fixture(&f, "watch");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work"), .watch = true });
+    // The cursor is on assets, previewed (empty).
+    try f.add(.{ .name = "work/fresh.txt", .size = 1 });
+    try f.add(.{ .name = "Pictures", .dir = true });
+    try f.add(.{ .name = "work/assets/logo.svg", .size = 1 });
+    const Cond = struct {
+        fn ok(x: *Harness) bool {
+            const w = x.win.?;
+            const pd = w.parent_col.dir orelse return false;
+            const prev = w.preview.column.dir orelse return false;
+            return x.dir().indexOf("fresh.txt") != null and pd.indexOf("Pictures") != null and prev.indexOf("logo.svg") != null;
+        }
+    };
+    try h.waitFor(&h, Cond.ok);
+    // The cursor stayed on its entry.
+    try testing.expectEqualStrings("assets", h.hovered());
+}

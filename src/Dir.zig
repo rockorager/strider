@@ -12,6 +12,7 @@ const c = siv.c;
 const model = @import("model.zig");
 const mime = @import("mime.zig");
 const trash = @import("trash.zig");
+const Watcher = @import("Watcher.zig");
 
 const Dir = @This();
 
@@ -47,6 +48,11 @@ stamp: i64 = 0,
 /// Columns and tabs showing it; pinned directories are not evicted.
 pins: u32 = 0,
 last_used: u64 = 0,
+/// Its inotify watch, or -1: a watched folder re-reads when it changes
+/// rather than when it is old.
+wd: i32 = -1,
+/// Changed since it was last read.
+dirty: bool = false,
 
 /// The cache of directories, shared by every window.
 pub const Cache = struct {
@@ -67,11 +73,42 @@ pub const Cache = struct {
     show_hidden: bool = false,
     /// How many unpinned directories to keep.
     max_cached: usize = 64,
+    /// Follows changes to every cached folder; null without inotify.
+    watcher: ?*Watcher = null,
+    /// Coalesces bursts of changes before re-reading.
+    change_timer: siv.Timer = .null,
+
+    /// Watches cached folders for changes from now on.
+    pub fn startWatching(cache: *Cache) void {
+        if (cache.watcher != null) return;
+        cache.watcher = Watcher.create(cache.gpa, cache.sapp, onChange, cache) catch null;
+    }
 
     pub fn deinit(cache: *Cache) void {
+        if (cache.change_timer != .null) _ = c.siv_timer_cancel(cache.change_timer);
+        // Closing the inotify descriptor drops every watch.
+        if (cache.watcher) |w| w.destroy();
+        cache.watcher = null;
         var it = cache.dirs.valueIterator();
         while (it.next()) |d| d.*.destroy();
         cache.dirs.deinit(cache.gpa);
+    }
+
+    fn onChange(ctx: ?*anyopaque, wd: i32) void {
+        const cache: *Cache = @ptrCast(@alignCast(ctx.?));
+        var it = cache.dirs.valueIterator();
+        while (it.next()) |d| if (d.*.wd == wd) {
+            d.*.dirty = true;
+        };
+        if (cache.change_timer == .null) _ = c.siv_timer_start(cache.sapp, 150, onChangeTimer, null, cache, &cache.change_timer);
+    }
+
+    /// Shown folders that changed read again; others when next shown.
+    fn onChangeTimer(ud: ?*anyopaque) callconv(.c) void {
+        const cache: *Cache = @ptrCast(@alignCast(ud.?));
+        cache.change_timer = .null;
+        var it = cache.dirs.valueIterator();
+        while (it.next()) |d| if (d.*.dirty and d.*.pins > 0) d.*.reload();
     }
 
     /// The directory at `path` (normalized), made and read if it is not
@@ -83,7 +120,10 @@ pub const Cache = struct {
         cache.tick += 1;
         if (cache.dirs.get(path)) |d| {
             d.last_used = cache.tick;
-            if (d.loading == null and (!d.loaded or (max_age_ms != 0 and now() - d.stamp > @as(i64, max_age_ms) * std.time.ns_per_ms))) d.reload();
+            // A watched folder is fresh unless it changed; an unwatched
+            // one is read again when it is older than `max_age_ms`.
+            const stale = if (d.wd >= 0) d.dirty else (max_age_ms != 0 and now() - d.stamp > @as(i64, max_age_ms) * std.time.ns_per_ms);
+            if (d.loading == null and (!d.loaded or stale)) d.reload();
             return d;
         }
         cache.evict();
@@ -97,6 +137,11 @@ pub const Cache = struct {
             d.destroy();
             return null;
         };
+        // The trash's listing is every trash's: its own folder is not
+        // all that changes it.
+        if (cache.watcher) |w| if (!d.isTrash()) {
+            d.wd = w.add(d.path);
+        };
         d.reload();
         return d;
     }
@@ -109,7 +154,10 @@ pub const Cache = struct {
     /// Re-reads the cached directory at `path`, if any.
     pub fn invalidate(cache: *Cache, path: []const u8) void {
         if (cache.dirs.get(path)) |d| {
-            if (d.pins > 0) d.reload() else d.stamp = 0;
+            if (d.pins > 0) d.reload() else {
+                d.stamp = 0;
+                d.dirty = true;
+            }
         }
     }
 
@@ -138,6 +186,14 @@ pub const Cache = struct {
 
 fn destroy(d: *Dir) void {
     const gpa = d.cache.gpa;
+    if (d.cache.watcher) |w| if (d.wd >= 0) {
+        // Two paths to one folder (a symlink and its target) share a
+        // watch descriptor; the watch goes with the last of them.
+        var shared = false;
+        var it = d.cache.dirs.valueIterator();
+        while (it.next()) |o| shared = shared or (o.* != d and o.*.wd == d.wd);
+        if (!shared) w.remove(d.wd);
+    };
     if (d.loading) |l| l.dir = null;
     if (d.listing) |*l| l.deinit();
     if (d.trash_info) |*t| t.deinit();
@@ -236,6 +292,7 @@ pub fn reload(d: *Dir) void {
     };
     l.* = .{ .dir = d, .gpa = gpa, .cache = d.cache, .path = p, .sort = d.cache.sort, .trash_view = d.isTrash() };
     d.loading = l;
+    d.dirty = false;
     // The destroy-notify runs if the job cannot start.
     if (c.siv_job_start(d.cache.sapp, .{}, Load.work, Load.done, Load.destroy, l) != .ok) d.loading = null;
 }

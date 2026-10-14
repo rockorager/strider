@@ -19,7 +19,6 @@ const fsops = @import("fsops.zig");
 const uri = @import("uri.zig");
 const ui = @import("ui.zig");
 const commands = @import("commands.zig");
-const Watcher = @import("Watcher.zig");
 
 const Window = @This();
 pub const PreviewMode = Preview.Mode;
@@ -120,8 +119,6 @@ last_search_back: bool = false,
 message: std.ArrayList(u8) = .empty,
 message_error: bool = false,
 
-watcher: ?*Watcher = null,
-reload_timer: siv.Timer = .null,
 whichkey_timer: siv.Timer = .null,
 last_input: u64 = 0,
 /// For measurements: frames presented, the first, and the first with the
@@ -159,7 +156,6 @@ pub fn create(app: *App, path: []const u8) !*Window {
         .destroy = onWindowDestroyed,
     });
     try self.build();
-    if (app.opts.watch) self.watcher = Watcher.create(gpa, app.app, onWatch, self) catch null;
     const t = self.addTab(path) orelse return error.OutOfMemory;
     _ = t;
     self.active = 0;
@@ -194,8 +190,6 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     const gpa = self.gpa;
     self.window = .null;
     self.closing = true;
-    if (self.watcher) |w| w.destroy();
-    if (self.reload_timer != .null) _ = c.siv_timer_cancel(self.reload_timer);
     if (self.whichkey_timer != .null) _ = c.siv_timer_cancel(self.whichkey_timer);
     if (self.conflict) |e| e.answer(.cancel, false);
     self.preview.deinit();
@@ -466,7 +460,6 @@ pub fn showTab(self: *Window) void {
     self.applyHeader(txn);
     self.applyStatus(txn);
     _ = commit(txn);
-    if (self.watcher) |w| w.setPath(d.path);
     _ = c.siv_window_set_title(self.window, d.path.ptr, d.path.len);
 }
 
@@ -1482,18 +1475,6 @@ pub fn columnClicked(self: *Window, col: *Column, index: u32, activate: bool) vo
 }
 
 // Watching and reloading ---------------------------------------------------------------------
-
-fn onWatch(ctx: ?*anyopaque) void {
-    const self: *Window = @ptrCast(@alignCast(ctx.?));
-    if (self.reload_timer != .null) return;
-    _ = c.siv_timer_start(self.app.app, 150, onReloadTimer, null, self, &self.reload_timer);
-}
-
-fn onReloadTimer(ud: ?*anyopaque) callconv(.c) void {
-    const self: *Window = @ptrCast(@alignCast(ud.?));
-    self.reload_timer = .null;
-    self.curDir().reload();
-}
 
 pub fn reload(self: *Window) void {
     self.curDir().reload();

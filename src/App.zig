@@ -160,6 +160,7 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
         if (self.lua) |l| l.runFile(path);
     }
     self.applyViewOptions();
+    if (opts.watch) self.cache.startWatching();
     if (opts.mount_table) self.refreshMountDrives();
     if (opts.udisks) self.udisks = UDisks.create(self) catch null;
     return self;
