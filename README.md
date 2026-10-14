@@ -13,12 +13,15 @@ The name is a placeholder (program `siv-columns`, app id
 
 On sway (headless, 1280×800, driven with wtype): an image previewed at
 its displayed size, an archive listing, the which-key popup after `g`,
-and the dark style with a syntax-colored README.
+the dark style with a syntax-colored README, the fuzzy finder (`gf`), a
+copy paused in the tasks view (`w`), and a program in hex.
 
 | | |
 | --- | --- |
 | ![landscape.png previewed](docs/screenshots/image-preview.png) | ![assets.tar.gz listed](docs/screenshots/archive-preview.png) |
 | ![The keys after g](docs/screenshots/which-key.png) | ![The dark style](docs/screenshots/dark-text.png) |
+| ![gf: files below, ranked as you type](docs/screenshots/picker.png) | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png) |
+| ![A program's start in hex](docs/screenshots/hex.png) | |
 
 ## Install
 
