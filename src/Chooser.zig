@@ -8,6 +8,9 @@
 //! request allows several; on a folder it goes in, except when choosing
 //! folders, where it picks that folder. l and double clicks go into
 //! folders and pick files. Escape (with nothing to clear) and q cancel.
+//! Saving is modal like vim: the name field is insert mode, the columns
+//! normal mode; Escape goes from the name to the columns, and i, a, I,
+//! A, cc, and S come back.
 //! The answer goes back as the portal's response: 0 with the URIs, 1 when
 //! the user cancelled, 2 when the caller closed the request.
 
@@ -365,6 +368,7 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
         const stem = if (std.mem.lastIndexOfScalar(u8, ch.current_name, '.')) |dot| (if (dot > 0) dot else ch.current_name.len) else ch.current_name.len;
         _ = c.siv_set_selection(txn, ch.name_field, @intCast(stem), 0);
         _ = c.siv_on(txn, ch.name_field, .key, onNameKey, null, ch);
+        _ = c.siv_on(txn, ch.name_field, .focus, onNameFocus, null, ch);
     } else {
         // The hint gives way first when the bar is narrow.
         const t = ui.text(txn, row, ch.hint(), .muted_fg, .caption);
@@ -419,6 +423,48 @@ pub fn focusName(ch: *Chooser) bool {
     return true;
 }
 
+/// Insert mode is the name field having focus: the badge follows it,
+/// however it moved (Escape, Tab, i, or a click).
+fn onNameFocus(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.EventResult {
+    const ch: *Chooser = @ptrCast(@alignCast(ud.?));
+    if (ch.win) |w| w.updateStatus();
+    return .pass;
+}
+
+/// Where insert mode puts the caret in the name.
+pub const Insert = enum {
+    /// As it was (at first, the stem selected): i.
+    keep,
+    /// After the stem, before the extension: a.
+    stem,
+    /// At the start: I.
+    start,
+    /// At the end: A.
+    end,
+    /// An empty name: cc and S.
+    clear,
+};
+
+/// Normal mode to insert mode (Save only).
+pub fn insert(ch: *Chooser, how: Insert) bool {
+    const w = ch.win orelse return false;
+    if (ch.name_field == .null) return false;
+    if (how != .keep) if (w.begin()) |txn| {
+        var buf: [1024]u8 = undefined;
+        const name = ui.getText(ch.name_field, &buf);
+        const at: usize = switch (how) {
+            .keep, .clear, .start => 0,
+            .end => name.len,
+            .stem => if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
+        };
+        if (how == .clear) _ = c.siv_set_text(txn, ch.name_field, "", 0);
+        _ = c.siv_set_selection(txn, ch.name_field, @intCast(at), @intCast(at));
+        _ = ui.commit(txn);
+    };
+    _ = c.siv_node_focus(ch.name_field);
+    return true;
+}
+
 fn onNameKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const ch: *Chooser = @ptrCast(@alignCast(ud.?));
     if (!ev.flags.pressed) return .pass;
@@ -428,9 +474,10 @@ fn onNameKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.Ev
             ch.saveAs(ch.nameText());
             return .handled;
         },
-        // Escape cancels from here as from anywhere in a dialog.
+        // Escape leaves insert mode for the columns (normal mode), as in
+        // vim; Escape there cancels once nothing is left to clear.
         .escape => {
-            ch.finish(1);
+            _ = c.siv_node_focus(w.current.view);
             return .handled;
         },
         .tab => {
@@ -490,7 +537,7 @@ fn onAcceptButton(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
     return .handled;
 }
 
-fn nameText(ch: *Chooser) []const u8 {
+pub fn nameText(ch: *Chooser) []const u8 {
     const S = struct {
         var buf: [1024]u8 = undefined;
     };
@@ -568,18 +615,28 @@ pub fn open(ch: *Chooser, w: *Window) void {
 pub fn saveAs(ch: *Chooser, name: []const u8) void {
     const w = ch.win orelse return;
     if (name.len == 0) return w.notify("Type a name to save as", true);
-    if (std.mem.indexOfScalar(u8, name, '/') != null) return w.notify("A name cannot hold a slash", true);
-    if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return w.notify("Not a name for a file", true);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
+    var xbuf: [linux.PATH_MAX]u8 = undefined;
     const d = w.curDir();
-    const p = std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
+    // A path, as Emacs takes one: "~/Documents/a.pdf" or "../a.pdf"
+    // saves in that folder, which must exist.
+    const p = if (std.mem.indexOfScalar(u8, name, '/') != null) blk: {
+        if (name[name.len - 1] == '/') return w.notify("Type a name after the folder", true);
+        const full = model.normalize(&pbuf, w.expandPath(&xbuf, name));
+        if (pathKind(model.parent(full)) != .dir) return w.notify("No such folder", true);
+        break :blk full;
+    } else blk: {
+        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return w.notify("Not a name for a file", true);
+        break :blk std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
+    };
+    const base = model.basename(p);
     switch (pathKind(p)) {
         .missing => ch.answerPaths(&.{p}),
         // A folder by that name: go in, as other choosers do.
         .dir => w.cd(p),
         .file => {
             ch.setPending(&.{p});
-            w.dialogs.confirmOverwrite(&.{name}, d.path);
+            w.dialogs.confirmOverwrite(&.{base}, model.parent(p));
         },
     }
 }

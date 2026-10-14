@@ -341,16 +341,25 @@ The chooser is the same three columns, with every key, preview, search,
   double clicks go into folders and pick files.
 - Choosing folders: Enter picks the folder under the cursor (or the
   marked ones), else the folder shown; `l` goes in.
-- Saving: a name field under the columns, filled from the application's
-  suggestion with the name before its extension selected. Enter saves;
-  Tab goes between the field and the columns; Enter on a file in the
-  columns saves over it. A file that exists asks first (a dialog).
-  Saving several files picks a folder.
+- Saving works like vim's modes, shown in the status line's badge.
+  It starts in INSERT: the name field, filled from the application's
+  suggestion with the name before its extension selected. Escape goes
+  to NORMAL, the columns, with every key; `i` goes back to the name as
+  it was, `a` after the name before its extension, `I` to its start,
+  `A` to its end, and `cc` or `S` clear it. In the Save chooser these
+  take over the keymap's `a` (create), `I` and `A` (rename), and `S`
+  (terminal). Tab and clicks switch modes too. Enter saves from either
+  mode: in NORMAL, Enter on a folder goes in and Enter on a file saves
+  over it. A name with slashes saves in that folder, as Emacs takes one
+  (`../notes.txt`, `~/Documents/a.pdf`). A file that exists asks first
+  (a dialog). Saving several files picks a folder. `:insert [stem|start|end|clear]`
+  is the same, for init.lua.
 - The application's filters are a combo box in the bar: they hide other
   files in the folder shown, never folders. Its choices are check boxes
   and combo boxes; their values go back with the answer.
-- Escape cancels: from the name field at once, from the columns once it
-  has cleared marks, the visual range, or a filter. `q`, the Cancel
+- Escape cancels from the columns, once it has cleared marks, the
+  visual range, or a filter; from the name field it goes to the columns
+  first, so Escape Escape cancels a Save. `q`, the Cancel
   button, and closing the window (Super+W) cancel too. The accept button
   carries the application's label, and the window its title.
 - It starts in the folder the application suggests, else where the last

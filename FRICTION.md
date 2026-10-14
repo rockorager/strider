@@ -250,11 +250,10 @@ what this project does about it, and its status:
 30. **The file chooser** (chosen here; FileChooser portal backend).
     - Keys: Enter picks (in folder mode, the folder under the cursor,
       else the folder shown), `l` and double clicks go into folders and
-      pick files, Space marks several. Escape cancels: at once from the
-      save name (a dialog's Escape; it had moved to the columns, which
-      left the user stuck), from the columns after clearing marks, the
-      visual range, or a filter. `q`, Cancel, and closing the window
-      cancel; Tab goes between the save name and the columns.
+      pick files, Space marks several. Escape cancels from the columns
+      after clearing marks, the visual range, or a filter. `q`,
+      Cancel, and closing the window cancel; Tab goes between the save
+      name and the columns. Save is modal like vim (34).
     - The bar puts the filters and choices on a row above the name and
       buttons, wrapping; only the name (or the hint) shrinks, so the
       buttons show at any width, even narrower than the window's least
@@ -320,6 +319,25 @@ what this project does about it, and its status:
     - The × shows on the active tab and the tab under the pointer, as in
       browsers and GTK, with its space kept on every tab so labels never
       move. Closing the last tab closes the window, as `gq` does.
+
+34. **Save is modal like vim** (decided by the user). The name field
+    is insert mode and the columns are normal mode, with the status
+    line's badge saying which; the mode is where the keyboard focus is,
+    so Escape, Tab, `i`, and clicks all switch it. Escape in the name
+    now goes to the columns instead of cancelling (which 30 had chosen
+    to keep the user from getting stuck): Escape Escape cancels, as do
+    `q`, Cancel, and closing the window.
+    - Keys taken in the Save chooser only, over the keymap: `a`
+      (create), `I` and `A` (rename at the start and end), and `S`
+      (terminal). `i` and `cc` were free (`cw` still renames). `a` puts
+      the caret after the stem, before the extension, the place a name
+      usually grows; `A` at the very end. They are not keymap bindings
+      but call `:insert [stem|start|end|clear]`, which init.lua can bind.
+    - Other pickers: termfilechooser's Save (yazi, ranger, lf) has no
+      name field, only a placeholder file to pick or replace, which
+      Enter on a file in normal mode matches. Emacs' write-file prompt
+      takes a path; borrowed: a name with slashes saves in that folder
+      if it exists.
 
 ## Proposals: GUI affordances still missing
 

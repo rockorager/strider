@@ -942,8 +942,8 @@ test "FileChooser: save with a name, asking before replacing; save several into 
     _ = try h.expect(.button, "Replace");
     try h.key(.escape, .{}, "");
     try testing.expect(!win2.dialogs.isOpen() and !over.done);
-    // Tab goes to the columns (Escape would cancel); Enter on the file
-    // there saves over it, asking again.
+    // Tab goes to the columns (normal mode); Enter on the file there
+    // saves over it, asking again.
     try h.key(.tab, .{}, "");
     try testing.expect(!over.done and !win2.chooser.?.nameFocused());
     try h.typeText("\n");
@@ -1060,7 +1060,88 @@ fn buttonsShow(h: *Harness, width: f32) !void {
     }
 }
 
-test "FileChooser: a narrow window keeps its buttons; Escape in the name and closing the window cancel; the size is kept" {
+test "FileChooser: Save has vim's modes: insert in the name, normal in the columns" {
+    var f: Fixture = .{};
+    try chooserFixture(&f, "chooser-modes");
+    defer f.remove();
+    var d: Daemon = .{};
+    try d.start(f.path);
+    defer d.stop();
+    var h: Harness = .{};
+    defer h.deinit();
+    var hbuf: [256]u8 = undefined;
+    try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
+    const main = h.win.?;
+    var client: siv.Dbus = .null;
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    var ub: [512]u8 = undefined;
+
+    var saved: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "", firefoxSave, &saved);
+    const win = try chooserWindow(&h);
+    const ch = win.chooser.?;
+    // Insert mode first, the stem selected; Escape goes to normal mode,
+    // where keys move in the columns.
+    try testing.expect(ch.nameFocused() and h.reads("INSERT"));
+    try h.key(.escape, .{}, "");
+    try testing.expect(!ch.nameFocused() and h.reads("NORMAL") and !saved.done);
+    try h.expectGolden(h.window(), "chooser-normal");
+    try h.typeText("gg");
+    try testing.expectEqualStrings("src", h.hovered());
+    // i: back to the name as it was, the stem still selected.
+    try h.typeText("i");
+    try testing.expect(ch.nameFocused() and h.reads("INSERT"));
+    try h.typeText("page");
+    try testing.expectEqualStrings("page.html", ch.nameText());
+    // I and a, over the keymap's rename and create: the start, and after
+    // the stem.
+    try h.key(.escape, .{}, "");
+    try h.typeText("Imy-");
+    try h.key(.escape, .{}, "");
+    try h.typeText("a-2");
+    try testing.expectEqualStrings("my-page-2.html", ch.nameText());
+    // A: the end.
+    try h.key(.escape, .{}, "");
+    try h.typeText("Ax");
+    try testing.expectEqualStrings("my-page-2.htmlx", ch.nameText());
+    // cc and S (not the terminal) clear the name.
+    try h.key(.escape, .{}, "");
+    try h.typeText("cc");
+    try testing.expect(ch.nameFocused());
+    try testing.expectEqualStrings("", ch.nameText());
+    try h.typeText("x");
+    try h.key(.escape, .{}, "");
+    try h.typeText("S");
+    try testing.expectEqualStrings("", ch.nameText());
+    // Clicks choose the mode too: the columns are normal, the field insert.
+    try h.click(h.window(), try h.expect(.list_item, "src"), .primary);
+    try testing.expect(!ch.nameFocused() and h.reads("NORMAL"));
+    try h.click(h.window(), try h.expect(.text_input, "Name"), .primary);
+    try testing.expect(ch.nameFocused() and h.reads("INSERT"));
+    // A path in the name saves in that folder, as Emacs takes one.
+    try h.typeText("src/../src/new.txt\n");
+    try answered(&h, main, &saved);
+    try testing.expectEqual(@as(u32, 0), saved.response);
+    try testing.expectEqualStrings(fileUri(&ub, &f, "work/src/new.txt"), saved.uri(0));
+
+    // Escape twice from the name cancels; so does q in normal mode.
+    var twice: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "", firefoxSave, &twice);
+    _ = try chooserWindow(&h);
+    try h.key(.escape, .{}, "");
+    try h.key(.escape, .{}, "");
+    try answered(&h, main, &twice);
+    try testing.expectEqual(@as(u32, 1), twice.response);
+    var quit: Chosen = .{};
+    _ = try callChooser(client, "SaveFile", &f, "", firefoxSave, &quit);
+    _ = try chooserWindow(&h);
+    try h.key(.escape, .{}, "");
+    try h.typeText("q");
+    try answered(&h, main, &quit);
+    try testing.expectEqual(@as(u32, 1), quit.response);
+}
+
+test "FileChooser: a narrow window keeps its buttons; Escape twice from the name and closing the window cancel; the size is kept" {
     var f: Fixture = .{};
     try chooserFixture(&f, "chooser-narrow");
     defer f.remove();
@@ -1094,8 +1175,10 @@ test "FileChooser: a narrow window keeps its buttons; Escape in the name and clo
     try h.settle();
     try buttonsShow(&h, 960);
     try h.expectGolden(h.window(), "chooser-half");
-    // Escape in the name field cancels.
+    // Escape in the name field goes to normal mode; Escape there cancels.
     try testing.expect(win.chooser.?.nameFocused());
+    try h.key(.escape, .{}, "");
+    try testing.expect(!narrow.done and !win.chooser.?.nameFocused());
     try h.key(.escape, .{}, "");
     try answered(&h, main, &narrow);
     try testing.expectEqual(@as(u32, 1), narrow.response);

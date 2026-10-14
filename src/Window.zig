@@ -1074,10 +1074,13 @@ fn applyStatus(self: *Window, txn: Txn) void {
     const d = self.curDir();
     const app = self.app;
     // The mode badge.
+    // A Save chooser has two modes, as vim: typing the name, or moving
+    // in the columns.
+    const saving = if (self.chooser) |ch| ch.kind == .save else false;
     const mode_text: []const u8 = switch (self.mode) {
         .visual => "VISUAL",
         .tasks => "TASKS",
-        .normal => "",
+        .normal => if (!saving) "" else if (self.chooser.?.nameFocused()) "INSERT" else "NORMAL",
     };
     _ = c.siv_set_text(txn, self.status_mode, mode_text.ptr, mode_text.len);
     _ = c.siv_set_hidden(txn, self.status_mode, mode_text.len == 0);
@@ -1541,7 +1544,7 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     self.last_input = input_clock;
     if (self.prompt != null or self.tabs.items.len == 0 or self.dialogs.isOpen()) return .pass;
     const m = ev.modifiers;
-    // A chooser's name field takes its keys; Tab goes to it.
+    // A chooser's name field takes its keys (insert mode); Tab goes to it.
     if (self.chooser) |ch| {
         if (ch.nameFocused()) return .pass;
         if (ev.keysym == .tab and !m.ctrl and !m.alt and !m.shift and !m.super and ch.focusName()) return .handled;
@@ -1549,7 +1552,31 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     const text = if (ev.text) |t| t[0..ev.text_len] else "";
     const keysym: u32 = @bitCast(@intFromEnum(ev.keysym));
     const k = keys.fromEvent(keysym, text, m.ctrl, m.alt, m.super, m.shift) orelse return .pass;
+    if (self.chooserInsertKey(k)) return .handled;
     return if (self.handleKey(k)) .handled else .pass;
+}
+
+/// A Save chooser's way back to insert mode, as in vim: i, a, I, A, cc,
+/// and S, over what the keymap binds to them (create, rename, terminal).
+fn chooserInsertKey(self: *Window, k: keys.Key) bool {
+    const ch = self.chooser orelse return false;
+    if (ch.kind != .save or self.mode != .normal or self.await_key != .none or self.count != null) return false;
+    if (!k.isChar() or k.mods.ctrl or k.mods.alt or k.mods.super) return false;
+    const arg: []const u8 = if (self.pending_len == 0) switch (k.code) {
+        'i' => "",
+        'a' => "stem",
+        'I' => "start",
+        'A' => "end",
+        'S' => "clear",
+        else => return false,
+    } else if (self.pending_len == 1 and k.code == 'c' and self.pending[0].code == 'c' and self.pending[0].isChar() and @as(u8, @bitCast(self.pending[0].mods)) == 0)
+        "clear"
+    else
+        return false;
+    self.resetPending();
+    var buf: [16]u8 = undefined;
+    commands.execute(self, std.fmt.bufPrint(&buf, "insert {s}", .{arg}) catch return true, null, true);
+    return true;
 }
 
 /// One key in normal or visual mode; true if it meant something.

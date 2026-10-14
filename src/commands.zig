@@ -99,6 +99,7 @@ pub const list = [_]Command{
     .{ .name = "chown", .desc = "Owner: chown [-R] user, user:group, :group", .run = chown },
     .{ .name = "shell", .desc = "Run a shell command (-t in a terminal)", .run = shell, .complete = .path },
     .{ .name = "shell-prompt", .desc = "Type a shell command", .run = shellPrompt },
+    .{ .name = "insert", .desc = "Save chooser: type the name (stem, start, end, or clear)", .run = insert },
     .{ .name = "terminal", .desc = "A terminal in this folder", .run = terminal, .complete = .dir },
     .{ .name = "reload", .desc = "Read the folders again", .run = reload },
     .{ .name = "toggle-hidden", .desc = "Show or hide hidden files", .run = toggleHidden },
@@ -842,6 +843,16 @@ pub fn terminalCommand(app: *App) TermCmd {
     };
     for (known) |k| if (proc.onPath(k[0])) return .{ .arena = arena, .items = k };
     return .{ .arena = arena, .items = &.{ "xterm", "-e" } };
+}
+
+/// :insert [stem|start|end|clear]: a Save chooser's name field, with
+/// the caret where vim's i, a, I, A, or cc would put it.
+fn insert(ctx: Ctx) void {
+    const win = ctx.win;
+    const ch = win.chooser orelse return win.notify("Only a Save chooser has a name to type", true);
+    const a = std.mem.trim(u8, ctx.args, " ");
+    const how: App.Chooser.Insert = if (a.len == 0) .keep else std.meta.stringToEnum(App.Chooser.Insert, a) orelse return win.notify("insert takes stem, start, end, or clear", true);
+    if (!ch.insert(how)) win.notify("Only a Save chooser has a name to type", true);
 }
 
 /// :terminal [folder]: the user's terminal in the folder shown (or
