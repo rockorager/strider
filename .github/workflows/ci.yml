@@ -1,0 +1,74 @@
+# `zig build test` on every push and pull request, as siv's CI does: the
+# unit tests and the headless tests (the views, keys, file operations,
+# previews, Lua, and the D-Bus services against a private dbus-daemon).
+# Nothing else; the sway session, the real portal, and the benchmarks
+# run by hand.
+#
+# Arch Linux, as the user's machine. siv comes from the deps/siv
+# submodule and builds with its vendored C libraries; their objects land
+# in Zig's global cache, which is kept between runs.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: archlinux:base
+    defaults:
+      run:
+        # As an unprivileged user, like an orb.
+        shell: runuser -u ci -- bash -eo pipefail {0}
+    env:
+      ZIG_VERSION: 0.17.0
+      ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+    steps:
+      # What siv links (libwayland-client, xkbcommon, Fontconfig, FreeType,
+      # the Vulkan headers) and the keymaps; shared-mime-info for types;
+      # dbus for the services tests; poppler's pdftoppm and libarchive's
+      # bsdtar, which previews call; tar and gzip, which a test archives
+      # with.
+      - name: Packages and the ci user
+        shell: bash
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git curl xz tar gzip pkgconf \
+            wayland libxkbcommon xkeyboard-config fontconfig freetype2 libpng \
+            vulkan-headers vulkan-icd-loader \
+            shared-mime-info dbus poppler libarchive
+          useradd -m -u "$(stat -c %u "$GITHUB_WORKSPACE")" ci
+          # D-Bus's Peer.GetMachineId reads it; the image has none.
+          systemd-machine-id-setup || tr -d - </proc/sys/kernel/random/uuid >/etc/machine-id
+
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Zig
+        shell: bash
+        run: |
+          curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz" -o /tmp/zig.tar.xz
+          echo "$ZIG_SHA256  /tmp/zig.tar.xz" | sha256sum -c --quiet
+          mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1
+          ln -s /opt/zig/zig /usr/local/bin/zig
+
+      # Zig's global cache (compiler-rt, libc++, siv's vendored C
+      # libraries), once per siv commit and set of pinned packages.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            zig-pkg
+            /home/ci/.cache/zig
+          key: zig-${{ hashFiles('build.zig.zon', 'deps/siv/build.zig.zon') }}-${{ github.sha }}
+          restore-keys: |
+            zig-${{ hashFiles('build.zig.zon', 'deps/siv/build.zig.zon') }}-
+
+      - name: zig build test
+        run: zig build test -j16 --summary failures
