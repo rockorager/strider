@@ -11,6 +11,17 @@ configuration. The mouse works, but nothing needs it.
 The name is a placeholder (program `siv-columns`, app id
 `org.siv.Columns`); see [FRICTION.md](FRICTION.md).
 
+## Design principle
+
+The best of the terminal with the affordances of a GUI. From the
+terminal: keyboard first, modal, scriptable (every action is a named
+command, configured in Lua), dense, and fast. From the GUI: what a
+window can offer that a terminal cannot, where it helps, such as column
+boundaries you can drag, a resize cursor that says so, and surfaces that
+tell the columns apart. Neither half gives way to the other: everything
+the mouse or a visual cue does has a key and a command, and the keys
+never wait for the pointer.
+
 On sway (headless, 1280×800, driven with wtype): an image previewed at
 its displayed size, an archive listing, the which-key popup after `g`,
 the dark style with a syntax-colored README, the fuzzy finder (`gf`), a
@@ -98,6 +109,7 @@ tenth entry.
 | `!`, `S` | run a shell command on the selection, a terminal here |
 | `=` | change permissions (`:chmod`); `:chown` changes owners |
 | `w` | the tasks view: running and recent file operations |
+| `>` `<`, `z=` | widen and narrow the current column, back to the ratio |
 | `J` `K` | scroll the preview |
 | `:` | the command line: Tab completes commands and paths, Up and Down recall history |
 | `q`, `ZZ` | close the tab (the window with the last), quit |
@@ -218,6 +230,14 @@ bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
 `terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms` (how
 old a folder that cannot be watched, such as the trash, may be before
 it is read again; watched folders follow changes on disk at once).
+
+Drag the boundary between two columns to resize them (the pointer turns
+into a resize arrow over it), or press `>` and `<` (32 px, counts
+multiply; `:column-wider parent` and `:column-narrower parent` for the
+parent); room comes from the preview, and no column gets narrower than
+80 px. Chosen widths are shares of the window, win over `ratio` and
+`fit_parent` until `z=` (`:column-reset`), still give way to
+`narrow_width`, and are kept in `$XDG_STATE_HOME/siv-columns/columns`.
 
 Column widths start from `ratio`, the shares of the parent, current, and
 preview columns (ranger's `column_ratios`; 0 hides a column). With
