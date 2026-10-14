@@ -300,13 +300,22 @@ fn onRowPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
     return .pass;
 }
 
-/// A right click on the current column's empty space: the folder's menu
-/// (clicks on rows are theirs first).
+/// Presses on a column's empty space (clicks on rows are theirs first):
+/// the right button in the current column opens the folder's menu; the
+/// left button in the others keeps focus in the current column, where
+/// keys act. siv's view takes the rest, activating nothing.
 fn onViewPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const col: *Column = @ptrCast(@alignCast(ud.?));
-    if (col.kind != .current or ev.phase != .down or ev.button != .secondary) return .pass;
-    col.win.menu.open(.folder, node, ev.x, ev.y);
-    return .handled;
+    if (ev.phase != .down) return .pass;
+    if (col.kind == .current and ev.button == .secondary) {
+        col.win.menu.open(.folder, node, ev.x, ev.y);
+        return .handled;
+    }
+    if (col.kind != .current and ev.button == .primary) {
+        _ = c.siv_node_focus(col.win.current.view);
+        return .handled;
+    }
+    return .pass;
 }
 
 /// A drop on a folder's row goes into that folder.

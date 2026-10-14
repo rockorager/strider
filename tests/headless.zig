@@ -1389,6 +1389,74 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
 }
 
+/// Whether keyboard focus is in the current column.
+fn inCurrent(h: *Harness) bool {
+    const focused = h.find(h.window(), .{ .flags = .{ .focused = true } }) orelse return false;
+    const cur = (h.expect(.list, "Files") catch return false).bounds;
+    return focused.bounds.x >= cur.x and focused.bounds.x < cur.x + cur.width;
+}
+
+/// Clicks `clicks` times at the middle of the empty space below a list's
+/// rows (20 px above its bottom).
+fn clickBelowRows(h: *Harness, list: []const u8, clicks: u32, button: siv.PointerButton) !void {
+    const b = (try h.expect(.list, list)).bounds;
+    for (0..clicks) |_| try siv.check(c.siv_test_click(h.window(), b.x + b.width / 2, b.y + b.height - 20, button));
+    try h.settle();
+}
+
+test "clicks on the empty space below the rows open nothing and go nowhere" {
+    var f: Fixture = .{};
+    try fixture(&f, "empty-click");
+    defer f.remove();
+    // Opening photo.png would run the recorder, as imv.
+    try f.add(.{ .name = "bin", .dir = true });
+    try f.add(.{ .name = "bin/record-args", .mode = 0o755 });
+    try f.writeFile("bin/record-args", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    for ([_][]const u8{ ".local", ".local/share", ".local/share/applications", ".config" }) |d| {
+        if (!f.exists(d)) try f.add(.{ .name = d, .dir = true });
+    }
+    try f.writeFile(".local/share/applications/org.example.Imv.desktop", "[Desktop Entry]\nType=Application\nName=imv\nExec=record-args %F\nMimeType=image/png;\n");
+    try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\n");
+    const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
+    var saved: [4096]u8 = undefined;
+    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    var nb: [4096]u8 = undefined;
+    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    defer _ = setenv("PATH", saved_path.ptr, 1);
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    var wb: [512]u8 = undefined;
+    const work = f.sub(&wb, "work");
+    try h.typeText("fph");
+    // The current column: a click, then a double click, below the rows.
+    try clickBelowRows(&h, "Files", 1, .primary);
+    try clickBelowRows(&h, "Files", 2, .primary);
+    try testing.expectEqualStrings("photo.png", h.hovered());
+    try testing.expectEqualStrings(work, h.dir().path);
+    // The parent column, where a click on a row goes there.
+    try clickBelowRows(&h, "Parent folder", 1, .primary);
+    try clickBelowRows(&h, "Parent folder", 2, .primary);
+    try testing.expectEqualStrings(work, h.dir().path);
+    try testing.expectEqualStrings("photo.png", h.hovered());
+    try testing.expect(inCurrent(&h));
+    // A folder's preview, where a click shows that entry.
+    try h.typeText("fsr");
+    try clickBelowRows(&h, "Folder preview", 1, .primary);
+    try clickBelowRows(&h, "Folder preview", 2, .primary);
+    try testing.expectEqualStrings(work, h.dir().path);
+    try testing.expectEqualStrings("src", h.hovered());
+    try testing.expect(inCurrent(&h));
+    // Nothing ran: give a launch time to show.
+    var pb: [512]u8 = undefined;
+    const out = try std.fmt.bufPrintSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
+    for (0..40) |_| try siv.check(c.siv_app_dispatch(h.sapp, 25));
+    try testing.expect(linux.errno(linux.faccessat(linux.AT.FDCWD, out, linux.F_OK, 0)) != .SUCCESS);
+    // The right button there still opens the folder's menu.
+    try clickBelowRows(&h, "Files", 1, .secondary);
+    try testing.expect(menuHas(&h, "New file or folder…"));
+}
+
 test "folders follow changes on disk: the current one, its parent, and the previewed one" {
     var f: Fixture = .{};
     try fixture(&f, "watch");

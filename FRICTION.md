@@ -228,6 +228,17 @@ what this project does about it, and its status:
     inset) and the columns use it. The tasks view and the pickers keep
     their inset pill rows, rounded alike on every row.
 
+28. **A click on a column's empty space does nothing** (chosen here,
+    siv 5ef915e fixed the cause). siv's view sent the column an item's
+    activation for item 0 when a press below the rows was released, so
+    a click there entered the first folder or opened the first file.
+    Now a click there only keeps focus in the current column. Nautilus,
+    Dolphin, and Thunar clear their selection on such a click, but
+    there the selection is made by clicking; marks here are made with
+    keys, as in ranger, where they last until cleared (`Esc`, `:unmark-all`),
+    so a stray click keeps them. The right button there still opens the
+    folder's menu.
+
 ## Proposals: GUI affordances still missing
 
 Places where the mouse or a visual cue should work, by the design
