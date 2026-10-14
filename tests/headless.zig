@@ -1480,6 +1480,43 @@ test "the header path: hovering a folder underlines it, a click goes there, a mi
     try testing.expectEqualStrings("util", model.basename(h.win.?.tabs.items[0].path()));
 }
 
+test "tabs: the x closes its tab, the active one stays; hover and middle clicks" {
+    var f: Fixture = .{};
+    try fixture(&f, "tabx");
+    defer f.remove();
+    var h: Harness = .{};
+    defer h.deinit();
+    try h.start(.{ .path = f.sub(&path_buf, "work") });
+    // Three tabs: work, src, docs; the second is active.
+    try h.typeText("gn");
+    try h.typeText("fsrl");
+    try h.typeText("gn");
+    try h.typeText("hfdocl");
+    try h.typeText("gT");
+    const win = h.win.?;
+    try testing.expectEqual(@as(usize, 3), win.tabs.items.len);
+    try testing.expectEqual(@as(usize, 1), win.active);
+    // The x of the third tab, hidden until the tab is hovered.
+    const third = try h.expect(.tab, "3 docs");
+    try hover(&h, third);
+    // Only the active and hovered tabs have one.
+    try testing.expect(h.find(h.window(), .{ .role = .button, .name = "Close 1 work", .name_len = 12 }) == null);
+    _ = try h.expect(.button, "Close 2 src");
+    const x = try h.expect(.button, "Close 3 docs");
+    try hover(&h, x);
+    try h.expectGolden(h.window(), "tab-close-hover");
+    try h.click(h.window(), x, .primary);
+    try testing.expectEqual(@as(usize, 2), win.tabs.items.len);
+    try testing.expectEqual(@as(usize, 1), win.active);
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+    try testing.expectEqualStrings("work", model.basename(win.tabs.items[0].path()));
+    // Closing a tab before the active one keeps the same tab active.
+    try h.click(h.window(), try h.expect(.tab, "1 work"), .middle);
+    try testing.expectEqual(@as(usize, 1), win.tabs.items.len);
+    try testing.expectEqual(@as(usize, 0), win.active);
+    try testing.expectEqualStrings("src", model.basename(h.dir().path));
+}
+
 /// Whether keyboard focus is in the current column.
 fn inCurrent(h: *Harness) bool {
     const focused = h.find(h.window(), .{ .flags = .{ .focused = true } }) orelse return false;

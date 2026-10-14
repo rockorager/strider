@@ -90,6 +90,11 @@ crumbs: std.ArrayList(Crumb) = .empty,
 /// The folder the crumbs show (rebuilt when it changes).
 crumbs_for: std.ArrayList(u8) = .empty,
 tabs_row: Node = .null,
+/// Each tab's nodes, in tab order, so hovering restyles them in place.
+tab_nodes: std.ArrayList(TabNodes) = .empty,
+/// The tab under the pointer, and the tab whose close button is.
+tab_hover: ?usize = null,
+tab_close_hover: ?usize = null,
 parent_col: Column,
 current: Column,
 preview: Preview,
@@ -316,6 +321,7 @@ fn onWindowDestroyed(ud: ?*anyopaque) callconv(.c) void {
     self.freeCrumbs();
     self.crumbs.deinit(gpa);
     self.crumbs_for.deinit(gpa);
+    self.tab_nodes.deinit(gpa);
     self.app.windowClosed(self);
     gpa.destroy(self);
 }
@@ -744,42 +750,127 @@ pub fn selectTab(self: *Window, i: usize) void {
 }
 
 pub fn closeTab(self: *Window) void {
+    self.closeTabAt(self.active);
+}
+
+/// Closes tab i; the active tab stays active unless it is the one
+/// closed. Closing the last tab closes the window.
+pub fn closeTabAt(self: *Window, i: usize) void {
+    if (i >= self.tabs.items.len) return;
     if (self.tabs.items.len <= 1) return self.close();
-    const t = self.tabs.orderedRemove(self.active);
-    if (self.active >= self.tabs.items.len) self.active = self.tabs.items.len - 1;
+    const t = self.tabs.orderedRemove(i);
+    if (i < self.active or self.active >= self.tabs.items.len) self.active -= 1;
+    self.tab_hover = null;
+    self.tab_close_hover = null;
     self.endVisual();
     self.showTab();
     freeTab(self.gpa, t);
 }
 
+fn tabLabel(self: *Window, buf: []u8, i: usize) []const u8 {
+    const p = self.tabs.items[i].path();
+    const name = if (std.mem.eql(u8, p, self.app.home)) "~" else model.basename(p);
+    return std.fmt.bufPrint(buf, "{d} {s}", .{ i + 1, name }) catch name;
+}
+
+const tab_radius: siv.Corners = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 };
+
+const TabNodes = struct { root: Node, label: Node, close: Node, icon: Node };
+
 fn applyTabs(self: *Window, txn: Txn) void {
     ui.clear(txn, self.tabs_row);
+    self.tab_nodes.clearRetainingCapacity();
     if (self.tabs.items.len < 2) return;
-    for (self.tabs.items, 0..) |t, i| {
+    for (0..self.tabs.items.len) |i| {
         var buf: [96]u8 = undefined;
-        const name = if (std.mem.eql(u8, t.path(), self.app.home)) "~" else model.basename(t.path());
-        const label = std.fmt.bufPrint(&buf, "{d} {s}", .{ i + 1, name }) catch "";
-        const on = i == self.active;
-        const b = c.siv_text(txn, self.tabs_row, label.ptr, label.len);
-        _ = c.siv_set_text_style(txn, b, &.{ .color_token = if (on) .accent_fg else .muted_fg, .size_role = .caption, .weight = if (on) .bold else .regular, .flags = .{ .no_wrap = true } });
-        _ = c.siv_set_layout(txn, b, &.{ .padding = .{ .start = 8, .end = 8, .top = 2, .bottom = 2 }, .max_width = 160 });
-        _ = c.siv_set_visual(txn, b, &.{ .background_token = if (on) .accent else .control_bg, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 } });
-        _ = c.siv_set_semantics(txn, b, &.{ .role = .tab, .selected = if (on) .on else .off });
-        _ = c.siv_on(txn, b, .pointer, onTabPointer, null, self);
+        const label = self.tabLabel(&buf, i);
+        const root = c.siv_flex(txn, self.tabs_row, &.{ .axis = .row, .gap = 2, .align_items = .center });
+        _ = c.siv_set_layout(txn, root, &.{ .padding = .{ .start = 8, .end = 2, .top = 1, .bottom = 1 }, .max_width = 180 });
+        _ = c.siv_set_semantics(txn, root, &.{ .role = .tab, .label = label.ptr, .label_len = label.len });
+        _ = c.siv_on(txn, root, .pointer, onTabPointer, null, self);
+        const text = c.siv_text(txn, root, label.ptr, label.len);
+        _ = c.siv_set_layout(txn, text, &.{ .shrink = 1, .min_width = 0 });
+        // The close button's space is always kept, so labels stay put when
+        // it shows; hidden, it is transparent and the pointer passes through.
+        const x = c.siv_flex(txn, root, &.{ .axis = .row, .justify = .center, .align_items = .center });
+        _ = c.siv_set_layout(txn, x, &.{ .width = px(18), .height = px(18), .flags = .{ .no_shrink = true } });
+        _ = c.siv_on(txn, x, .pointer, onTabClosePointer, null, self);
+        const icon = c.siv_image_view(txn, x, &.{ .icon_size = 12 });
+        _ = c.siv_set_semantics(txn, icon, &.{ .role = .none });
+        self.tab_nodes.append(self.gpa, .{ .root = root, .label = text, .close = x, .icon = icon }) catch return;
+        self.styleTab(txn, i);
     }
+}
+
+/// A tab's look: the active tab on the accent, a hovered one raised, and
+/// the close button on the active and hovered tabs.
+fn styleTab(self: *Window, txn: Txn, i: usize) void {
+    if (i >= self.tab_nodes.items.len) return;
+    const n = self.tab_nodes.items[i];
+    const on = i == self.active;
+    const hover = self.tab_hover == i;
+    const fg: siv.ColorToken = if (on) .accent_fg else if (hover) .control_fg else .muted_fg;
+    _ = c.siv_set_visual(txn, n.root, &.{ .background_token = if (on) .accent else if (hover) .control_hover else .control_bg, .radius = tab_radius });
+    _ = c.siv_set_semantics(txn, n.root, &.{ .role = .tab, .selected = if (on) .on else .off });
+    _ = c.siv_set_text_style(txn, n.label, &.{ .color_token = fg, .size_role = .caption, .weight = if (on) .bold else .regular, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    const shown = on or hover;
+    const close_hover = shown and self.tab_close_hover == i;
+    _ = c.siv_set_visual(txn, n.close, &.{ .background_token = if (!close_hover) .none else if (on) .accent_active else .control_active, .radius = tab_radius, .flags = .{ .no_hit_test = !shown } });
+    _ = c.siv_set_opacity(txn, n.close, if (shown) 1 else 0);
+    _ = c.siv_set_cursor(txn, n.close, if (shown) .pointer else .default);
+    var lb: [96]u8 = undefined;
+    var buf: [104]u8 = undefined;
+    const name = std.fmt.bufPrint(&buf, "Close {s}", .{self.tabLabel(&lb, i)}) catch "Close";
+    _ = c.siv_set_semantics(txn, n.close, &.{ .role = if (shown) .button else .none, .label = name.ptr, .label_len = name.len, .flags = .{ .focusable = false } });
+    _ = c.siv_set_image_view(txn, n.icon, &.{ .icon = "window-close-symbolic", .icon_len = 21, .icon_size = 12, .color_token = fg });
+}
+
+fn tabIndex(self: *Window, node: Node, comptime field: []const u8) ?usize {
+    for (self.tab_nodes.items, 0..) |n, i| {
+        if (@field(n, field) == node) return i;
+    }
+    return null;
+}
+
+fn setTabHover(self: *Window, hover: ?usize, close_hover: ?usize) void {
+    if (hover == self.tab_hover and close_hover == self.tab_close_hover) return;
+    const txn = self.begin() orelse return;
+    const old = [_]?usize{ self.tab_hover, self.tab_close_hover };
+    self.tab_hover = hover;
+    self.tab_close_hover = close_hover;
+    for (old ++ [_]?usize{ hover, close_hover }) |o| if (o) |i| self.styleTab(txn, i);
+    _ = commit(txn);
 }
 
 fn onTabPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const self: *Window = @ptrCast(@alignCast(ud.?));
-    if (ev.phase != .down) return .pass;
-    var i: usize = 0;
-    var cur = c.siv_node_get_related(self.tabs_row, .first_child);
-    while (cur != .null and cur != node) : (cur = c.siv_node_get_related(cur, .next)) i += 1;
-    if (ev.button == .middle) {
-        self.active = i;
-        self.closeTab();
-    } else self.selectTab(i);
-    return .handled;
+    const i = self.tabIndex(node, "root") orelse return .pass;
+    switch (ev.phase) {
+        .enter => self.setTabHover(i, self.tab_close_hover),
+        .leave => if (self.tab_hover == i) self.setTabHover(null, null),
+        .down => {
+            if (ev.button == .middle) self.closeTabAt(i) else if (ev.button == .primary) self.selectTab(i) else return .pass;
+            return .handled;
+        },
+        else => {},
+    }
+    return .pass;
+}
+
+fn onTabClosePointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
+    const self: *Window = @ptrCast(@alignCast(ud.?));
+    const i = self.tabIndex(node, "close") orelse return .pass;
+    switch (ev.phase) {
+        .enter => self.setTabHover(i, i),
+        .leave => if (self.tab_close_hover == i) self.setTabHover(self.tab_hover, null),
+        .down => {
+            if (ev.button != .primary and ev.button != .middle) return .pass;
+            self.closeTabAt(i);
+            return .handled;
+        },
+        else => {},
+    }
+    return .pass;
 }
 
 // Showing ----------------------------------------------------------------------------------
