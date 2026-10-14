@@ -1,0 +1,3 @@
+[submodule "deps/siv"]
+	path = deps/siv
+	url = https://github.com/rockorager/siv

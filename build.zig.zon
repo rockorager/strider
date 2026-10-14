@@ -1,0 +1,14 @@
+.{
+    .name = .siv_columns,
+    .version = "0.1.0",
+    .fingerprint = 0x1fa8ee58b5294b15, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // siv is a private repository, which `zig fetch` cannot
+        // authenticate to, so it is a git submodule pinned to a commit of
+        // its main branch: clone this repository with
+        // --recurse-submodules (or run `git submodule update --init`).
+        .siv = .{ .path = "deps/siv" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "data", "icons", "tests", "tools" },
+}

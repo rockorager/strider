@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.siv.Columns</id>
+  <name>Columns</name>
+  <summary>A keyboard-driven file manager in Miller columns</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <launchable type="desktop-id">org.siv.Columns.desktop</launchable>
+  <provides>
+    <dbus type="user">org.freedesktop.FileManager1</dbus>
+  </provides>
+  <description>
+    <p>A ranger- and yazi-style file manager for Wayland, built on siv:
+    the parent folder, the current one, and a live preview side by side;
+    vim keys with counts, search, marks, visual selection, bookmarks, and
+    tabs; a command line with completion; and copy, move, trash, and
+    delete with undo. Keymaps, options, previewers, and commands are
+    configured in Lua.</p>
+  </description>
+  <categories>
+    <category>System</category>
+    <category>FileManager</category>
+  </categories>
+</component>

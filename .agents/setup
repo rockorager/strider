@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb (Debian) to build and test siv-files.
+# Idempotent: a warm orb skips downloads and package installs.
+set -euo pipefail
+
+ZIG_VERSION=0.17.0
+
+step() { printf '==> %s\n' "$*"; }
+
+# What siv links (libwayland-client, xkbcommon, Fontconfig, the Vulkan
+# headers), the keymaps its keyboard handling compiles, shared-mime-info
+# and desktop-file-utils for running the program, and dbus (with
+# dbus-daemon) for its single-instance and FileManager1 services and the
+# D-Bus tests.
+packages=(
+	ca-certificates curl xz-utils pkg-config git
+	libwayland-dev libxkbcommon-dev libfontconfig-dev xkb-data
+	libvulkan-dev mesa-vulkan-drivers
+	shared-mime-info desktop-file-utils dbus
+)
+
+install_packages() {
+	local missing=()
+	for p in "${packages[@]}"; do
+		dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'install ok installed' || missing+=("$p")
+	done
+	if ((${#missing[@]})); then
+		step "apt-get install ${missing[*]}"
+		sudo apt-get update -qq
+		sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+	else
+		step "system packages already installed"
+	fi
+}
+
+install_zig() {
+	local dir=/opt/zig-$ZIG_VERSION
+	if [[ ! -x $dir/zig ]]; then
+		local arch sha
+		arch=$(uname -m)
+		case $arch in
+		x86_64) sha=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
+		aarch64) sha=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8 ;;
+		*) echo "unsupported architecture: $arch" >&2; exit 1 ;;
+		esac
+		local name=zig-$arch-linux-$ZIG_VERSION tmp
+		tmp=$(mktemp -d)
+		step "download $name"
+		curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/$name.tar.xz" -o "$tmp/zig.tar.xz"
+		echo "$sha  $tmp/zig.tar.xz" | sha256sum -c --quiet
+		sudo mkdir -p "$dir"
+		sudo tar -xJf "$tmp/zig.tar.xz" -C "$dir" --strip-components=1
+		rm -rf "$tmp"
+	else
+		step "zig $ZIG_VERSION already installed"
+	fi
+	sudo ln -sfn "$dir/zig" /usr/local/bin/zig
+}
+
+# siv is a private repository pinned as a submodule. The orb's git
+# credentials reach GitHub; `zig fetch` could not.
+init_submodule() {
+	if [[ ! -e deps/siv/build.zig ]]; then
+		step "git submodule update --init"
+		git submodule update --init --recursive
+	else
+		step "deps/siv already checked out"
+	fi
+}
+
+# Fetch siv's pinned packages and warm the caches with a debug build and
+# the tests, so the first build in a thread is incremental.
+build_once() {
+	step "zig build test"
+	zig build test
+}
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+.agents/resume
+install_packages
+install_zig
+init_submodule
+build_once
+zig version
