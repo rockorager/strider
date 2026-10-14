@@ -27,7 +27,8 @@ its displayed size, an archive listing, the which-key popup after `g`,
 the dark style with a syntax-colored README, the fuzzy finder (`gf`), a
 copy paused in the tasks view (`w`), a program in hex, the context menu
 (Menu key), the properties dialog (Alt+Enter), and the default light
-view with a surface per column.
+view with a surface per column. Last, Omarchy's tokyo-night and
+catppuccin-latte themes, which it follows live (headless captures).
 
 | | |
 | --- | --- |
@@ -36,6 +37,7 @@ view with a surface per column.
 | ![gf: files below, ranked as you type](docs/screenshots/picker.png) | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png) |
 | ![A program's start in hex](docs/screenshots/hex.png) | ![The context menu, its keys beside each command](docs/screenshots/menu.png) |
 | ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png) |
+| ![Omarchy's tokyo-night theme](tests/golden/columns-omarchy-tokyo-night.png) | ![Omarchy's catppuccin-latte theme](tests/golden/columns-omarchy-catppuccin-latte.png) |
 
 ## Install
 
@@ -276,6 +278,18 @@ Bookmarks and the command history persist in
 - Light, dark, and high-contrast styles and the accent follow the desktop
   (every color is a siv theme token, syntax colors included); right to
   left layouts mirror the columns.
+- Themes follow the user's, live, as every siv application does:
+  Omarchy's current theme (switch it with `omarchy theme set` and the
+  open windows change), or `~/.config/siv/theme.toml`, siv's own format
+  (color tokens by name, with `[light]` and `[dark]` tables; see siv's
+  theming chapter). The columns take the theme's surfaces, folders its
+  accent, executables and syntax its named colors; high contrast stays
+  siv's. `SIV_THEME=none` turns user themes off. `--dark` and `--light`
+  pick a variant, and a theme for the other one gives way to siv's.
+- Fonts come from Fontconfig: the file names in `sans-serif`, previews
+  and permission fields in `monospace`, so `omarchy font set` (or any
+  fonts.conf change) applies live. On GNOME and KDE the desktop's font
+  settings apply instead.
 - Screen readers: the columns are lists whose focused row is the cursor,
   marked entries say so, the status line is a live region, prompts are
   labeled text fields (AT-SPI, through siv).

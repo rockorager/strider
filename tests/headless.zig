@@ -1236,6 +1236,32 @@ test "themes and right to left" {
     try expectSquareFirstRow(&h);
 }
 
+test "Omarchy themes: the columns follow the user's theme, dark and light" {
+    var f: Fixture = .{};
+    try fixture(&f, "omarchy");
+    defer f.remove();
+    // As siv finds ~/.local/state/omarchy/current/theme/colors.toml on a
+    // display (siv's D29); the headless backend reads SIV_THEME's file.
+    const themes = [_][2][:0]const u8{
+        .{ "columns-omarchy-tokyo-night", "tests/themes/tokyo-night/colors.toml" },
+        .{ "columns-omarchy-catppuccin-latte", "tests/themes/catppuccin-latte/colors.toml" },
+    };
+    for (themes) |th| {
+        _ = setenv("SIV_THEME", th[1].ptr, 1);
+        defer _ = unsetenv("SIV_THEME");
+        var h: Harness = .{};
+        defer h.deinit();
+        // The theme's mode picks light or dark.
+        try h.start(.{ .path = f.sub(&path_buf, "work"), .scheme = .follow });
+        try h.typeText("j");
+        try h.typeText("j");
+        try testing.expectEqualStrings("src", h.hovered());
+        try h.typeText("ljj");
+        try testing.expectEqualStrings("main.zig", h.hovered());
+        try h.expectGolden(h.window(), th[0]);
+    }
+}
+
 /// The current column's first row (the cursor's) has the same color at
 /// all four corners.
 fn expectSquareFirstRow(h: *Harness) !void {
