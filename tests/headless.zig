@@ -568,7 +568,7 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try testing.expectEqual(@TypeOf(p.text_kind).binary, p.text_kind);
     {
         var tb: [256]u8 = undefined;
-        try testing.expectEqualStrings("00000000  00 01 02 62 69 6e 61 72  79 00                    |...binary.|\n", App.ui.getText(p.text, &tb));
+        try testing.expectEqualStrings("Binary file, 10 bytes\n\n00000000  00 01 02 62 69 6e 61 72  79 00                    |...binary.|\n", App.ui.getText(p.text, &tb));
     }
     try h.expectGolden(h.window(), "preview-hex");
     // Images past the size limit show their details.

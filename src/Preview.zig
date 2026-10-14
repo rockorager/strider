@@ -229,6 +229,10 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     if (isTexty(type_name) or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or std.mem.startsWith(u8, type_name, "application/x-unknown")) {
         return p.startJob(txn, .text, path, e);
     }
+    // Programs, libraries, and other application data with no previewer:
+    // their start in hex (text that only has an application type shows
+    // as text).
+    if (std.mem.startsWith(u8, type_name, "application/")) return p.startJob(txn, .text, path, e);
     p.showInfo(txn, d, e, path, null);
 }
 
@@ -466,6 +470,8 @@ const Job = struct {
     syntax: bool,
     width: f32,
     cache_dir: []u8,
+    /// The file's type, as people read it, over a hex view.
+    type_label: []u8 = &.{},
     cancelled: std.atomic.Value(bool) = .init(false),
     /// Holds one of the `max_jobs` slots.
     started: bool = false,
@@ -569,6 +575,11 @@ const Job = struct {
         errdefer out.deinit(j.gpa);
         var spans: std.ArrayList(highlight.Span) = .empty;
         errdefer spans.deinit(j.gpa);
+        var sbuf: [32]u8 = undefined;
+        if (j.type_label.len != 0) {
+            try out.print(j.gpa, "{s}, {s}\n\n", .{ j.type_label, model.formatSize(&sbuf, j.size) });
+            try spans.append(j.gpa, .{ .start = 0, .end = @intCast(out.items.len), .class = .heading });
+        }
         var off: usize = 0;
         while (off < bytes.len) : (off += 16) {
             const row = bytes[off..@min(off + 16, bytes.len)];
@@ -586,7 +597,6 @@ const Job = struct {
             try out.appendSlice(j.gpa, "|\n");
         }
         if (j.size > bytes.len) {
-            var sbuf: [32]u8 = undefined;
             try out.print(j.gpa, "… the first {d} bytes of {s}\n", .{ bytes.len, model.formatSize(&sbuf, j.size) });
         }
         j.text.deinit(j.gpa);
@@ -707,6 +717,7 @@ const Job = struct {
         gpa.free(j.path);
         gpa.free(j.name);
         gpa.free(j.cache_dir);
+        gpa.free(j.type_label);
         gpa.destroy(j);
     }
 };
@@ -780,6 +791,12 @@ fn launch(p: *Preview, kind: JobKind, path: []const u8, e: model.Entry) void {
         .width = p.imageBox().width,
         .cache_dir = gpa.dupe(u8, app.preview_cache) catch "",
     };
+    if (kind == .text) {
+        const db = app.mimeDb();
+        const known = db != null and e.mime != mime.unknown and !std.mem.eql(u8, db.?.name(e.mime), "application/octet-stream");
+        const label = if (!known) "Binary file" else db.?.cachedComment(e.mime) orelse db.?.name(e.mime);
+        j.type_label = gpa.dupe(u8, label) catch &.{};
+    }
     p.job = j;
     j.started = true;
     running += 1;

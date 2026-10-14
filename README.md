@@ -152,7 +152,8 @@ workers at the size the column shows them; archives list their entries
 PDFs show their first page (poppler's `pdftoppm`, else MuPDF's `mutool`,
 else a thumbnail another program cached); videos a frame
 (`ffmpegthumbnailer`, else `ffmpeg`, else a cached thumbnail); binary
-files their first 1 KiB in hex; other files their details, with a link's
+files, and programs and other application data, their first 1 KiB in
+hex under their type and size; other files their details, with a link's
 target. When a program is missing the details say what to install.
 
 Limits: text previews read `preview_max_bytes` (128 KiB); images larger
