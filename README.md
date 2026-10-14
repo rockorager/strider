@@ -25,14 +25,17 @@ never wait for the pointer.
 On sway (headless, 1280×800, driven with wtype): an image previewed at
 its displayed size, an archive listing, the which-key popup after `g`,
 the dark style with a syntax-colored README, the fuzzy finder (`gf`), a
-copy paused in the tasks view (`w`), and a program in hex.
+copy paused in the tasks view (`w`), a program in hex, the context menu
+(Menu key), the properties dialog (Alt+Enter), and the default light
+view with a surface per column.
 
 | | |
 | --- | --- |
 | ![landscape.png previewed](docs/screenshots/image-preview.png) | ![assets.tar.gz listed](docs/screenshots/archive-preview.png) |
 | ![The keys after g](docs/screenshots/which-key.png) | ![The dark style](docs/screenshots/dark-text.png) |
 | ![gf: files below, ranked as you type](docs/screenshots/picker.png) | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png) |
-| ![A program's start in hex](docs/screenshots/hex.png) | |
+| ![A program's start in hex](docs/screenshots/hex.png) | ![The context menu, its keys beside each command](docs/screenshots/menu.png) |
+| ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png) |
 
 ## Install
 
@@ -318,8 +321,8 @@ fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
 | Idle for 2 s | no wakeups |
 | A 100 100-entry folder: read, typed, and sorted | 248 ms, rows shown at 252 ms; the first frame at 18 ms |
 | Memory for those entries | 8.3 MiB of heap (87 bytes each); 64 MiB resident in all |
-| `j`, 300 times, each frame presented and the preview updated | 0.89 ms UI thread CPU per key (4.3 ms worst, a hex view), each on the next 60 Hz frame |
-| 100 `j`s queued at once (a held key) | 15 ms UI thread CPU in all |
+| `j`, 300 times, each frame presented and the preview updated | 1.0 ms UI thread CPU per key (4.0 ms worst, a hex view), each on the next 60 Hz frame |
+| 100 `j`s queued at once (a held key) | 19 ms UI thread CPU in all |
 | `G`, `gg` | 1.7 ms each |
 | `Ctrl+f` (a page) | 1.3 ms (1.7 ms worst) |
 | `/file-99999` typed, every keystroke searching all names | 23 ms for the eleven keystrokes |
