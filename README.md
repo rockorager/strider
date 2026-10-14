@@ -329,17 +329,29 @@ The chooser is the same three columns, with every key, preview, search,
   marked ones), else the folder shown; `l` goes in.
 - Saving: a name field under the columns, filled from the application's
   suggestion with the name before its extension selected. Enter saves;
-  Tab and Escape go between the field and the columns; Enter on a file
-  in the columns saves over it. A file that exists asks first (a
-  dialog). Saving several files picks a folder.
+  Tab goes between the field and the columns; Enter on a file in the
+  columns saves over it. A file that exists asks first (a dialog).
+  Saving several files picks a folder.
 - The application's filters are a combo box in the bar: they hide other
   files in the folder shown, never folders. Its choices are check boxes
   and combo boxes; their values go back with the answer.
-- Escape clears marks, the visual range, or a filter first, then
-  cancels; `q` and the Cancel button cancel. The accept button carries
-  the application's label, and the window its title.
+- Escape cancels: from the name field at once, from the columns once it
+  has cleared marks, the visual range, or a filter. `q`, the Cancel
+  button, and closing the window (Super+W) cancel too. The accept button
+  carries the application's label, and the window its title.
 - It starts in the folder the application suggests, else where the last
   chooser picked, else home.
+- Its window asks for `chooser_size` (960x640; `fm.set("chooser_size",
+  {1100, 700})` or `:set chooser_size 1100 700`) until you resize one:
+  the size you give a chooser is the next one's. The bar fits any width
+  (the buttons always show; filters and choices wrap onto a row above),
+  and a narrow chooser keeps the parent column longer than the preview.
+- Its app id is `org.siv.Columns.Chooser`, for compositor rules. Should
+  Hyprland open it smaller than it asks, a rule sets the size: in
+  Omarchy's Lua configuration `o.window("org.siv.Columns.Chooser", {
+  size = { 960, 640 } })`, in hyprland.conf `windowrule = size 960 640,
+  match:class org.siv.Columns.Chooser` (older Hyprland: `windowrule =
+  size 960 640, class:^(org\.siv\.Columns\.Chooser)$`).
 
 Set it up once, after `zig build install --prefix ~/.local` (which puts
 `siv-columns.portal` in `~/.local/share/xdg-desktop-portal/portals` and

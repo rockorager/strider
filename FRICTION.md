@@ -250,9 +250,22 @@ what this project does about it, and its status:
 30. **The file chooser** (chosen here; FileChooser portal backend).
     - Keys: Enter picks (in folder mode, the folder under the cursor,
       else the folder shown), `l` and double clicks go into folders and
-      pick files, Space marks several, Escape clears marks, the visual
-      range, or a filter before it cancels, `q` cancels, Tab goes to
-      the save name and back.
+      pick files, Space marks several. Escape cancels: at once from the
+      save name (a dialog's Escape; it had moved to the columns, which
+      left the user stuck), from the columns after clearing marks, the
+      visual range, or a filter. `q`, Cancel, and closing the window
+      cancel; Tab goes between the save name and the columns.
+    - The bar puts the filters and choices on a row above the name and
+      buttons, wrapping; only the name (or the hint) shrinks, so the
+      buttons show at any width (360x240, the window's least, too).
+      Combo boxes are at most 260 px. A narrow chooser keeps the parent
+      column and drops the preview first.
+    - Size: `chooser_size` (960x640) until the user resizes a chooser;
+      that size is kept (state file `chooser`) and wins until
+      `:set chooser_size`. A resize counts as the user's when it comes
+      half a second after the first frame or later. App id
+      `org.siv.Columns.Chooser`, with a hidden desktop entry for its
+      name and icon, which it also sets (xdg-toplevel-icon).
     - The filter applies to the folder shown only (not the parent
       column or a previewed folder), and, like `zf`, it is the folder's:
       another window showing the same folder meanwhile is filtered too.
@@ -275,6 +288,17 @@ what this project does about it, and its status:
     moved the bar up, but the controls after the first combo box (a
     combo box roots a compositor layer) stayed behind: siv repainted
     only the moved node, not its descendants in other layers.
+
+32. **Hyprland opened a chooser at about 360x240** (open). On the
+    user's Hyprland the chooser floated over Firefox (xdg-foreign and
+    the modal hint work) but came out about 544x363 pixels, likely
+    360x240 logical at scale 1.5: the window's least size. Hyprland
+    floats a toplevel with a parent and lets the client choose its size
+    (a 0x0 configure), then takes the committed size; its source shows
+    no rule that would pick the least size. Not reproduced here (no
+    Hyprland in the orb). `hyprctl clients -j` and `hyprctl monitors -j`
+    with a chooser open would tell; until then a window rule (README)
+    sets the size.
 
 ## Proposals: GUI affordances still missing
 
