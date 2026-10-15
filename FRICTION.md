@@ -5,7 +5,7 @@ public API ran into, in the order found. Each entry says what happened,
 what this project does about it, and its status:
 
 - **Fixed** — siv changed in a labeled commit on its main branch (the
-  submodule in `deps/siv` points at it).
+  pin in `build.zig.zon` includes it).
 - **Decide** — a question for siv's author (or the app's owner); the app
   works around it meanwhile. **Decided** — answered.
 - **Noted** — minor, or about Zig or the platform rather than siv.
@@ -171,9 +171,11 @@ what this project does about it, and its status:
 
 ## Noted
 
-19. **siv is private, so `zig fetch` cannot reach it.** As in siv-files:
-   a git submodule (`deps/siv`) and a path dependency; clone with
-   `--recurse-submodules`.
+19. **siv was private, so `zig fetch` could not reach it.** As in
+   siv-files, it was a git submodule (`deps/siv`) and a path dependency.
+   Now that siv is public it is an ordinary package pinned to a commit in
+   `build.zig.zon`; `zig build --fork=PATH` builds against a local
+   checkout.
 
 20. **The focus ring.** siv draws a focus ring when focus moved by
    keyboard; focus returns to the cursor's row from a key handler when a

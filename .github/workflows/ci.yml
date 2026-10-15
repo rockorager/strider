@@ -4,9 +4,10 @@
 # Nothing else; the sway session, the real portal, and the benchmarks
 # run by hand.
 #
-# Arch Linux, as the user's machine. siv comes from the deps/siv
-# submodule and builds with its vendored C libraries; their objects land
-# in Zig's global cache, which is kept between runs.
+# Arch Linux, as the user's machine. siv is a Zig package pinned in
+# build.zig.zon and builds with its vendored C libraries; the fetched
+# packages (zig-pkg) and their objects in Zig's global cache are kept
+# between runs.
 name: CI
 
 on:
@@ -48,8 +49,6 @@ jobs:
           systemd-machine-id-setup || tr -d - </proc/sys/kernel/random/uuid >/etc/machine-id
 
       - uses: actions/checkout@v5
-        with:
-          submodules: recursive
 
       - name: Zig
         shell: bash
@@ -66,9 +65,9 @@ jobs:
           path: |
             zig-pkg
             /home/ci/.cache/zig
-          key: zig-${{ hashFiles('build.zig.zon', 'deps/siv/build.zig.zon') }}-${{ github.sha }}
+          key: zig-${{ hashFiles('build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
-            zig-${{ hashFiles('build.zig.zon', 'deps/siv/build.zig.zon') }}-
+            zig-${{ hashFiles('build.zig.zon') }}-
 
       - name: zig build test
         run: zig build test -j16 --summary failures

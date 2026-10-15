@@ -53,11 +53,11 @@ sudo pacman -S --needed udisks2 poppler   # optional: drives, PDF previews
 
 (If your distribution's Zig is not 0.17.0, take it from ziglang.org.
 libarchive's `bsdtar`, which lists archives other than zip and tar.gz,
-comes with pacman.) siv is a private repository pinned as a git
-submodule, so clone with your GitHub credentials and the submodule:
+comes with pacman.) The build fetches siv and its other Zig packages,
+pinned in `build.zig.zon`, on first use:
 
 ```sh
-git clone --recurse-submodules https://github.com/rockorager/strider
+git clone https://github.com/rockorager/strider
 cd strider
 zig build run                         # try it from zig-out
 zig build install --prefix ~/.local   # install for yourself
@@ -460,10 +460,18 @@ golden images, and the semantics tree a screen reader reads — with the
 test fonts in `tests/fonts` and the MIME and application data in
 `tests/data`.
 
-`deps/siv` pins siv. To move to a newer siv: `git -C deps/siv pull
-origin main`, run the tests, and commit the submodule. Things siv could
-do better, and decisions left to its author, are in
-[FRICTION.md](FRICTION.md).
+`build.zig.zon` pins siv to a commit of its main branch. To move to a
+newer siv, pin its commit, run the tests, and commit `build.zig.zon`:
+
+```sh
+zig fetch --save git+https://github.com/rockorager/siv#COMMIT
+zig build test -j16
+```
+
+To develop against changes in a local siv checkout without pinning
+them, build with `zig build test --fork=../siv` (any step takes it; the
+path is the checkout). Things siv could do better, and decisions left
+to its author, are in [FRICTION.md](FRICTION.md).
 
 ## Performance
 

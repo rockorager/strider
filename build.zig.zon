@@ -4,11 +4,10 @@
     .fingerprint = 0xfc3cbd375e885756, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        // siv is a private repository, which `zig fetch` cannot
-        // authenticate to, so it is a git submodule pinned to a commit of
-        // its main branch: clone this repository with
-        // --recurse-submodules (or run `git submodule update --init`).
-        .siv = .{ .path = "deps/siv" },
+        .siv = .{
+            .url = "git+https://github.com/rockorager/siv#f7aad9793dab51884e2b168337d324d3c81bd285",
+            .hash = "siv-0.1.0-AYWGQouqgwBlTHMjTbrPsS3Sj81NdZ11TdEIaKQfLDtC",
+        },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "data", "icons", "tests", "tools" },
 }
