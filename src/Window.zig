@@ -281,6 +281,12 @@ fn onWindowEvent(ud: ?*anyopaque, _: siv.Window, ev: *const siv.WindowEvent) cal
                 _ = commit(txn);
             };
         },
+        // The parent column's width came from measured names, which
+        // measure differently once the face they asked for has loaded.
+        .fonts_changed => if (self.tabs.items.len != 0) if (self.begin()) |txn| {
+            self.refitParent(txn);
+            _ = commit(txn);
+        },
         .presented => {
             self.frames += 1;
             if (self.first_frame_ns == 0) {
