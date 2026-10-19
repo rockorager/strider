@@ -168,7 +168,7 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     var startup: Startup = .{ .app = app, .new_window = new_window };
-    _ = c.siv_app_add_action(sapp, "new-window", 10, onNewWindowAction, null, app);
+    _ = siv.actionCreate(sapp, .{ .name = "new-window", .label = "New Window" }, onNewWindowAction, null, app) catch null;
     r = c.siv_app_launch(sapp, &.{
         .uris = uris.items.ptr,
         .uris_count = uris.items.len,
