@@ -157,6 +157,32 @@ test "keys: counts, gg and G, search, find, and history" {
     try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
     try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
     try testing.expectEqualStrings("run.sh", h.hovered());
+    // On a Russian layout the keys labeled G, J, and D (П, О, В) act as
+    // g, j, and d, with Shift and Ctrl; a binding of the key's own
+    // character wins over its Latin equivalent.
+    try siv.check(c.siv_test_set_keymap(h.sapp, "ru", 2, "", 0));
+    const key_g = 34 + 8;
+    const key_j = 36 + 8;
+    const key_d = 32 + 8;
+    try siv.check(c.siv_test_press_key(h.window(), key_g, 0, .{}));
+    try siv.check(c.siv_test_press_key(h.window(), key_g, 0, .{}));
+    try h.settle();
+    try testing.expectEqualStrings("assets", h.hovered());
+    try siv.check(c.siv_test_press_key(h.window(), key_j, 0, .{}));
+    try h.settle();
+    try testing.expectEqualStrings("docs", h.hovered());
+    try siv.check(c.siv_test_press_key(h.window(), key_g, 0, .{ .shift = true }));
+    try h.settle();
+    try testing.expectEqualStrings("run.sh", h.hovered());
+    try h.typeText("gg");
+    for (0..3) |_| try siv.check(c.siv_test_press_key(h.window(), key_d, 0, .{ .ctrl = true }));
+    try h.settle();
+    try testing.expectEqualStrings("run.sh", h.hovered());
+    try h.app.?.keymap.map(.normal, "о", .{ .command = "bottom" }, "");
+    try h.typeText("gg");
+    try siv.check(c.siv_test_press_key(h.window(), key_j, 0, .{}));
+    try h.settle();
+    try testing.expectEqualStrings("run.sh", h.hovered());
 }
 
 const model = App.model;

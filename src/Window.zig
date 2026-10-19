@@ -1606,9 +1606,25 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     }
     const text = if (ev.text) |t| t[0..ev.text_len] else "";
     const keysym: u32 = @bitCast(@intFromEnum(ev.keysym));
-    const k = keys.fromEvent(keysym, text, m.ctrl, m.alt, m.super, m.shift) orelse return .pass;
+    const typed = keys.fromEvent(keysym, text, m.ctrl, m.alt, m.super, m.shift) orelse return .pass;
+    // On a layout without Latin letters (Russian, Greek, Hebrew), a key
+    // the keymap does not bind as typed acts as its Latin equivalent, so
+    // hjkl and Ctrl+... work there too; a binding of the key's own
+    // character wins (siv D44).
+    const shortcut: u32 = @bitCast(@intFromEnum(ev.shortcut_key));
+    const latin = if (shortcut != keysym) keys.fromEvent(shortcut, "", m.ctrl, m.alt, m.super, m.shift) else null;
+    const k = if (latin) |l| (if (self.await_key == .none and !self.binds(typed) and self.binds(l)) l else typed) else typed;
     if (self.chooserInsertKey(k)) return .handled;
     return if (self.handleKey(k)) .handled else .pass;
+}
+
+/// Whether `k` after the keys pending binds or begins a binding.
+fn binds(self: *Window, k: keys.Key) bool {
+    var seq: [keys.max_keys]keys.Key = self.pending;
+    const n = if (self.pending_len >= keys.max_keys) 0 else self.pending_len;
+    seq[n] = k;
+    const match = self.app.keymap.lookup(self.mode, seq[0 .. n + 1]);
+    return match.exact != null or match.prefix;
 }
 
 /// A chooser's way into insert mode, as in vim: i, a, I, A, cc,
