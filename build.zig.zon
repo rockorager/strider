@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .siv = .{
-            .url = "git+https://github.com/rockorager/siv#dc4f46c2e87c9ee505924f343671d7d0c8f3c20b",
-            .hash = "siv-0.1.0-AYWGQlJqogDzBs16gBGkkijJLmqB1n6piLRMnOtQ1i35",
+            .url = "git+https://github.com/rockorager/siv#752d328d301713a203f14c2de652ca619a9edfd1",
+            .hash = "siv-0.1.0-AYWGQhG8pgC2tQN1GVJklDQKG2FFcMgsazNsejjJJNki",
         },
     },
     .paths = .{ "build.zig", "build.zig.zon", "src", "data", "icons", "tests", "tools" },
