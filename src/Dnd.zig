@@ -120,12 +120,13 @@ scroll_dir: i64 = 0,
 
 pub fn deinit(d: *Dnd) void {
     const gpa = d.win.gpa;
+    // Ending the drag leaves every window's targets, this one's too.
+    const app = d.win.app;
+    if (app.drag) |s| if (s.win == d.win) endSource(app);
     d.stopTimers();
     d.dest.deinit(gpa);
     d.hint.deinit(gpa);
     d.spring_path.deinit(gpa);
-    const app = d.win.app;
-    if (app.drag) |s| if (s.win == d.win) endSource(app);
 }
 
 // Starting ---------------------------------------------------------------------------------

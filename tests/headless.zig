@@ -1771,6 +1771,10 @@ test "drag and drop inside the window: folders in each column, Ctrl copies, undo
     try testing.expectEqualStrings("Move “report.pdf” to docs", w.dnd.hint.items);
     try release(&h);
     try testing.expect(f.exists("work/docs/report.pdf") and !f.exists("work/report.pdf"));
+
+    // Closing the window mid-drag ends the drag (h.deinit closes it).
+    try dragOver(&h, try h.expect(.list_item, "README.md 97 B"), try h.expect(.list_item, "src"));
+    try testing.expect(h.app.?.drag != null and w.dnd.hint.items.len != 0);
 }
 
 test "drag and drop inside the window: the header path, tabs, its own folder, Escape" {
