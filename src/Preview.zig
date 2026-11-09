@@ -74,8 +74,9 @@ pub fn init(win: *Window) Preview {
 
 pub fn deinit(p: *Preview) void {
     p.dropPending();
-    if (p.image_request != .null) _ = c.siv_image_request_cancel(p.image_request);
+    // Cancelling may free the context at once, so detach it first.
     if (p.image_ctx) |x| x.preview = null;
+    if (p.image_request != .null) _ = c.siv_image_request_cancel(p.image_request);
     if (p.job) |j| j.preview = null;
     if (p.column.dir) |d| d.pins -= 1;
     p.column.dir = null;
@@ -130,10 +131,11 @@ fn applyModeTxn(p: *Preview, txn: Txn, mode: Mode) void {
 /// and its results will be dropped.
 fn cancel(p: *Preview) void {
     p.gen +%= 1;
-    if (p.image_request != .null) _ = c.siv_image_request_cancel(p.image_request);
-    p.image_request = .null;
+    // Cancelling may free the context at once, so detach it first.
     if (p.image_ctx) |x| x.preview = null;
     p.image_ctx = null;
+    if (p.image_request != .null) _ = c.siv_image_request_cancel(p.image_request);
+    p.image_request = .null;
     if (p.job) |j| {
         j.cancelled.store(true, .release);
         j.preview = null;
