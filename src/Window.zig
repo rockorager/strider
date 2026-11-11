@@ -916,11 +916,11 @@ pub fn showTab(self: *Window) void {
     _ = d.sync();
     const app = self.app;
     var pd: ?*Dir = null;
-    if (!std.mem.eql(u8, d.path, "/") and !d.isDrives()) {
-        pd = app.cache.get(model.parent(d.path), app.options.stale_ms);
+    if (self.parentOf(d.path)) |up| {
+        pd = app.cache.get(up.path, app.options.stale_ms);
         if (pd) |p| {
             _ = p.sync();
-            p.selectName(model.basename(d.path));
+            p.selectName(up.name);
         }
     }
     const txn = self.begin() orelse return;
@@ -934,6 +934,14 @@ pub fn showTab(self: *Window) void {
     _ = commit(txn);
     const title = if (self.chooser) |ch| ch.windowTitle() else if (d.isDrives()) "Drives" else d.path;
     _ = c.siv_window_set_title(self.window, title.ptr, title.len);
+}
+
+/// Where h goes from `path`, and the name of `path` there: the parent
+/// folder, or Drives from a drive's mount point; null at the top.
+fn parentOf(self: *Window, path: []const u8) ?struct { path: []const u8, name: []const u8 } {
+    if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, model.drives_path)) return null;
+    for (self.app.places.drives.items) |dr| if (std.mem.eql(u8, dr.mount_point, path)) return .{ .path = model.drives_path, .name = dr.label };
+    return .{ .path = model.parent(path), .name = model.basename(path) };
 }
 
 fn updatePreviewTxn(self: *Window, txn: Txn) void {
@@ -957,7 +965,7 @@ pub fn dirLoaded(self: *Window, d: *Dir) void {
         self.applyStatus(txn);
     }
     if (self.parent_col.dir == d) {
-        d.selectName(model.basename(cur.path));
+        if (self.parentOf(cur.path)) |up| d.selectName(up.name);
         self.parent_col.refresh(txn);
         self.refitParent(txn);
     }
@@ -977,7 +985,7 @@ pub fn optionsChanged(self: *Window) void {
         _ = d.sync();
     };
     // The parent's cursor stays on the current folder.
-    if (self.parent_col.dir) |p| p.selectName(model.basename(self.curDir().path));
+    if (self.parent_col.dir) |p| if (self.parentOf(self.curDir().path)) |up| p.selectName(up.name);
     const t2 = self.begin() orelse return;
     self.current.refresh(t2);
     self.current.rebind(t2);
@@ -1497,10 +1505,9 @@ pub fn enter(self: *Window) void {
 pub fn leave(self: *Window) void {
     const d = self.curDir();
     if (d.isTrash()) return self.cd(self.app.home);
-    // The Drives folder: back where it was opened from.
-    if (d.isDrives()) return if (self.tab().history_pos > 0) self.historyMove(-1) else self.cd(self.app.home);
-    if (std.mem.eql(u8, d.path, "/")) return;
-    self.cdKnown(model.parent(d.path), null, true);
+    // Drives is a top, as "/" is: each drive's root is below it.
+    const up = self.parentOf(d.path) orelse return;
+    self.cdKnown(up.path, up.name, true);
 }
 
 /// Opens the targets with their default applications.
@@ -2476,9 +2483,8 @@ pub fn reload(self: *Window) void {
 pub fn drivesChanged(self: *Window) void {
     if (self.tabs.items.len == 0) return;
     self.crumbs_for.clearRetainingCapacity();
-    const txn = self.begin() orelse return;
-    self.applyHeader(txn);
-    _ = commit(txn);
+    // A drive's root has Drives as its parent column too.
+    self.showTab();
 }
 
 /// An encrypted volume asks for its passphrase in the command line.
@@ -2520,11 +2526,14 @@ pub fn mountDrive(self: *Window, id: []const u8) void {
     for (self.app.places.drives.items, 0..) |d, i| if (std.mem.eql(u8, d.id, id)) return u.mount(self, @intCast(i), false);
 }
 
+/// A drive is about to be unmounted: tabs on it go up out of it, to
+/// Drives with the cursor on it.
 pub fn leaveMount(self: *Window, mount_point: []const u8) void {
+    const up = self.parentOf(mount_point) orelse return;
     for (self.tabs.items, 0..) |t, i| if (model.isWithin(t.path(), mount_point)) {
         const was = self.active;
         self.active = i;
-        self.cd(model.parent(mount_point));
+        self.cdSelect(up.path, up.name, true);
         self.active = was;
     };
     self.showTab();

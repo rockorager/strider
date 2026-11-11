@@ -677,7 +677,7 @@ pub fn driveMounted(self: *App, win: *Window, mount_point: []const u8, new_tab: 
     if (new_tab) win.newTab(mount_point) else win.cd(mount_point);
 }
 
-/// A drive is about to go away: tabs on it go home.
+/// A drive is about to go away: tabs on it go to Drives.
 pub fn leaveMount(self: *App, mount_point: []const u8) void {
     for (self.windows.items) |w| w.leaveMount(mount_point);
 }

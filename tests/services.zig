@@ -361,17 +361,12 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
             return driveNamed(x, "STICK").?.mount_point.len != 0;
         }
     }.ok);
-    // The header names the drive by its label, under Drives, which a
-    // click goes to.
+    // A drive's root sits under Drives: the header names the drive by
+    // its label, the parent column is Drives, and h goes there.
     try testing.expect(h.reads("STICK"));
     try testing.expectEqual(1, h.win.?.crumbs.items.len);
-    try h.click(h.window(), try h.expect(.link, "Drives"), .primary);
-    try testing.expect(h.dir().isDrives());
+    try testing.expect(h.win.?.parent_col.dir.?.isDrives());
     try h.typeText("h");
-    try testing.expect(inDir(&h, "/Stick", 1));
-    // Mounted, it shows its space, and the preview shows its files; h
-    // goes back where gv was pressed.
-    try h.typeText("gv");
     try h.waitFor(&h, struct {
         fn ok(x: *Harness) bool {
             const dir = x.dir();
@@ -379,19 +374,29 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
             return std.mem.eql(u8, row.drive.label, "STICK") and row.total != 0;
         }
     }.ok);
-    try testing.expectEqualStrings("STICK", h.hovered());
+    // Mounted, it shows its space, and the preview shows its files.
     try testing.expect(h.win.?.preview.column.dir != null and std.mem.endsWith(u8, h.win.?.preview.column.dir.?.path, "/Stick"));
+    // Drives is a top, as "/" is.
     try h.typeText("h");
+    try testing.expect(h.dir().isDrives());
+    try h.typeText("l");
     try testing.expect(inDir(&h, "/Stick", 1));
-    // :eject unmounts it, sends the tab out of it, and powers the stick
-    // off (it is removable, not ejectable).
+    // The header's Drives goes there too.
+    try h.click(h.window(), try h.expect(.link, "Drives"), .primary);
+    try testing.expect(h.dir().isDrives());
+    try testing.expectEqualStrings("STICK", h.hovered());
+    try h.typeText("l");
+    try testing.expect(inDir(&h, "/Stick", 1));
+    // :eject unmounts it, sends the tab out of it to Drives, and powers
+    // the stick off (it is removable, not ejectable).
     try h.typeText(":eject\n");
     try h.waitFor(&u, struct {
         fn ok(x: *FakeUDisks) bool {
             return x.called("PowerOff Stick");
         }
     }.ok);
-    try testing.expectEqualStrings(f.path, h.dir().path);
+    try testing.expect(h.dir().isDrives());
+    try testing.expectEqualStrings("STICK", h.hovered());
     try testing.expect(!u.mounted);
     try h.waitFor(&h, struct {
         fn ok(x: *Harness) bool {
@@ -459,6 +464,7 @@ test "encrypted volumes: a passphrase unlocks and mounts; eject locks" {
             return x.called("PowerOff Stick");
         }
     }.ok);
+    try testing.expect(h.dir().isDrives());
     try testing.expectEqualStrings("Unmount dm_2d0", u.calls.items[3]);
     try testing.expectEqualStrings("Lock sdc1", u.calls.items[4]);
     try testing.expect(!u.unlocked);

@@ -441,7 +441,7 @@ pub fn unmount(self: *UDisks, win: *Window, drive: u32, eject: bool) void {
         } else return Request.free(req);
         return self.sendStep(req);
     }
-    // Panes inside the mount would keep it busy: send them home.
+    // Panes inside the mount would keep it busy: send them out.
     for (self.app.windows.items) |w| w.leaveMount(mp);
     req.kind = .unmount;
     self.sendStep(req);
