@@ -12,6 +12,8 @@
 //!   -Doptimize=...             the program defaults to ReleaseSafe, the tests
 //!                              to Debug
 //!   -Dtest-filter=<text>       only tests whose name contains <text>
+//!   -Dversion=<x.y.z>          what strider --version says (default: the
+//!                              version in build.zig.zon)
 //!
 //! The program uses only siv's public API: the `siv` module generated from
 //! its C ABI schema and the Lua binding's embedding API, both linked
@@ -20,6 +22,7 @@
 //! xkbcommon, and Fontconfig.
 
 const std = @import("std");
+const manifest = @import("build.zig.zon");
 
 const app_id = "dev.rockorager.Strider";
 const program = "strider";
@@ -41,6 +44,11 @@ pub fn build(b: *std.Build) void {
         .name = program,
         .root_module = appModule(b, exe_siv, "src/main.zig"),
     });
+    // What `strider --version` says: the version a `release: X.Y.Z`
+    // commit sets in build.zig.zon, unless the build names another.
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", b.option([]const u8, "version", "The version strider reports") orelse manifest.version);
+    exe.root_module.addOptions("build_options", options);
     b.installArtifact(exe);
     installData(b, filemanager1);
     const siv_dep = b.dependency("siv", .{ .target = target, .optimize = exe_optimize });

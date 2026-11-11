@@ -11,13 +11,15 @@ step() { printf '==> %s\n' "$*"; }
 # headers), the keymaps its keyboard handling compiles, shared-mime-info
 # and desktop-file-utils for running the program, dbus (with dbus-daemon)
 # for its single-instance and FileManager1 services and the D-Bus tests,
-# and what previews call: poppler's pdftoppm and libarchive's bsdtar.
+# what previews call: poppler's pdftoppm and libarchive's bsdtar; and just,
+# which runs the recipes (justfile).
 packages=(
 	ca-certificates curl xz-utils pkg-config git
 	libwayland-dev libxkbcommon-dev libfontconfig-dev xkb-data
 	libvulkan-dev mesa-vulkan-drivers
 	shared-mime-info desktop-file-utils dbus
 	poppler-utils libarchive-tools
+	just
 )
 
 install_packages() {

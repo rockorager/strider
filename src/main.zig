@@ -88,7 +88,7 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--service") or std.mem.eql(u8, a, "--gapplication-service")) {
             service = true;
         } else if (std.mem.eql(u8, a, "--version")) {
-            std.debug.print("strider 0.1.0\n", .{});
+            std.debug.print("strider " ++ @import("build_options").version ++ "\n", .{});
             return 0;
         } else if (std.mem.eql(u8, a, "--help") or std.mem.eql(u8, a, "-h")) {
             std.debug.print("{s}", .{usage});
