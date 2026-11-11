@@ -595,6 +595,7 @@ pub fn nameText(ch: *Chooser) []const u8 {
 /// l and double clicks: into a folder, else what Enter does.
 pub fn enter(ch: *Chooser, w: *Window) void {
     const d = w.curDir();
+    if (d.driveAt(d.cursor)) |row| if (row.drive.mount_point.len == 0) return w.mountDrive(row.drive.id);
     if (d.current()) |e| if (e.kind == .dir) {
         var pbuf: [linux.PATH_MAX]u8 = undefined;
         const p = d.pathAt(&pbuf, d.cursor) orelse return;
@@ -607,6 +608,8 @@ pub fn enter(ch: *Chooser, w: *Window) void {
 /// folder when picking files.
 pub fn open(ch: *Chooser, w: *Window) void {
     const d = w.curDir();
+    // Drives are places to go, not picks.
+    if (d.isDrives()) return if (d.current() != null) ch.enter(w);
     const gpa = ch.app.gpa;
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const sel = w.selectedIndices(gpa) catch return;
@@ -715,6 +718,7 @@ pub fn saveAs(ch: *Chooser, name: []const u8) void {
         if (pathKind(model.parent(full)) != .dir) return w.notify("No such folder", true);
         break :blk full;
     } else blk: {
+        if (d.isDrives()) return w.notify("Save in a folder, not Drives", true);
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return w.notify("Not a name for a file", true);
         break :blk std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
     };

@@ -73,7 +73,21 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
     const a = arena_state.allocator();
     var list: std.ArrayList(Entry) = .empty;
     const paste_ok = app.register.items.len != 0;
-    switch (ctx) {
+    // In Drives, what a drive does.
+    const drive = if (d.isDrives()) d.driveAt(d.cursor) else null;
+    if (drive) |row| {
+        const mp = row.drive.mount_point;
+        if (mp.len != 0) list.appendSlice(a, &.{
+            .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
+            .{ .label = "Open in a new tab", .command = std.fmt.allocPrint(a, "tab-new {s}", .{mp}) catch return },
+            .{ .label = "Open terminal here", .command = std.fmt.allocPrint(a, "terminal {s}", .{mp}) catch return, .icon = "utilities-terminal-symbolic" },
+        }) catch return else list.append(a, .{ .label = "Mount", .command = "enter", .icon = "folder-open-symbolic" }) catch return;
+        if (row.drive.can_unmount or row.drive.can_eject) list.append(a, sep) catch return;
+        if (row.drive.can_unmount) list.append(a, .{ .label = "Unmount", .command = "unmount" }) catch return;
+        if (row.drive.can_eject) list.append(a, .{ .label = "Eject", .command = "eject", .icon = "media-eject-symbolic" }) catch return;
+    } else if (d.isDrives()) {
+        list.append(a, .{ .label = "Reload", .command = "reload", .icon = "view-refresh-symbolic" }) catch return;
+    } else switch (ctx) {
         .entries => {
             const paths = win.targets() catch return;
             defer @import("App.zig").freePaths(win.gpa, paths);

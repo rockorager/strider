@@ -483,8 +483,15 @@ pub fn validName(nm: []const u8) bool {
     return std.mem.indexOfAny(u8, nm, "/\x00") == null;
 }
 
-/// Collapses "//", "/./", and "/x/../" and drops a trailing slash.
+/// The Drives folder's path. No folder on disk normalizes to it (it
+/// starts with "//"), so it stands for the folder wherever paths go:
+/// tabs, history, bookmarks, and `:cd //drives`.
+pub const drives_path = "//drives";
+
+/// Collapses "//", "/./", and "/x/../" and drops a trailing slash; the
+/// Drives folder's path stays as it is.
 pub fn normalize(buf: []u8, path: []const u8) []const u8 {
+    if (std.mem.eql(u8, path, drives_path)) return drives_path;
     var n: usize = 0;
     var it = std.mem.tokenizeScalar(u8, path, '/');
     while (it.next()) |part| {

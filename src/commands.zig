@@ -117,10 +117,10 @@ pub const list = [_]Command{
     .{ .name = "tab-next", .desc = "Next tab", .run = tabNext },
     .{ .name = "tab-prev", .desc = "Previous tab", .run = tabPrev },
     .{ .name = "tab", .desc = "Go to tab N", .run = tabGo },
-    .{ .name = "drives", .desc = "Drives: mount, open, unmount", .run = drives },
+    .{ .name = "drives", .desc = "Show the drives", .run = drives },
     .{ .name = "mount", .desc = "Mount a drive by name", .run = mount },
-    .{ .name = "unmount", .desc = "Unmount the drive this folder is on", .run = unmount },
-    .{ .name = "eject", .desc = "Unmount and eject the drive this folder is on", .run = eject },
+    .{ .name = "unmount", .desc = "Unmount the drive this folder is on (in Drives, the cursor's)", .run = unmount },
+    .{ .name = "eject", .desc = "Unmount and eject the drive this folder is on (in Drives, the cursor's)", .run = eject },
     .{ .name = "map", .desc = "Bind keys: map [mode] keys command…", .run = map },
     .{ .name = "unmap", .desc = "Unbind keys: unmap [mode] keys", .run = unmap },
     .{ .name = "lua", .desc = "Run Lua", .run = luaCmd },
@@ -400,12 +400,12 @@ fn cut(ctx: Ctx) void {
 }
 fn paste(ctx: Ctx) void {
     const d = ctx.win.curDir();
-    if (d.isTrash()) return ctx.win.notify("Paste into a folder, not the trash", true);
+    if (d.isTrash() or d.isDrives()) return ctx.win.notify(if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives", true);
     ctx.win.paste(d.path, false);
 }
 fn pasteOverwrite(ctx: Ctx) void {
     const d = ctx.win.curDir();
-    if (d.isTrash()) return ctx.win.notify("Paste into a folder, not the trash", true);
+    if (d.isTrash() or d.isDrives()) return ctx.win.notify(if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives", true);
     ctx.win.paste(d.path, true);
 }
 fn yankText(ctx: Ctx, which: enum { path, name }) void {
@@ -554,6 +554,8 @@ fn undo(ctx: Ctx) void {
 fn renameWith(ctx: Ctx, where: enum { stem, end, start }) void {
     const win = ctx.win;
     const d = win.curDir();
+    // A drive's row stands for its mount point, which is not to rename.
+    if (d.isDrives()) return win.notify("Rename files in a folder, not Drives", true);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = d.pathAt(&pbuf, d.cursor) orelse return;
     if (ctx.args.len != 0) {
@@ -609,6 +611,7 @@ fn touch(ctx: Ctx) void {
 pub fn finishCreate(win: *Window, text: []const u8) void {
     const d = win.curDir();
     if (text.len == 0) return;
+    if (d.isDrives()) return win.notify("Make files in a folder, not Drives", true);
     const is_dir = text[text.len - 1] == '/';
     const rel = std.mem.trim(u8, text, "/");
     if (rel.len == 0) return;
@@ -863,6 +866,7 @@ fn insert(ctx: Ctx) void {
 fn terminal(ctx: Ctx) void {
     const win = ctx.win;
     if (win.curDir().isTrash() and ctx.args.len == 0) return win.notify("No terminal in the trash", true);
+    if (win.curDir().isDrives() and ctx.args.len == 0) return win.notify("No terminal in Drives", true);
     var buf: [linux.PATH_MAX]u8 = undefined;
     win.app.openTerminal(win, if (ctx.args.len != 0) win.expandPath(&buf, unquote(ctx.args)) else win.curDir().path);
 }
@@ -1166,7 +1170,7 @@ fn tabGo(ctx: Ctx) void {
 // Drives --------------------------------------------------------------------------------------
 
 fn drives(ctx: Ctx) void {
-    ctx.win.drivesMenu();
+    ctx.win.cd(model.drives_path);
 }
 fn mount(ctx: Ctx) void {
     const win = ctx.win;
@@ -1183,8 +1187,12 @@ fn unmountWith(ctx: Ctx, do_eject: bool) void {
     const win = ctx.win;
     const app = win.app;
     const here = win.curDir().path;
+    // In Drives, the drive under the cursor, mounted or not (an unlocked
+    // volume locks, an ejectable drive ejects).
+    const cursor: ?*const App.places_mod.DriveRows.Row = if (ctx.args.len == 0) win.curDir().driveAt(win.curDir().cursor) else null;
     for (app.places.drives.items, 0..) |d, i| {
-        if (d.mount_point.len != 0 and (ctx.args.len == 0 and model.isWithin(here, d.mount_point) or std.ascii.eqlIgnoreCase(d.label, ctx.args))) {
+        const chosen = if (cursor) |row| std.mem.eql(u8, d.id, row.drive.id) else d.mount_point.len != 0 and (ctx.args.len == 0 and model.isWithin(here, d.mount_point) or std.ascii.eqlIgnoreCase(d.label, ctx.args));
+        if (chosen) {
             if (app.udisks) |u| return u.unmount(win, @intCast(i), do_eject);
             return win.notify("Unmounting needs UDisks2", true);
         }

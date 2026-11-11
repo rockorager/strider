@@ -23,6 +23,7 @@ const Window = @import("Window.zig");
 const Column = @import("Column.zig");
 const Dir = @import("Dir.zig");
 const model = @import("model.zig");
+const places = @import("places.zig");
 const mime = @import("mime.zig");
 const ui = @import("ui.zig");
 const highlight = @import("highlight.zig");
@@ -155,9 +156,11 @@ pub fn clear(p: *Preview, txn: Txn) void {
 pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     const app = p.win.app;
     const e = d.entryAt(i) orelse return p.clear(txn);
+    if (!app.options.preview) return p.clear(txn);
+    // A drive that is not mounted has no folder to show.
+    if (d.driveAt(i)) |row| if (row.drive.mount_point.len == 0) return p.showDrive(txn, row);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const path = d.pathAt(&pbuf, i) orelse return p.clear(txn);
-    if (!app.options.preview) return p.clear(txn);
     // The same entry again (a reload): keep what shows unless it changed.
     const same = std.mem.eql(u8, p.path.items, path);
     p.path.clearRetainingCapacity();
@@ -359,6 +362,19 @@ pub fn showInfo(p: *Preview, txn: Txn, d: *Dir, e: model.Entry, path: []const u8
         body.appendSlice(gpa, n) catch {};
     }
     p.setInfoText(txn, d.listing.?.base(e), body.items);
+    p.applyModeTxn(txn, .info);
+    p.applied = .info;
+}
+
+/// A drive that is not mounted: its size, and that opening it mounts it.
+fn showDrive(p: *Preview, txn: Txn, row: *const places.DriveRows.Row) void {
+    p.cancel();
+    p.path.clearRetainingCapacity();
+    var sbuf: [32]u8 = undefined;
+    var buf: [128]u8 = undefined;
+    const note = "Not mounted. Opening it mounts it.";
+    const body = if (row.drive.size != 0) std.fmt.bufPrint(&buf, "Size\t{s}\n\n" ++ note, .{model.formatSize(&sbuf, row.drive.size)}) catch note else note;
+    p.setInfoText(txn, row.drive.label, body);
     p.applyModeTxn(txn, .info);
     p.applied = .info;
 }

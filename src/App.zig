@@ -651,7 +651,8 @@ pub fn refreshMountDrives(self: *App) void {
 /// New drives (from UDisks2 or the mount table).
 pub fn setDrives(self: *App, drives: []const places_mod.Drive) void {
     self.places.rebuild(.{ .home = self.opts.home, .config_home = self.opts.config_home, .data_home = self.opts.data_home }, drives) catch return;
-    for (self.windows.items) |w| w.drivesChanged();
+    self.cache.drives = self.places.drives.items;
+    self.cache.invalidate(model.drives_path);
 }
 
 pub fn placesChanged(self: *App) void {
@@ -685,7 +686,7 @@ pub fn leaveMount(self: *App, mount_point: []const u8) void {
 /// Tells zoxide about a folder the user went to (`zoxide add`), on a
 /// worker; each folder once until another is visited.
 pub fn zoxideAdd(self: *App, d: *const Dir) void {
-    if (!self.zoxide or d.isTrash() or std.mem.eql(u8, d.path, self.zoxide_last.items)) return;
+    if (!self.zoxide or d.isTrash() or d.isDrives() or std.mem.eql(u8, d.path, self.zoxide_last.items)) return;
     self.zoxide_last.clearRetainingCapacity();
     self.zoxide_last.appendSlice(self.gpa, d.path) catch return;
     self.runProgram(null, &.{ "zoxide", "add", "--", d.path }, null);

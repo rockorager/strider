@@ -12,6 +12,7 @@ const c = siv.c;
 const model = @import("model.zig");
 const mime = @import("mime.zig");
 const trash = @import("trash.zig");
+const places = @import("places.zig");
 const Watcher = @import("Watcher.zig");
 
 const Dir = @This();
@@ -22,6 +23,8 @@ path: []u8,
 listing: ?model.Listing = null,
 /// The trash view: where each entry came from, parallel to entries.
 trash_info: ?trash.Info = null,
+/// The Drives folder: each entry's drive, parallel to entries.
+drive_rows: ?places.DriveRows = null,
 err: ?model.ReadError = null,
 /// Every entry's index, in `sorted_by` order.
 order: std.ArrayList(u32) = .empty,
@@ -71,6 +74,9 @@ pub const Cache = struct {
     /// The home trash's files directory: its listing is every trash's.
     trash_files: []const u8 = "",
     trash_dir: []const u8 = "",
+    /// What the Drives folder lists (the app's, replaced when they
+    /// change).
+    drives: []const places.Drive = &.{},
     sort: model.Sort = .{},
     show_hidden: bool = false,
     /// How many unpinned directories to keep.
@@ -196,6 +202,7 @@ fn destroy(d: *Dir) void {
     if (d.loading) |l| l.dir = null;
     if (d.listing) |*l| l.deinit();
     if (d.trash_info) |*t| t.deinit();
+    if (d.drive_rows) |*r| r.deinit();
     d.order.deinit(gpa);
     d.visible.deinit(gpa);
     d.filter.deinit(gpa);
@@ -215,6 +222,10 @@ pub fn isTrash(d: *const Dir) bool {
     return d.cache.trash_files.len != 0 and std.mem.eql(u8, d.path, d.cache.trash_files);
 }
 
+pub fn isDrives(d: *const Dir) bool {
+    return std.mem.eql(u8, d.path, model.drives_path);
+}
+
 // Reading ---------------------------------------------------------------------------
 
 pub const Load = struct {
@@ -224,6 +235,8 @@ pub const Load = struct {
     path: []u8,
     sort: model.Sort,
     trash_view: bool,
+    /// The Drives folder: the drives to list, and their rows after.
+    drive_rows: ?places.DriveRows = null,
     /// Set when no one waits for the result any more: a read that has not
     /// started skips its work.
     cancelled: std.atomic.Value(bool) = .init(false),
@@ -246,6 +259,8 @@ pub const Load = struct {
             var info: trash.Info = undefined;
             l.result = trash.listAll(l.gpa, l.cache.trash_dir, db, &info);
             if (l.result) |_| l.info = info else |_| {}
+        } else if (l.drive_rows) |*rows| {
+            l.result = places.listDrives(l.gpa, rows);
         } else {
             l.result = model.read(l.gpa, l.path, db);
         }
@@ -281,6 +296,7 @@ pub const Load = struct {
         if (!l.taken) {
             if (l.result) |*listing| listing.deinit() else |_| {}
             if (l.info) |*i| i.deinit();
+            if (l.drive_rows) |*r| r.deinit();
             l.gpa.free(l.order);
         }
         l.gpa.free(l.path);
@@ -291,6 +307,9 @@ pub const Load = struct {
 /// Reads the directory again on a worker, unless a read is in flight.
 pub fn reload(d: *Dir) void {
     if (d.loading) |l| {
+        // The Drives folder lists the drives as they are now: a read of
+        // an older list gives way.
+        if (d.isDrives()) l.cancelled.store(true, .release);
         if (!l.cancelled.load(.acquire)) return;
         l.dir = null;
         d.loading = null;
@@ -302,9 +321,14 @@ pub fn reload(d: *Dir) void {
         return;
     };
     l.* = .{ .dir = d, .gpa = gpa, .cache = d.cache, .path = p, .sort = d.cache.sort, .trash_view = d.isTrash() };
+    if (d.isDrives()) l.drive_rows = places.DriveRows.init(gpa, d.cache.drives) catch {
+        gpa.free(p);
+        gpa.destroy(l);
+        return;
+    };
     // The trash's listing is every trash's: its own folder is not all
-    // that changes it.
-    if (d.wd < 0 and !l.trash_view) if (d.cache.watcher) |w| {
+    // that changes it. The Drives folder is no folder on disk.
+    if (d.wd < 0 and !l.trash_view and l.drive_rows == null) if (d.cache.watcher) |w| {
         l.inotify = w.inotify;
     };
     d.loading = l;
@@ -351,6 +375,9 @@ fn finish(d: *Dir, l: *Load) void {
     if (d.trash_info) |*t| t.deinit();
     d.trash_info = l.info;
     l.info = null;
+    if (d.drive_rows) |*r| r.deinit();
+    d.drive_rows = l.drive_rows;
+    l.drive_rows = null;
     if (d.listing) |*old| old.deinit();
     d.listing = null;
     d.order.clearRetainingCapacity();
@@ -417,7 +444,9 @@ fn rebuild(d: *Dir) void {
     }
     d.shows_hidden = cache.show_hidden;
     d.visible.resize(gpa, d.order.items.len) catch return;
-    const n = model.filter(l, d.order.items, d.visible.items, d.filter.items, d.shows_hidden or d.isTrash(), d.types, if (d.types != null) cache.load_mime(cache.ctx) else null);
+    // A chooser's type filter is for files; every drive shows.
+    const types = if (d.isDrives()) null else d.types;
+    const n = model.filter(l, d.order.items, d.visible.items, d.filter.items, d.shows_hidden or d.isTrash(), types, if (types != null) cache.load_mime(cache.ctx) else null);
     d.visible.shrinkRetainingCapacity(n);
     d.restoreCursor();
 }
@@ -484,10 +513,25 @@ pub fn nameAt(d: *const Dir, i: u32) ?[]const u8 {
     return d.listing.?.name(e);
 }
 
-/// The absolute path of the shown entry `i`, in `buf`.
+/// The absolute path of the shown entry `i`, in `buf`: in the Drives
+/// folder, where the drive is mounted (null when it is not).
 pub fn pathAt(d: *const Dir, buf: []u8, i: u32) ?[]u8 {
     const e = d.entryAt(i) orelse return null;
+    if (d.driveAt(i)) |row| {
+        const mp = row.drive.mount_point;
+        if (mp.len == 0 or mp.len > buf.len) return null;
+        @memcpy(buf[0..mp.len], mp);
+        return buf[0..mp.len];
+    }
     return d.listing.?.pathOf(buf, e);
+}
+
+/// The Drives folder's shown entry `i`: its drive.
+pub fn driveAt(d: *const Dir, i: u32) ?*const places.DriveRows.Row {
+    const rows = if (d.drive_rows) |*r| r else return null;
+    if (i >= d.visible.items.len) return null;
+    const e = d.visible.items[i];
+    return if (e < rows.items.len) &rows.items[e] else null;
 }
 
 // Marks --------------------------------------------------------------------------------

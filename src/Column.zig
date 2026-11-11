@@ -45,6 +45,9 @@ const RowParts = extern struct {
     mark: Node,
     icon: Node,
     name: Node,
+    /// A drive's used space: the track and its fill.
+    bar: Node,
+    bar_fill: Node,
     info: Node,
 };
 var row_key: u8 = 0;
@@ -89,7 +92,7 @@ pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
 fn onColumnDrop(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const col: *Column = @ptrCast(@alignCast(ud.?));
     const d = col.dir orelse return .pass;
-    if (d.isTrash()) return .pass;
+    if (d.isTrash() or d.isDrives()) return .pass;
     var pb: [linux.PATH_MAX]u8 = undefined;
     const path = std.fmt.bufPrint(&pb, "{s}", .{d.path}) catch return .pass;
     return col.win.dnd.onDrop(ev, .{ .column = col }, path);
@@ -143,7 +146,7 @@ fn applyMessage(col: *Column, txn: Txn) void {
         } else if (!d.loaded) {
             msg = "Loading…";
         } else if (d.count() == 0) {
-            msg = if (d.filter.items.len != 0) "No matches" else if (d.isTrash()) "The trash is empty" else "Empty";
+            msg = if (d.filter.items.len != 0) "No matches" else if (d.isTrash()) "The trash is empty" else if (d.isDrives()) "No drives" else "Empty";
         }
     }
     _ = c.siv_set_text(txn, col.message, msg.ptr, msg.len);
@@ -178,7 +181,10 @@ pub fn rebind(col: *Column, txn: Txn) void {
 /// selection), the selection's text color, so folders' accent and marks'
 /// warning never sit on the selection's own blue.
 fn applyLook(col: *Column, txn: Txn, parts: *RowParts, e: model.Entry, marked: bool, cursor: bool) void {
-    const token: siv.ColorToken = if (cursor) .selection_fg else if (marked) .warning else if (e.kind == .dir) .accent else if (e.hidden) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
+    const row = if (col.dir) |d| d.driveAt(parts.index) else null;
+    // A drive that is not mounted is muted, as a hidden file is.
+    const muted = e.hidden or (row != null and e.kind != .dir);
+    const token: siv.ColorToken = if (cursor) .selection_fg else if (marked) .warning else if (e.kind == .dir) .accent else if (muted) .muted_fg else if (e.mode & 0o111 != 0 and e.kind == .file) .success else .view_fg;
     _ = c.siv_set_text_style(txn, parts.name, &.{
         .color_token = token,
         .size_role = .body,
@@ -190,10 +196,15 @@ fn applyLook(col: *Column, txn: Txn, parts: *RowParts, e: model.Entry, marked: b
         .flags = .{ .no_wrap = true, .ellipsize = true },
     });
     _ = c.siv_set_text_style(txn, parts.info, &.{ .color_token = if (cursor) .selection_fg else .muted_fg, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true } });
+    if (row) |r| {
+        const full = r.total != 0 and r.free * 10 < r.total;
+        _ = c.siv_set_visual(txn, parts.bar, &.{ .background_token = if (cursor) .view_bg else .track, .radius = .{ .top_start = 2, .top_end = 2, .bottom_start = 2, .bottom_end = 2 } });
+        _ = c.siv_set_visual(txn, parts.bar_fill, &.{ .background_token = if (cursor) .selection_fg else if (full) .warning else .accent, .radius = .{ .top_start = 2, .top_end = 2, .bottom_start = 2, .bottom_end = 2 } });
+    }
     if (col.win.app.options.icons) {
         var ibuf: [512]u8 = undefined;
-        const icon = iconFor(col.win, e, &ibuf);
-        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (cursor) .selection_fg else if (e.kind == .dir) .accent else .view_fg });
+        const icon = if (row) |r| r.drive.icon else iconFor(col.win, e, &ibuf);
+        _ = c.siv_set_image_view(txn, parts.icon, &.{ .icon = icon.ptr, .icon_len = icon.len, .icon_size = 16, .color_token = if (cursor) .selection_fg else if (e.kind == .dir) .accent else if (muted) .muted_fg else .view_fg });
     }
 }
 
@@ -236,6 +247,11 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
         parts.icon = ui.iconView(txn, line, 16);
         parts.name = c.siv_text(txn, line, "", 0);
         _ = c.siv_set_layout(txn, parts.name, &.{ .grow = 1, .basis = ui.px(0) });
+        parts.bar = c.siv_flex(txn, line, &.{ .axis = .row });
+        _ = c.siv_set_layout(txn, parts.bar, &.{ .width = ui.px(bar_width), .height = ui.px(4), .flags = .{ .no_shrink = true } });
+        _ = c.siv_set_semantics(txn, parts.bar, &.{ .role = .none });
+        parts.bar_fill = c.siv_box(txn, parts.bar);
+        _ = c.siv_set_semantics(txn, parts.bar_fill, &.{ .role = .none });
         parts.info = c.siv_text(txn, line, "", 0);
         _ = c.siv_set_layout(txn, parts.info, &.{ .flags = .{ .no_shrink = true } });
         // Pointer and drop handlers on the body, which fills the row.
@@ -270,10 +286,14 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
 
     // Sizes (files) in the current column and folder previews.
     var sbuf: [64]u8 = undefined;
+    var sbuf2: [32]u8 = undefined;
     var info: []const u8 = "";
     const show_info = col.kind != .parent and app.options.show_size;
+    const drive = d.driveAt(i);
     if (show_info) {
-        if (d.trash_info) |*ti| {
+        if (drive) |r| {
+            info = if (r.drive.mount_point.len == 0) "not mounted" else if (r.total != 0) std.fmt.bufPrint(&sbuf, "{s} free", .{compactSize(&sbuf2, r.free)}) catch "" else "";
+        } else if (d.trash_info) |*ti| {
             const t = ti.get(d.visible.items[i]);
             info = model.basename(model.parent(t.original));
         } else if (e.kind == .file) {
@@ -284,7 +304,13 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
     }
     _ = c.siv_set_text(txn, parts.info, info.ptr, info.len);
     _ = c.siv_set_hidden(txn, parts.info, info.len == 0);
+    // A mounted drive's used space, as a bar beside its free space.
+    const used: ?f32 = if (drive) |r| (if (show_info and r.total != 0) @floatCast(@as(f64, @floatFromInt(r.total - @min(r.free, r.total))) / @as(f64, @floatFromInt(r.total))) else null) else null;
+    _ = c.siv_set_hidden(txn, parts.bar, used == null);
+    if (used) |u| _ = c.siv_set_layout(txn, parts.bar_fill, &.{ .width = ui.px(@round(bar_width * u)), .height = ui.fill() });
 }
+
+const bar_width: f32 = 48;
 
 /// "1.2K", "34M", "512": the short sizes file managers' columns use.
 pub fn compactSize(buf: []u8, size: u64) []const u8 {

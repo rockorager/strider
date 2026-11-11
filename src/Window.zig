@@ -916,7 +916,7 @@ pub fn showTab(self: *Window) void {
     _ = d.sync();
     const app = self.app;
     var pd: ?*Dir = null;
-    if (!std.mem.eql(u8, d.path, "/")) {
+    if (!std.mem.eql(u8, d.path, "/") and !d.isDrives()) {
         pd = app.cache.get(model.parent(d.path), app.options.stale_ms);
         if (pd) |p| {
             _ = p.sync();
@@ -932,7 +932,7 @@ pub fn showTab(self: *Window) void {
     self.applyHeader(txn);
     self.applyStatus(txn);
     _ = commit(txn);
-    const title = if (self.chooser) |ch| ch.windowTitle() else d.path;
+    const title = if (self.chooser) |ch| ch.windowTitle() else if (d.isDrives()) "Drives" else d.path;
     _ = c.siv_window_set_title(self.window, title.ptr, title.len);
 }
 
@@ -1024,8 +1024,8 @@ fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
     self.crumbs_for.clearRetainingCapacity();
     self.crumbs_for.appendSlice(self.gpa, d.path) catch {};
     ui.clear(txn, self.path_dir);
-    if (d.isTrash()) {
-        _ = self.crumb(txn, "Trash/", null);
+    if (d.isTrash() or d.isDrives()) {
+        _ = self.crumb(txn, if (d.isTrash()) "Trash/" else "Drives/", null);
         return;
     }
     const home = self.app.home;
@@ -1157,6 +1157,17 @@ fn applyStatus(self: *Window, txn: Txn) void {
     } else if (self.message.items.len != 0) {
         left = self.message.items;
         left_token = if (self.message_error) .destructive else .window_fg;
+    } else if (d.driveAt(d.cursor)) |row| {
+        // A drive: its space and where it is mounted.
+        var fb: [32]u8 = undefined;
+        var tb: [32]u8 = undefined;
+        const mp = row.drive.mount_point;
+        left = if (mp.len == 0)
+            (if (row.drive.size != 0) std.fmt.bufPrint(&lbuf, "Not mounted   {s}", .{model.formatSize(&tb, row.drive.size)}) catch "" else "Not mounted")
+        else if (row.total != 0)
+            std.fmt.bufPrint(&lbuf, "{s} free of {s}   {s}", .{ model.formatSize(&fb, row.free), model.formatSize(&tb, row.total), mp }) catch ""
+        else
+            mp;
     } else if (d.current()) |e| {
         var mb: [9]u8 = undefined;
         var sb: [32]u8 = undefined;
@@ -1297,7 +1308,7 @@ pub fn cdSelect(self: *Window, path_in: []const u8, select: ?[]const u8, record:
     const path = model.normalize(&nbuf, expanded);
     // A folder the cache holds is a folder; anything else is looked at
     // on a worker, so a slow or hung file system never holds the keys.
-    if (std.mem.eql(u8, path, self.app.places.trash_files) or self.app.cache.dirs.get(path) != null)
+    if (std.mem.eql(u8, path, self.app.places.trash_files) or std.mem.eql(u8, path, model.drives_path) or self.app.cache.dirs.get(path) != null)
         return self.cdKnown(path, select, record);
     self.probe(path, select, record);
 }
@@ -1455,6 +1466,7 @@ pub fn enter(self: *Window) void {
     if (self.chooser) |ch| return ch.enter(self);
     const d = self.curDir();
     const e = d.current() orelse return;
+    if (d.driveAt(d.cursor)) |row| if (row.drive.mount_point.len == 0) return self.mountDrive(row.drive.id);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = d.pathAt(&pbuf, d.cursor) orelse return;
     if (e.kind == .dir) return self.cdKnown(p, null, true);
@@ -1465,12 +1477,15 @@ pub fn enter(self: *Window) void {
 pub fn leave(self: *Window) void {
     const d = self.curDir();
     if (d.isTrash()) return self.cd(self.app.home);
+    // The Drives folder: back where it was opened from.
+    if (d.isDrives()) return if (self.tab().history_pos > 0) self.historyMove(-1) else self.cd(self.app.home);
     if (std.mem.eql(u8, d.path, "/")) return;
     self.cdKnown(model.parent(d.path), null, true);
 }
 
 /// Opens the targets with their default applications.
 pub fn openTargets(self: *Window) void {
+    if (self.curDir().isDrives()) return self.enter();
     const paths = self.targets() catch return;
     defer App.freePaths(self.gpa, paths);
     if (paths.len == 0) return;
@@ -1542,6 +1557,9 @@ pub fn targets(self: *Window) ![][]u8 {
         for (out.items) |p| self.gpa.free(p);
         out.deinit(self.gpa);
     }
+    // Drives are not files to copy or delete: a mount point stands for
+    // everything on the drive.
+    if (d.isDrives()) return out.toOwnedSlice(self.gpa);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     if (self.mode == .visual) {
         const lo = @min(self.visual_anchor, d.cursor);
@@ -2434,10 +2452,6 @@ pub fn reload(self: *Window) void {
     if (self.parent_col.dir) |p| p.reload();
 }
 
-pub fn drivesChanged(self: *Window) void {
-    _ = self;
-}
-
 /// An encrypted volume asks for its passphrase in the command line.
 pub fn askPassphrase(self: *Window, block: []const u8, label: []const u8, new_tab: bool) void {
     self.askPassphraseAgain(block, label, new_tab, null);
@@ -2470,49 +2484,11 @@ pub fn unlockFailed(self: *Window, msg: []const u8, block: []const u8, label: []
     self.askPassphraseAgain(block, label, new_tab, msg);
 }
 
-/// The drives in a menu at the cursor: choosing a mounted one goes
-/// there, an unmounted one mounts it (asking for a passphrase if it is
-/// encrypted).
-pub fn drivesMenu(self: *Window) void {
-    const ds = self.app.places.drives.items;
-    if (ds.len == 0) return self.notify("No drives", false);
-    const txn = self.begin() orelse return;
-    const menu = c.siv_menu(txn, self.root, &.{ .label = "Drives", .label_len = 6 });
-    for (ds, 0..) |d, i| {
-        var buf: [600]u8 = undefined;
-        var sb: [32]u8 = undefined;
-        const size = if (d.size != 0) model.formatSize(&sb, d.size) else "";
-        const label = if (d.mount_point.len != 0)
-            std.fmt.bufPrint(&buf, "{s} — {s}", .{ d.label, d.mount_point }) catch d.label
-        else
-            std.fmt.bufPrint(&buf, "Mount {s}{s}{s}", .{ d.label, if (size.len != 0) " — " else "", size }) catch d.label;
-        var kb: [4]u8 = undefined;
-        const shortcut = if (i < 9) std.fmt.bufPrint(&kb, "{d}", .{i + 1}) catch "" else "";
-        const icon = std.mem.trimStart(u8, d.icon, "\n");
-        _ = c.siv_menu_item(txn, menu, &.{ .label = label.ptr, .label_len = label.len, .shortcut = shortcut.ptr, .shortcut_len = shortcut.len, .mnemonic = if (i < 9) @intCast('1' + i) else 0, .icon = icon.ptr, .icon_len = icon.len });
-    }
-    _ = c.siv_on(txn, menu, .select, onDriveChosen, null, self);
-    if (!commit(txn)) return;
-    const row = c.siv_view_get_row(self.current.view, self.curDir().cursor);
-    if (row != .null) _ = c.siv_menu_open_at(menu, row, 40, Column.row_height) else _ = c.siv_menu_open(menu, self.current.view);
-}
-
-fn onDriveChosen(ud: ?*anyopaque, menu: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
-    const self: *Window = @ptrCast(@alignCast(ud.?));
-    const ds = self.app.places.drives.items;
-    if (ev.index < ds.len) {
-        const d = ds[ev.index];
-        if (d.mount_point.len != 0) {
-            self.cd(d.mount_point);
-        } else if (self.app.udisks) |u| {
-            u.mount(self, @intCast(ev.index), false);
-        } else self.notify("Mounting needs UDisks2", true);
-    }
-    if (self.begin()) |txn| {
-        _ = c.siv_remove(txn, menu);
-        _ = commit(txn);
-    }
-    return .handled;
+/// Mounts the drive whose id is `id` (asking for its passphrase if it
+/// is encrypted) and goes there.
+pub fn mountDrive(self: *Window, id: []const u8) void {
+    const u = self.app.udisks orelse return self.notify("Mounting needs UDisks2", true);
+    for (self.app.places.drives.items, 0..) |d, i| if (std.mem.eql(u8, d.id, id)) return u.mount(self, @intCast(i), false);
 }
 
 pub fn leaveMount(self: *Window, mount_point: []const u8) void {

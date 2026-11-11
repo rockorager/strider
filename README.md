@@ -111,7 +111,7 @@ tenth entry.
 | `gf` | find a file or folder below, fuzzily (`:fuzzy`) |
 | `gz`, `:z words` | jump to a folder zoxide knows: pick one, or its best for the words |
 | `gx`, `dr` | the trash, restore from it |
-| `gv` | drives: open, mount (asks for LUKS passphrases), with `:unmount` and `:eject` |
+| `gv` | the drives as a folder: free space, `l` opens or mounts (asks for LUKS passphrases), `:unmount` and `:eject` act on the cursor's |
 | `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
 | `!`, `S` | run a shell command on the selection, a terminal here (`:terminal [folder]`) |
 | `=` | change permissions (`:chmod`); `:chown` changes owners |
@@ -341,7 +341,9 @@ Bookmarks and the command history persist in
   else the first common terminal found.
 - Drives come from UDisks2: mount (polkit asks if it must), unmount,
   eject, and unlock encrypted volumes with a passphrase typed in a masked
-  field.
+  field. `gv` lists them as a folder (`//drives`): a mounted drive shows
+  its free space and previews its files, and opening one that is not
+  mounted mounts it.
 - Other applications' "Show in folder" (org.freedesktop.FileManager1)
   opens the item under the cursor in a tab.
 - The trash: browse every trash with `gx`, restore with `dr`,

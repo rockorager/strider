@@ -8,6 +8,7 @@ const std = @import("std");
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const uri = @import("uri.zig");
+const model = @import("model.zig");
 
 pub const Kind = enum { header, place, bookmark, trash, root, drive };
 
@@ -41,6 +42,84 @@ pub const Drive = struct {
     /// Size in bytes, 0 if unknown.
     size: u64 = 0,
 };
+
+/// The Drives folder's rows, parallel to its listing's entries: a copy
+/// of each drive, with the size and free space of the mounted ones.
+pub const DriveRows = struct {
+    arena: std.heap.ArenaAllocator,
+    items: []Row = &.{},
+
+    pub const Row = struct {
+        drive: Drive,
+        /// Bytes, from the mounted file system; 0 when not mounted.
+        total: u64 = 0,
+        free: u64 = 0,
+    };
+
+    /// Copies `drives`, for a worker to list.
+    pub fn init(gpa: Allocator, drives: []const Drive) !DriveRows {
+        var r: DriveRows = .{ .arena = .init(gpa) };
+        errdefer r.deinit();
+        const a = r.arena.allocator();
+        r.items = try a.alloc(Row, drives.len);
+        for (drives, r.items) |d, *row| {
+            row.* = .{ .drive = d };
+            row.drive.id = try a.dupe(u8, d.id);
+            row.drive.label = try a.dupe(u8, d.label);
+            row.drive.mount_point = try a.dupe(u8, d.mount_point);
+            row.drive.icon = try a.dupe(u8, d.icon);
+        }
+        return r;
+    }
+
+    pub fn deinit(r: *DriveRows) void {
+        r.arena.deinit();
+        r.* = undefined;
+    }
+};
+
+/// The drives as a folder's listing: an entry per drive, named by its
+/// label, a folder when it is mounted. Reads each mounted file system's
+/// size and free space into `rows`, which can wait on the file system:
+/// runs on a worker.
+pub fn listDrives(gpa: Allocator, rows: *DriveRows) model.ReadError!model.Listing {
+    var b: model.Builder = .{ .gpa = gpa };
+    errdefer b.deinit();
+    for (rows.items) |*row| {
+        const mounted = row.drive.mount_point.len != 0;
+        if (mounted) if (spaceOf(row.drive.mount_point)) |s| {
+            row.total = s.total;
+            row.free = s.free;
+        };
+        // A label with a slash would read as a path.
+        const name = try std.mem.replaceOwned(u8, gpa, row.drive.label, "/", "∕");
+        defer gpa.free(name);
+        try b.add(name, .{
+            .name_off = 0,
+            .name_len = 0,
+            .size = if (row.total != 0) row.total else row.drive.size,
+            .mtime = 0,
+            .mode = 0,
+            .kind = if (mounted) .dir else .other,
+            .link = false,
+            .hidden = false,
+        });
+    }
+    return b.finish("/");
+}
+
+/// A mounted file system's size and the space left to its users.
+fn spaceOf(path: []const u8) ?struct { total: u64, free: u64 } {
+    // The kernel's struct statfs on 64-bit Linux.
+    const Statfs = extern struct { type: i64, bsize: i64, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, fsid: [2]i32, namelen: i64, frsize: i64, flags: i64, spare: [4]i64 };
+    comptime std.debug.assert(@sizeOf(usize) == 8);
+    var zbuf: [linux.PATH_MAX]u8 = undefined;
+    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    var st: Statfs = undefined;
+    if (linux.errno(linux.syscall2(.statfs, @intFromPtr(z.ptr), @intFromPtr(&st))) != .SUCCESS) return null;
+    const unit: u64 = @intCast(if (st.frsize > 0) st.frsize else st.bsize);
+    return .{ .total = st.blocks * unit, .free = st.bavail * unit };
+}
 
 pub const Places = struct {
     gpa: Allocator,

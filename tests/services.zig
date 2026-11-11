@@ -339,13 +339,17 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
     const drive = driveNamed(&h, "STICK").?;
     try testing.expectEqualStrings("", drive.mount_point);
     try testing.expect(drive.can_mount and drive.can_eject);
-    // gv lists the drives; its key mounts the stick and goes there.
+    // gv lists the drives as a folder; l on the stick mounts it and goes
+    // there.
     try h.typeText("gv");
-    const menu = h.popup();
-    try testing.expect(menu != .null);
-    try h.expectGolden(menu, "drives-menu");
-    try testing.expect(h.find(menu, .{ .role = .menu_item, .name = "Mount STICK — 16.0 GB", .name_len = "Mount STICK — 16.0 GB".len }) != null);
-    try siv.check(c.siv_test_key(menu, @enumFromInt('2'), .{}, "2", 1));
+    try h.waitFor(&h, struct {
+        fn ok(x: *Harness) bool {
+            return x.dir().isDrives() and x.dir().count() == 2;
+        }
+    }.ok);
+    try h.expectGolden(h.window(), "drives");
+    try testing.expect(h.reads("Not mounted   8.0 GB"));
+    try h.typeText("jl");
     try h.waitFor(&h, struct {
         fn ok(x: *Harness) bool {
             return inDir(x, "/Stick", 1);
@@ -357,6 +361,20 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
             return driveNamed(x, "STICK").?.mount_point.len != 0;
         }
     }.ok);
+    // Mounted, it shows its space, and the preview shows its files; h
+    // goes back where gv was pressed.
+    try h.typeText("gv");
+    try h.waitFor(&h, struct {
+        fn ok(x: *Harness) bool {
+            const dir = x.dir();
+            const row = dir.driveAt(dir.cursor) orelse return false;
+            return std.mem.eql(u8, row.drive.label, "STICK") and row.total != 0;
+        }
+    }.ok);
+    try testing.expectEqualStrings("STICK", h.hovered());
+    try testing.expect(h.win.?.preview.column.dir != null and std.mem.endsWith(u8, h.win.?.preview.column.dir.?.path, "/Stick"));
+    try h.typeText("h");
+    try testing.expect(inDir(&h, "/Stick", 1));
     // :eject unmounts it, sends the tab out of it, and powers the stick
     // off (it is removable, not ejectable).
     try h.typeText(":eject\n");
