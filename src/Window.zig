@@ -1015,10 +1015,11 @@ fn freeCrumbs(self: *Window) void {
     self.crumbs.clearRetainingCapacity();
 }
 
-/// The header path as segments: "~" or "/", then each folder down to
-/// the current one, separated by slashes. Those above the current folder
-/// go there when clicked (a new tab with the middle button), underlined
-/// under the pointer.
+/// The header path as segments: "~", "/", or within a drive "Drives"
+/// and the drive's label, then each folder down to the current one,
+/// separated by slashes. Those above the current folder go there when
+/// clicked (a new tab with the middle button), underlined under the
+/// pointer.
 fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
     self.freeCrumbs();
     self.crumbs_for.clearRetainingCapacity();
@@ -1030,23 +1031,40 @@ fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
     }
     const home = self.app.home;
     const in_home = home.len > 1 and (std.mem.eql(u8, d.path, home) or model.isWithin(d.path, home));
+    // The drive the folder is on, if it is mounted below the home (or
+    // outside it): the deepest mount point holding it.
+    var drive: ?App.places_mod.Drive = null;
+    for (self.app.places.drives.items) |dr| {
+        const mp = dr.mount_point;
+        if (mp.len <= (if (in_home) home.len else 1) or !model.isWithin(d.path, mp)) continue;
+        if (drive == null or mp.len > drive.?.mount_point.len) drive = dr;
+    }
     // Segments: their labels and where they go.
     var labels: std.ArrayList([]const u8) = .empty;
     defer labels.deinit(self.gpa);
-    var ends: std.ArrayList(usize) = .empty;
-    defer ends.deinit(self.gpa);
-    labels.append(self.gpa, if (in_home) "~" else "/") catch return;
-    ends.append(self.gpa, if (in_home) home.len else 1) catch return;
-    const rest_from = if (in_home) home.len else 0;
+    var paths: std.ArrayList([]const u8) = .empty;
+    defer paths.deinit(self.gpa);
+    var rest_from: usize = 0;
+    if (drive) |dr| {
+        labels.appendSlice(self.gpa, &.{ "Drives", dr.label }) catch return;
+        paths.appendSlice(self.gpa, &.{ model.drives_path, d.path[0..dr.mount_point.len] }) catch return;
+        rest_from = dr.mount_point.len;
+    } else {
+        labels.append(self.gpa, if (in_home) "~" else "/") catch return;
+        paths.append(self.gpa, d.path[0 .. if (in_home) home.len else 1]) catch return;
+        if (in_home) rest_from = home.len;
+    }
     var it = std.mem.tokenizeScalar(u8, d.path[rest_from..], '/');
     while (it.next()) |seg| {
         labels.append(self.gpa, seg) catch return;
-        ends.append(self.gpa, @intFromPtr(seg.ptr) - @intFromPtr(d.path.ptr) + seg.len) catch return;
+        paths.append(self.gpa, d.path[0 .. @intFromPtr(seg.ptr) - @intFromPtr(d.path.ptr) + seg.len]) catch return;
     }
-    for (labels.items, ends.items, 0..) |label, end, i| {
-        if (i > 1 or (i == 1 and in_home)) _ = self.crumb(txn, "/", null);
+    // The root's label is its own slash.
+    const root = drive == null and !in_home;
+    for (labels.items, paths.items, 0..) |label, path, i| {
+        if (i > 1 or (i == 1 and !root)) _ = self.crumb(txn, "/", null);
         const last = i + 1 == labels.items.len;
-        _ = self.crumb(txn, label, if (last) null else d.path[0..end]);
+        _ = self.crumb(txn, label, if (last) null else path);
     }
     if (!std.mem.eql(u8, d.path, "/")) _ = self.crumb(txn, "/", null);
 }
@@ -1066,7 +1084,9 @@ fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
     _ = c.siv_set_cursor(txn, n, .pointer);
     _ = c.siv_set_semantics(txn, n, &.{ .role = .link, .label = label.ptr, .label_len = label.len, .flags = .{ .focusable = false } });
     _ = c.siv_on(txn, n, .pointer, onCrumbPointer, null, self);
-    // Files dragged onto a folder of the path go there.
+    // Files dragged onto a folder of the path go there (not into
+    // Drives, which is no folder).
+    if (std.mem.eql(u8, p, model.drives_path)) return n;
     _ = c.siv_set_drop_target(txn, n, &drop_target);
     _ = c.siv_on(txn, n, .drop, onCrumbDrop, null, self);
     return n;
@@ -2450,6 +2470,15 @@ pub fn columnClicked(self: *Window, col: *Column, index: u32, activate: bool) vo
 pub fn reload(self: *Window) void {
     self.curDir().reload();
     if (self.parent_col.dir) |p| p.reload();
+}
+
+/// The drives changed: a path on one is named by its label from now on.
+pub fn drivesChanged(self: *Window) void {
+    if (self.tabs.items.len == 0) return;
+    self.crumbs_for.clearRetainingCapacity();
+    const txn = self.begin() orelse return;
+    self.applyHeader(txn);
+    _ = commit(txn);
 }
 
 /// An encrypted volume asks for its passphrase in the command line.

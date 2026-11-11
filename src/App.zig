@@ -653,6 +653,7 @@ pub fn setDrives(self: *App, drives: []const places_mod.Drive) void {
     self.places.rebuild(.{ .home = self.opts.home, .config_home = self.opts.config_home, .data_home = self.opts.data_home }, drives) catch return;
     self.cache.drives = self.places.drives.items;
     self.cache.invalidate(model.drives_path);
+    for (self.windows.items) |w| w.drivesChanged();
 }
 
 pub fn placesChanged(self: *App) void {

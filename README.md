@@ -343,7 +343,8 @@ Bookmarks and the command history persist in
   eject, and unlock encrypted volumes with a passphrase typed in a masked
   field. `gv` lists them as a folder (`//drives`): a mounted drive shows
   its free space and previews its files, and opening one that is not
-  mounted mounts it.
+  mounted mounts it. Inside a drive, the header names it by its label:
+  `Drives/STICK/DCIM/`.
 - Other applications' "Show in folder" (org.freedesktop.FileManager1)
   opens the item under the cursor in a tab.
 - The trash: browse every trash with `gx`, restore with `dr`,

@@ -361,6 +361,14 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
             return driveNamed(x, "STICK").?.mount_point.len != 0;
         }
     }.ok);
+    // The header names the drive by its label, under Drives, which a
+    // click goes to.
+    try testing.expect(h.reads("STICK"));
+    try testing.expectEqual(1, h.win.?.crumbs.items.len);
+    try h.click(h.window(), try h.expect(.link, "Drives"), .primary);
+    try testing.expect(h.dir().isDrives());
+    try h.typeText("h");
+    try testing.expect(inDir(&h, "/Stick", 1));
     // Mounted, it shows its space, and the preview shows its files; h
     // goes back where gv was pressed.
     try h.typeText("gv");
