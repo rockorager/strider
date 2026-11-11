@@ -1,6 +1,6 @@
 .{
     .name = .strider,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .fingerprint = 0xfc3cbd375e885756, // Changing this has security and trust implications.
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
