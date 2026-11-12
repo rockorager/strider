@@ -11,14 +11,17 @@ A keyboard-driven file manager for Linux on Wayland, in Zig 0.17.1, on the
   `PATH` for the std library and for C sources. Release builds use upstream
   `zig build`. Where bs is not installed, as for someone building from the
   README, the recipes use upstream `zig`.
+- bs lints as it compiles: `.bs.zon` turns on ziglint's rules, as
+  compile errors in `build.zig`, `src`, `tests`, and `tools`, the files a
+  build reaches. So `just build` and `just test` fail on a finding, and
+  there is no separate ziglint.
 - mise and just set up development. `mise install` installs what
-  `mise.toml` pins (zig, just, shellcheck, shfmt, ast-grep, oxfmt,
-  ziglint; `mise.lock` holds their checksums), for the orb setup, CI, and
-  `just release` alike, and `just setup` builds bs and the baskingspot
-  ast-grep rules' `baskingspot-lint` from the commits the justfile pins
-  (`bs_rev`, `rules_rev`) into `~/.local/bin`. To move a pin, change it
-  there and run `mise lock --platform linux-x64,linux-arm64` or
-  `just setup`.
+  `mise.toml` pins (zig, bs, just, shellcheck, shfmt, ast-grep, oxfmt;
+  `mise.lock` holds their checksums), for the orb setup, CI, and
+  `just release` alike, and `just setup` makes `baskingspot-lint` in
+  `~/.local/bin` from the commit of the baskingspot ast-grep rules the
+  justfile pins (`rules_rev`). To move a pin, change it there and run
+  `mise lock --platform linux-x64,linux-arm64` or `just setup`.
 - In an orb, `.agents/setup` installs siv's system libraries and mise,
   then runs both, and links mise's shims into `~/.local/bin`, since the
   agent's shells do not activate mise.
@@ -28,14 +31,14 @@ A keyboard-driven file manager for Linux on Wayland, in Zig 0.17.1, on the
 The justfile is the interface. `just --list` shows every recipe.
 
 ```sh
-just setup          # bs and baskingspot-lint, from their pins
+just setup          # baskingspot-lint, from its pin
 just build          # zig-out/bin/strider
 just install        # a release build, desktop entry, and icon in ~/.local
 just release [BUMP] # release origin/main: patch, minor, major, or X.Y.Z
 just fetch          # install the published build, no compiler
 just run            # on the Wayland display
 just test           # siv's headless backend; no display needed
-just lint           # zig fmt, ziglint, baskingspot-lint, shellcheck, shfmt, oxfmt, just --fmt
+just lint           # zig fmt, baskingspot-lint, shellcheck, shfmt, oxfmt, just --fmt
 just fmt            # format what lint checks
 just ci             # build, test, and lint
 just zig=zig test   # any recipe with upstream Zig instead of bs
@@ -47,8 +50,8 @@ just zig=zig test   # any recipe with upstream Zig instead of bs
   baskingspot/skills at 6888cc2 by way of parcel) before writing Zig, and
   follow its style. Check APIs against the pinned toolchain's std
   (`zig env`), not memory.
-- `ziglint` and `baskingspot-lint`, the org's ast-grep rules, run in
-  `just lint`. Fix a finding rather than suppress it, unless the rule's
+- bs's lint (ziglint's rules) runs in every build, and
+  `baskingspot-lint`, the org's ast-grep rules, in `just lint`. Fix a finding rather than suppress it, unless the rule's
   own note names the exception.
 
 ## Releasing

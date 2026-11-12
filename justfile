@@ -7,10 +7,9 @@
 
 zig := `command -v bs >/dev/null && echo bs || echo zig`
 
-# bs has no releases yet, so `just setup` builds it from this commit, and
-# baskingspot-lint and its ast-grep rules from github.com/baskingspot/nix's.
+# `just setup` makes baskingspot-lint from github.com/baskingspot/nix at
+# this commit: its script and its ast-grep rules.
 
-bs_rev := "1326dd04bc9af2f32238f6ba8a549ab1c1f99fad"
 rules_rev := "b246e853a3836a6279526db1d8f8fa54c14e6b7a"
 
 # Where releases are published, as GitHub Releases: `just release` attaches
@@ -22,43 +21,27 @@ github := "rockorager/strider"
 default:
     @just --list
 
-[doc("Build bs and baskingspot-lint from their pins into ~/.local/bin; `mise install` installs the rest")]
+[doc("Make baskingspot-lint in ~/.local/bin from its pin; `mise install` installs the rest")]
 [group("build")]
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
-    cache=${XDG_CACHE_HOME:-$HOME/.cache}/strider
     bin=$HOME/.local/bin
-    mkdir -p "$cache" "$bin"
-    # checkout URL REV DIR: the tree at REV in DIR, unless DIR is there.
-    checkout() {
-        [ -d "$3" ] && return
-        rm -rf "$3.tmp"
-        git init -q "$3.tmp"
-        git -C "$3.tmp" fetch -q --depth 1 "$1" "$2"
-        git -C "$3.tmp" checkout -q FETCH_HEAD
-        mv "$3.tmp" "$3"
-    }
-    # bs times itself only in ReleaseFast; a Debug bs is about ten times slower.
-    # Its checkout has no mise.toml, so mise's shims would not know which Zig.
-    bs=$cache/bs-{{ bs_rev }}
-    if [ ! -x "$bs/bin/bs" ]; then
-        echo "building bs {{ bs_rev }}"
-        zig=$(mise which zig 2>/dev/null || command -v zig)
-        checkout https://github.com/baskingspot/bs {{ bs_rev }} "$bs.src"
-        (cd "$bs.src" && "$zig" build -Doptimize=ReleaseFast --prefix "$bs")
-        rm -rf "$bs.src"
+    rules=${XDG_CACHE_HOME:-$HOME/.cache}/strider/baskingspot-nix-{{ rules_rev }}
+    if [ ! -d "$rules" ]; then
+        rm -rf "$rules.tmp"
+        git init -q "$rules.tmp"
+        git -C "$rules.tmp" fetch -q --depth 1 https://github.com/baskingspot/nix {{ rules_rev }}
+        git -C "$rules.tmp" checkout -q FETCH_HEAD
+        mv "$rules.tmp" "$rules"
     fi
-    ln -sfn "$bs/bin/bs" "$bin/bs"
-    rules=$cache/baskingspot-nix-{{ rules_rev }}
-    checkout https://github.com/baskingspot/nix {{ rules_rev }} "$rules"
+    mkdir -p "$bin"
     cat >"$bin/baskingspot-lint" <<EOF
     #!/usr/bin/env bash
     export BASKINGSPOT_RULES="$rules/pkgs/ast-grep-rules/rules"
     exec bash "$rules/pkgs/baskingspot-lint/baskingspot-lint.sh" "\$@"
     EOF
     chmod +x "$bin/baskingspot-lint"
-    "$bin/bs" version
 
 [doc("Build strider into zig-out/bin/strider")]
 [group("build")]
@@ -279,11 +262,10 @@ run *ARGS:
 test *ARGS:
     {{ zig }} build test --summary failures {{ ARGS }}
 
-[doc("Lint Zig, shell, Markdown, and this justfile: zig fmt, ziglint, baskingspot-lint, shellcheck, shfmt, oxfmt, and just --fmt")]
+[doc("Lint Zig, shell, Markdown, and this justfile: zig fmt, baskingspot-lint, shellcheck, shfmt, oxfmt, and just --fmt; bs lints with ziglint's rules as it builds")]
 [group("lint")]
 lint:
     zig fmt --check build.zig build.zig.zon src tests tools
-    ziglint build.zig src tests tools
     baskingspot-lint build.zig src tests tools
     shellcheck .agents/setup .agents/resume
     shfmt --diff .agents/setup .agents/resume

@@ -1,14 +1,15 @@
 # The development toolchain: `mise install` installs these, for the orb
-# setup, CI, and `just release` alike, and `just setup` builds bs and
-# baskingspot-lint from their pins, which mise cannot. siv's system
+# setup, CI, and `just release` alike, and `just setup` fetches
+# baskingspot-lint's rules, which mise cannot. siv's system
 # libraries come from the system (README.md).
 
 [tools]
 # bs compiles this exact release's std, and the C sources with it.
 zig = "0.17.1"
+# bs lints as it compiles, with ziglint's rules (.bs.zon).
+"github:baskingspot/bs" = "0.1.2"
 just = "1.59.0"
 shellcheck = "0.11.0"
 shfmt = "3.14.1"
 "aqua:ast-grep/ast-grep" = "0.51.1"
 "aqua:oxc-project/oxc/oxfmt" = "0.78.0"
-"github:rockorager/ziglint" = "0.8.0"

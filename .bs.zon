@@ -1,0 +1,4 @@
+// bs reports ziglint's rules as compile errors in these files.
+.{
+    .lint = .{ .paths = .{ "build.zig", "src", "tests", "tools" } },
+}

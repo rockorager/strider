@@ -453,10 +453,10 @@ quits 30 seconds after its last window.
 
 ## Develop
 
-[mise](https://mise.jdx.dev) installs the toolchain: `mise install`, then
-`just setup` for [bs](https://github.com/baskingspot/bs), the Debug-mode
-compiler used for development builds, which it builds from a pinned
-commit. `just --list` shows the recipes, and `just ci` builds Strider and
+[mise](https://mise.jdx.dev) installs the toolchain, including
+[bs](https://github.com/baskingspot/bs), the Debug-mode compiler used for
+development builds, which also lints: `mise install`, then `just setup`
+for the baskingspot lint rules. `just --list` shows the recipes, and `just ci` builds Strider and
 runs the tests and lint. [`AGENTS.md`](AGENTS.md) has the conventions.
 
 ```sh

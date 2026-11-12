@@ -157,8 +157,8 @@ fn installData(b: *std.Build, filemanager1: bool) void {
         }),
     });
     const run = b.addRunArtifact(gen);
-    run.addDirectoryArg(.{ .relative = .{ .base = .install_prefix } });
-    const out = run.addOutputDirectoryArg("data");
+    run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{});
+    const out = run.addOutputDirectoryArg2("data", .{});
     const files = [_]struct { std.Build.LazyPath, []const u8 }{
         .{ out.path(b, app_id ++ ".desktop"), "share/applications/" ++ app_id ++ ".desktop" },
         .{ out.path(b, app_id ++ ".Chooser.desktop"), "share/applications/" ++ app_id ++ ".Chooser.desktop" },

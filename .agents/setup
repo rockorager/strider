@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Prepares a fresh Amp orb (Debian) to build, test, and lint Strider: siv's
 # system libraries and what the program and tests call from apt, the
-# toolchain in mise.toml from mise, and bs and baskingspot-lint from
-# `just setup`, as on any other machine.
+# toolchain in mise.toml from mise, bs included, and baskingspot-lint
+# from `just setup`, as on any other machine.
 # Idempotent: a warm orb skips downloads and package installs.
 set -euo pipefail
 
