@@ -1033,7 +1033,11 @@ fn freeCrumbs(self: *Window) void {
 fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
     self.freeCrumbs();
     self.crumbs_for.clearRetainingCapacity();
-    self.crumbs_for.appendSlice(self.gpa, d.path) catch {};
+    self.crumbs_for.appendSlice(self.gpa, d.path) catch |err| switch (err) {
+        // Left empty, it names no folder, so the next update builds them
+        // again; the old ones are freed, so they are built now regardless.
+        error.OutOfMemory => {},
+    };
     ui.clear(txn, self.path_dir);
     if (d.isTrash() or d.isDrives()) {
         _ = self.crumb(txn, if (d.isTrash()) "Trash/" else "Drives/", null);
@@ -1218,9 +1222,9 @@ fn applyStatus(self: *Window, txn: Txn) void {
     // Pending keys and count.
     var kbuf: [64]u8 = undefined;
     var kw: Io.Writer = .fixed(&kbuf);
-    if (self.count) |n| kw.print("{d}", .{n}) catch {};
+    if (self.count) |n| printCut(&kw, "{d}", .{n});
     var fbuf: [48]u8 = undefined;
-    kw.writeAll(keys.format(&fbuf, self.pending[0..self.pending_len])) catch {};
+    printCut(&kw, "{s}", .{keys.format(&fbuf, self.pending[0..self.pending_len])});
     const ktext = kw.buffered();
     _ = c.siv_set_text(txn, self.status_keys, ktext.ptr, ktext.len);
     // Right: operations, marks, filter, sort, and the position.
@@ -1233,29 +1237,38 @@ fn applyStatus(self: *Window, txn: Txn) void {
         const verb = fsops.doing(op.kind);
         const items = op.total_items.load(.monotonic);
         if (op.isPaused()) {
-            w.print("{s}: paused   ", .{verb}) catch {};
+            printCut(&w, "{s}: paused   ", .{verb});
         } else if (op.asking.load(.acquire)) {
-            w.print("{s}: waiting   ", .{verb}) catch {};
+            printCut(&w, "{s}: waiting   ", .{verb});
         } else if (total > 0) {
-            w.print("{s} {d}%   ", .{ verb, done * 100 / total }) catch {};
+            printCut(&w, "{s} {d}%   ", .{ verb, done * 100 / total });
         } else if (items > 0 and !op.scanning.load(.acquire)) {
-            w.print("{s} {d}%   ", .{ verb, @min(100, @as(u64, op.done_items.load(.monotonic)) * 100 / items) }) catch {};
-        } else w.print("{s}…   ", .{verb}) catch {};
+            printCut(&w, "{s} {d}%   ", .{ verb, @min(100, @as(u64, op.done_items.load(.monotonic)) * 100 / items) });
+        } else printCut(&w, "{s}…   ", .{verb});
     }
     if (self.mode == .visual) {
         const lo = @min(self.visual_anchor, d.cursor);
         const hi = @max(self.visual_anchor, d.cursor);
-        w.print("{d} in range   ", .{hi - lo + 1}) catch {};
+        printCut(&w, "{d} in range   ", .{hi - lo + 1});
     }
-    if (d.mark_count != 0) w.print("{d} marked   ", .{d.mark_count}) catch {};
-    if (app.register.items.len != 0) w.print("{d} {s}   ", .{ app.register.items.len, if (app.register_cut) "cut" else "copied" }) catch {};
-    if (d.filter.items.len != 0) w.print("filter: {s}   ", .{d.filter.items}) catch {};
-    if (app.options.show_hidden) w.writeAll("hidden   ") catch {};
+    if (d.mark_count != 0) printCut(&w, "{d} marked   ", .{d.mark_count});
+    if (app.register.items.len != 0) printCut(&w, "{d} {s}   ", .{
+        app.register.items.len,
+        if (app.register_cut) "cut" else "copied",
+    });
+    if (d.filter.items.len != 0) printCut(&w, "filter: {s}   ", .{d.filter.items});
+    if (app.options.show_hidden) printCut(&w, "hidden   ", .{});
     const s = app.options.sort;
-    if (s.key != .name or s.descending) w.print("{s}{s}   ", .{ @tagName(s.key), if (s.descending) " ↓" else "" }) catch {};
-    if (d.count() != 0) w.print("{d}/{d}", .{ d.cursor + 1, d.count() }) catch {} else w.writeAll("0/0") catch {};
+    if (s.key != .name or s.descending) printCut(&w, "{s}{s}   ", .{ @tagName(s.key), if (s.descending) " ↓" else "" });
+    if (d.count() != 0) printCut(&w, "{d}/{d}", .{ d.cursor + 1, d.count() }) else printCut(&w, "0/0", .{});
     const right = w.buffered();
     _ = c.siv_set_text(txn, self.status_right, right.ptr, right.len);
+}
+
+/// Prints into a fixed buffer for a line of text, where a full buffer
+/// cuts the text short.
+fn printCut(w: *Io.Writer, comptime fmt: []const u8, args: anytype) void {
+    w.print(fmt, args) catch return;
 }
 
 pub fn updateStatus(self: *Window) void {
@@ -1286,7 +1299,10 @@ fn questionText(self: *Window, buf: []u8) []const u8 {
 pub fn notify(self: *Window, msg: []const u8, is_error: bool) void {
     self.app.logMessage(msg, is_error);
     self.message.clearRetainingCapacity();
-    self.message.appendSlice(self.gpa, msg) catch {};
+    self.message.appendSlice(self.gpa, msg) catch |err| switch (err) {
+        // The status line goes without it; `:messages` has it.
+        error.OutOfMemory => {},
+    };
     self.message_error = is_error;
     if (self.tabs.items.len == 0) return;
     const txn = self.begin() orelse return;
@@ -1816,9 +1832,14 @@ pub fn showWhichKey(self: *Window) void {
         while (it.next()) |kv| {
             var kb: [4]u8 = undefined;
             const n = std.unicode.utf8Encode(@intCast(kv.key_ptr.*), &kb) catch continue;
-            hints.append(a, .{ .key = a.dupe(u8, kb[0..n]) catch continue, .desc = self.shortPath(a, kv.value_ptr.*) }) catch {};
+            hints.append(a, .{
+                .key = a.dupe(u8, kb[0..n]) catch continue,
+                .desc = self.shortPath(a, kv.value_ptr.*),
+            }) catch return;
         }
-        if (hints.items.len == 0) hints.append(a, .{ .key = "", .desc = "No bookmarks yet: m and a key sets one" }) catch {};
+        if (hints.items.len == 0) {
+            hints.append(a, .{ .key = "", .desc = "No bookmarks yet: m and a key sets one" }) catch return;
+        }
     } else {
         const conts = self.app.keymap.continuations(a, self.mode, self.pending[0..self.pending_len]) catch return;
         var fbuf: [48]u8 = undefined;
@@ -1832,7 +1853,7 @@ pub fn showWhichKey(self: *Window) void {
                 .command => |cmd| cmd,
                 .lua => "Lua function",
             };
-            hints.append(a, .{ .key = a.dupe(u8, ks) catch continue, .desc = desc }) catch {};
+            hints.append(a, .{ .key = a.dupe(u8, ks) catch continue, .desc = desc }) catch return;
         }
     }
     const txn = self.begin() orelse return;
@@ -2014,11 +2035,14 @@ pub fn refreshTasks(self: *Window) void {
                 var b1: [32]u8 = undefined;
                 var b2: [32]u8 = undefined;
                 const total = e.op.total_bytes.load(.monotonic);
-                if (total > 0) w.print("{s} of {s}   ", .{ model.formatSize(&b1, e.op.done_bytes.load(.monotonic)), model.formatSize(&b2, total) }) catch {};
+                if (total > 0) printCut(&w, "{s} of {s}   ", .{
+                    model.formatSize(&b1, e.op.done_bytes.load(.monotonic)),
+                    model.formatSize(&b2, total),
+                });
                 const items = e.op.total_items.load(.monotonic);
-                if (items > 0) w.print("{d} of {d} items   ", .{ e.op.done_items.load(.monotonic), items }) catch {};
+                if (items > 0) printCut(&w, "{d} of {d} items   ", .{ e.op.done_items.load(.monotonic), items });
                 var cb: [256]u8 = undefined;
-                w.writeAll(e.op.currentName(&cb)) catch {};
+                printCut(&w, "{s}", .{e.op.currentName(&cb)});
                 const detail = w.buffered();
                 const dn = c.siv_text(txn, row, detail.ptr, detail.len);
                 _ = c.siv_set_text_style(txn, dn, &.{ .color_token = if (selected) .selection_fg else .muted_fg, .size_role = .caption, .flags = .{ .no_wrap = true, .ellipsize = true } });
@@ -2127,8 +2151,20 @@ pub fn askConflict(self: *Window, e: *App.OpEntry) void {
 pub fn confirmDelete(self: *Window, paths: []const []const u8) void {
     for (self.confirm_paths.items) |p| self.gpa.free(p);
     self.confirm_paths.clearRetainingCapacity();
-    for (paths) |p| self.confirm_paths.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
-    if (!self.app.options.confirm_delete) return self.answerAwait(.{ .code = 'y' });
+    for (paths) |p| {
+        const copy = self.gpa.dupe(u8, p) catch break;
+        self.confirm_paths.append(self.gpa, copy) catch {
+            self.gpa.free(copy);
+            break;
+        };
+    }
+    if (!self.app.options.confirm_delete) {
+        if (self.confirm_paths.items.len == paths.len) return self.answerAwait(.{ .code = 'y' });
+        // Out of memory part way: nothing is deleted rather than only some.
+        for (self.confirm_paths.items) |p| self.gpa.free(p);
+        self.confirm_paths.clearRetainingCapacity();
+        return;
+    }
     // What cannot be undone gets a dialog, not a y/N in the status line.
     self.dialogs.confirmDelete(paths);
     for (self.confirm_paths.items) |p| self.gpa.free(p);
@@ -2284,8 +2320,10 @@ fn onPromptChange(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
             if (matches == 1 and self.app.options.find_auto_accept and t.len != 0) self.closePrompt();
         },
         .filter => {
+            // Out of memory, the last filter stays.
+            d.filter.ensureTotalCapacity(self.gpa, t.len) catch return .handled;
             d.filter.clearRetainingCapacity();
-            d.filter.appendSlice(self.gpa, t) catch {};
+            d.filter.appendSliceAssumeCapacity(t);
             d.refilter();
             const txn = self.begin() orelse return .handled;
             self.current.refresh(txn);
@@ -2371,7 +2409,7 @@ fn submitPrompt(self: *Window, kind: PromptKind) void {
         },
         .search, .search_back => {
             self.last_search.clearRetainingCapacity();
-            self.last_search.appendSlice(self.gpa, t) catch {};
+            self.last_search.appendSlice(self.gpa, t) catch return;
             self.last_search_back = kind == .search_back;
             if (t.len != 0 and self.curDir().findMatch(t, self.prompt_origin, kind == .search_back, true) == null) self.notify("No match", true);
         },
@@ -2501,7 +2539,7 @@ fn askPassphraseAgain(self: *Window, block: []const u8, label: []const u8, new_t
     self.unlock_block.clearRetainingCapacity();
     self.unlock_block.appendSlice(self.gpa, block) catch return;
     self.unlock_label.clearRetainingCapacity();
-    self.unlock_label.appendSlice(self.gpa, label_copy) catch {};
+    self.unlock_label.appendSlice(self.gpa, label_copy) catch return;
     self.unlock_new_tab = new_tab;
     if (failure) |f| self.app.logMessage(f, true);
     self.startPrompt(.passphrase, "", 0, 0);
@@ -2511,7 +2549,10 @@ fn askPassphraseAgain(self: *Window, block: []const u8, label: []const u8, new_t
         std.mem.print(&buf, "{s} Unlock “{s}”", .{ f, label_copy }) catch "Unlock"
     else
         std.mem.print(&buf, "Unlock “{s}”", .{label_copy}) catch "Unlock";
-    self.message.appendSlice(self.gpa, msg) catch {};
+    self.message.appendSlice(self.gpa, msg) catch |err| switch (err) {
+        // The prompt is open regardless; the status line goes without it.
+        error.OutOfMemory => {},
+    };
     self.message_error = failure != null;
     self.updateStatus();
 }
@@ -2564,7 +2605,14 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
         self.gpa.destroy(state);
         return;
     }, .paths = .empty };
-    for (paths) |p| state.paths.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
+    // Out of memory, nothing opens rather than only some.
+    for (paths) |p| {
+        const copy = self.gpa.dupe(u8, p) catch return state.free();
+        state.paths.append(self.gpa, copy) catch {
+            self.gpa.free(copy);
+            return state.free();
+        };
+    }
     const txn = self.begin() orelse return state.free();
     const menu = c.siv_menu(txn, self.root, &.{ .label = "Open with", .label_len = 9 });
     const first: usize = @intFromBool(folder);

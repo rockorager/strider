@@ -1251,7 +1251,9 @@ const Tmp = struct {
         return std.mem.print(buf, "{s}/{s}", .{ t.path, rel }) catch unreachable;
     }
     fn done(t: *Tmp) void {
-        t.sh("cd / && rm -rf \"$OLDPWD\"") catch {};
+        // A folder left in /tmp does not make the test wrong; say so and go on.
+        t.sh("cd / && rm -rf \"$OLDPWD\"") catch |err|
+            std.log.warn("{s} is left behind: {s}", .{ t.path, @errorName(err) });
     }
 };
 

@@ -164,7 +164,10 @@ const FakeUDisks = struct {
             return;
         }
         const entry_ = testing.allocator.print("{s} {s}", .{ member, Io.Dir.path.basename(path) }) catch return;
-        u.calls.append(testing.allocator, entry_) catch {};
+        u.calls.append(testing.allocator, entry_) catch {
+            testing.allocator.free(entry_);
+            return;
+        };
         if (eql(u8, member, "Unlock")) {
             var buf: [64]u8 = undefined;
             var len: usize = 0;

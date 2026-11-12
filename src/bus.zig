@@ -118,7 +118,8 @@ pub fn readFileUris(r: Reader, a: Allocator) [][]const u8 {
         const text = readString(r, a) orelse break;
         var buf: [std.os.linux.PATH_MAX]u8 = undefined;
         const p = uri.filePath(&buf, text) orelse continue;
-        out.append(a, a.dupe(u8, p) catch continue) catch {};
+        // Out of memory, the list ends here, as when a string cannot be read.
+        out.append(a, a.dupe(u8, p) catch continue) catch break;
     }
     return out.items;
 }

@@ -318,7 +318,12 @@ fn enter(d: *Dnd, target: Target, dest: []const u8) void {
     d.clearHighlight();
     d.stopTimers();
     d.dest.clearRetainingCapacity();
-    d.dest.appendSlice(gpa, dest) catch {};
+    d.dest.appendSlice(gpa, dest) catch {
+        // Out of memory, the hint could not name it: it takes nothing.
+        d.dest_ok = false;
+        d.over = target;
+        return;
+    };
     d.dest_dev = devOf(dest) orelse 0;
     d.dest_ok = takes(d.win.app.drag, dest);
     d.over = target;

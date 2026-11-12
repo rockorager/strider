@@ -164,11 +164,12 @@ pub fn load(gpa: Allocator, dirs: Dirs) !*Db {
     errdefer gpa.destroy(db);
     db.* = .{ .arena = .init(gpa) };
     errdefer db.arena.deinit();
-    // Applications: earlier directories win for the same id.
+    // Applications: earlier directories win for the same id. A directory
+    // or list that fails to load is skipped; the others still count.
     for (dirs.data) |d| {
         var pbuf: [linux.PATH_MAX]u8 = undefined;
         const apps_dir = std.mem.print(&pbuf, "{s}/applications", .{d}) catch continue;
-        scanApps(db, gpa, apps_dir, "") catch {};
+        scanApps(db, gpa, apps_dir, "") catch continue;
     }
     // mimeapps.list, most important first: config dirs (desktop-specific
     // before generic), then data dirs' applications/.
@@ -176,14 +177,16 @@ pub fn load(gpa: Allocator, dirs: Dirs) !*Db {
     for (dirs.config) |d| {
         for (dirs.desktops) |desk| {
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/{s}-mimeapps.list", .{ d, desk }) catch continue) catch {};
+            const list = std.mem.print(&pbuf, "{s}/{s}-mimeapps.list", .{ d, desk }) catch continue;
+            readMimeApps(db, gpa, list) catch continue;
         }
         var pbuf: [linux.PATH_MAX]u8 = undefined;
-        readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/mimeapps.list", .{d}) catch continue) catch {};
+        readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/mimeapps.list", .{d}) catch continue) catch continue;
     }
     for (dirs.data) |d| {
         var pbuf: [linux.PATH_MAX]u8 = undefined;
-        readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/applications/mimeapps.list", .{d}) catch continue) catch {};
+        const list = std.mem.print(&pbuf, "{s}/applications/mimeapps.list", .{d}) catch continue;
+        readMimeApps(db, gpa, list) catch continue;
     }
     return db;
 }
@@ -212,7 +215,8 @@ fn scanApps(db: *Db, gpa: Allocator, dir: []const u8, prefix: []const u8) !void 
                 // Subdirectories prefix the id: kde/x.desktop is kde-x.desktop.
                 var idp: [256]u8 = undefined;
                 const p = std.mem.print(&idp, "{s}{s}-", .{ prefix, nm }) catch continue;
-                scanApps(db, gpa, path, p) catch {};
+                // A subdirectory that fails is skipped; the rest still load.
+                scanApps(db, gpa, path, p) catch continue;
                 continue;
             }
             if (!std.mem.endsWith(u8, nm, ".desktop")) continue;

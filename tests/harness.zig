@@ -352,7 +352,7 @@ pub const Harness = struct {
                 if (bad <= pixels.len / 2000) return;
                 print("{s}: {d} channels differ\n", .{ name, bad });
             } else print("{s}: {d}×{d}, golden {d}×{d}\n", .{ name, width, height, img.width, img.height });
-            cwd.createDirPath(io, failure_dir) catch {};
+            try cwd.createDirPath(io, failure_dir);
             var fbuf: [256]u8 = undefined;
             const fpath = try std.mem.print(&fbuf, "{s}/{s}.png", .{ failure_dir, name });
             const enc = try png.encode(gpa, width, height, pixels);
@@ -361,7 +361,7 @@ pub const Harness = struct {
             print("wrote {s}; SIV_UPDATE_GOLDEN=1 accepts it\n", .{fpath});
             return error.GoldenMismatch;
         }
-        cwd.createDirPath(io, golden_dir) catch {};
+        try cwd.createDirPath(io, golden_dir);
         const enc = try png.encode(gpa, width, height, pixels);
         defer gpa.free(enc);
         try cwd.writeFile(io, .{ .sub_path = path, .data = enc });

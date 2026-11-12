@@ -165,7 +165,8 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     // The same entry again (a reload): keep what shows unless it changed.
     const same = std.mem.eql(u8, p.path.items, path);
     p.path.clearRetainingCapacity();
-    p.path.appendSlice(p.win.gpa, path) catch {};
+    // Out of memory: show nothing rather than a preview with no path.
+    p.path.appendSlice(p.win.gpa, path) catch return p.clear(txn);
     if (e.kind == .dir) {
         p.cancel();
         const old = p.column.dir;
@@ -324,9 +325,21 @@ fn setInfoText(p: *Preview, txn: Txn, title: []const u8, body: []const u8) void 
 
 /// The file's details: type, size, dates, permissions, link target.
 pub fn showInfo(p: *Preview, txn: Txn, d: *Dir, e: model.Entry, path: []const u8, note: ?[]const u8) void {
-    const app = p.win.app;
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(p.win.gpa);
+    // Out of memory: show nothing rather than some of the details.
+    p.infoBody(&body, d, e, note) catch return p.clear(txn);
+    // A link's target comes from a job (readlink can wait on the file
+    // system too) and joins these lines when it arrives.
+    if (e.link and p.job == null) p.startJob(txn, .link, path, e);
+    p.setInfoText(txn, d.listing.?.base(e), body.items);
+    p.applyModeTxn(txn, .info);
+    p.applied = .info;
+}
+
+/// The details' lines, a key and a value each, then the note.
+fn infoBody(p: *Preview, body: *std.ArrayList(u8), d: *Dir, e: model.Entry, note: ?[]const u8) Allocator.Error!void {
+    const app = p.win.app;
     const gpa = p.win.gpa;
     const type_label = if (app.mimeDb()) |db| (db.cachedComment(e.mime) orelse db.name(e.mime)) else "";
     var sbuf: [32]u8 = undefined;
@@ -334,37 +347,31 @@ pub fn showInfo(p: *Preview, txn: Txn, d: *Dir, e: model.Entry, path: []const u8
     var mbuf: [9]u8 = undefined;
     const tz = if (app.opts.reproducible) 0 else app.tz_offset_s;
     const w = struct {
-        fn line(list: *std.ArrayList(u8), a: Allocator, k: []const u8, v: []const u8) void {
+        fn line(list: *std.ArrayList(u8), a: Allocator, k: []const u8, v: []const u8) Allocator.Error!void {
             if (v.len == 0) return;
-            if (list.items.len != 0) list.append(a, '\n') catch {};
-            list.appendSlice(a, k) catch {};
-            list.append(a, '\t') catch {};
-            list.appendSlice(a, v) catch {};
+            if (list.items.len != 0) try list.append(a, '\n');
+            try list.appendSlice(a, k);
+            try list.append(a, '\t');
+            try list.appendSlice(a, v);
         }
     };
-    w.line(&body, gpa, "Type", if (e.kind == .dir) "Folder" else type_label);
-    if (e.kind == .file) w.line(&body, gpa, "Size", model.formatSize(&sbuf, e.size));
-    w.line(&body, gpa, "Modified", model.formatTime(&tbuf, e.mtime, tz));
-    w.line(&body, gpa, "Permissions", model.formatMode(&mbuf, e.mode));
-    // A link's target comes from a job (readlink can wait on the file
-    // system too) and joins these lines when it arrives.
-    if (e.link and p.job == null) p.startJob(txn, .link, path, e);
+    try w.line(body, gpa, "Type", if (e.kind == .dir) "Folder" else type_label);
+    if (e.kind == .file) try w.line(body, gpa, "Size", model.formatSize(&sbuf, e.size));
+    try w.line(body, gpa, "Modified", model.formatTime(&tbuf, e.mtime, tz));
+    try w.line(body, gpa, "Permissions", model.formatMode(&mbuf, e.mode));
     if (d.trash_info) |*ti| {
         const i = for (d.visible.items) |vi| {
             if (std.meta.eql(d.listing.?.entries[vi], e)) break vi;
         } else null;
         if (i) |idx| {
             const t = ti.get(idx);
-            w.line(&body, gpa, "From", t.original);
+            try w.line(body, gpa, "From", t.original);
         }
     }
     if (note) |n| {
-        body.appendSlice(gpa, "\n\n") catch {};
-        body.appendSlice(gpa, n) catch {};
+        try body.appendSlice(gpa, "\n\n");
+        try body.appendSlice(gpa, n);
     }
-    p.setInfoText(txn, d.listing.?.base(e), body.items);
-    p.applyModeTxn(txn, .info);
-    p.applied = .info;
 }
 
 /// A drive that is not mounted: its size, and that opening it mounts it.
@@ -517,7 +524,8 @@ const Job = struct {
                 var lbuf: [linux.PATH_MAX]u8 = undefined;
                 const z = std.mem.printSentinel(&zb, "{s}", .{j.path}, 0) catch return;
                 const n = linux.readlinkat(linux.AT.FDCWD, z, &lbuf, lbuf.len);
-                if (linux.errno(n) == .SUCCESS) j.text.appendSlice(j.gpa, lbuf[0..n]) catch {};
+                // Out of memory: the details stay without the target.
+                if (linux.errno(n) == .SUCCESS) j.text.appendSlice(j.gpa, lbuf[0..n]) catch return;
             },
         }
     }
@@ -544,7 +552,10 @@ const Job = struct {
         const head = j.text.items[0..@min(got, 8192)];
         if (std.mem.findScalar(u8, head, 0) != null or !std.unicode.utf8ValidateSlice(trimPartial(head))) {
             j.text_kind = .binary;
-            j.hexDump(j.text.items[0..@min(got, hex_bytes)]) catch {};
+            // Out of memory: say so rather than show the raw bytes as text.
+            j.hexDump(j.text.items[0..@min(got, hex_bytes)]) catch {
+                j.failed = "This file could not be shown";
+            };
             return;
         }
         // Cut at the last whole line or character.
@@ -575,16 +586,25 @@ const Job = struct {
             const size = if (e.dir or e.size == 0) "" else model.formatSize(&sbuf, e.size);
             j.text.print(j.gpa, "{s}{s}{s}{s}\n", .{ e.name, if (e.dir) "/" else "", if (size.len != 0) "  " else "", size }) catch return;
         }
-        if (l.truncated) j.text.appendSlice(j.gpa, "…\n") catch {};
-        if (l.entries.len == 0) j.text.appendSlice(j.gpa, "(empty archive)\n") catch {};
-        // Folders colored like keywords.
+        // Out of memory, here and above: the list shows as far as it got, uncolored.
+        if (l.truncated) j.text.appendSlice(j.gpa, "…\n") catch return;
+        if (l.entries.len == 0) j.text.appendSlice(j.gpa, "(empty archive)\n") catch return;
+        // Folders colored like keywords; out of memory, only the rows so far.
         var spans: std.ArrayList(highlight.Span) = .empty;
         var start: usize = 0;
         for (l.entries) |e| {
             const line_len = std.mem.findScalarPos(u8, j.text.items, start, '\n') orelse break;
-            if (e.dir) spans.append(j.gpa, .{ .start = @intCast(start), .end = @intCast(start + e.name.len + 1), .class = .keyword }) catch {};
+            if (e.dir) spans.append(j.gpa, .{
+                .start = @intCast(start),
+                .end = @intCast(start + e.name.len + 1),
+                .class = .keyword,
+            }) catch break;
             const two = std.mem.findPos(u8, j.text.items[0..line_len], start, "  ");
-            if (two) |t| spans.append(j.gpa, .{ .start = @intCast(t + 2), .end = @intCast(line_len), .class = .comment }) catch {};
+            if (two) |t| spans.append(j.gpa, .{
+                .start = @intCast(t + 2),
+                .end = @intCast(line_len),
+                .class = .comment,
+            }) catch break;
             start = line_len + 1;
         }
         j.spans = spans.toOwnedSlice(j.gpa) catch &.{};
@@ -684,7 +704,8 @@ const Job = struct {
         };
         defer r.deinit(j.gpa);
         j.text_kind = .command;
-        j.text.appendSlice(j.gpa, trimPartial(r.output)) catch {};
+        // Out of memory: the output shows empty.
+        j.text.appendSlice(j.gpa, trimPartial(r.output)) catch return;
         stripCr(&j.text);
         stripAnsi(&j.text);
     }
@@ -698,14 +719,16 @@ const Job = struct {
         const txn = p.win.begin() orelse return;
         if (j.kind == .link) {
             // The details again, with where the link goes.
-            if (j.text.items.len != 0 and p.mode == .info) {
+            if (j.text.items.len != 0 and p.mode == .info) link: {
                 var buf: [8192]u8 = undefined;
                 const body = ui.getText(p.info_body, &buf);
                 var out: std.ArrayList(u8) = .empty;
                 defer out.deinit(j.gpa);
                 // Before a note (a blank line), if there is one.
                 const split = std.mem.find(u8, body, "\n\n") orelse body.len;
-                out.print(j.gpa, "{s}\nLinks to\t{s}{s}", .{ body[0..split], j.text.items, body[split..] }) catch {};
+                const parts = .{ body[0..split], j.text.items, body[split..] };
+                // Out of memory: the details stay as they are, without the target.
+                out.print(j.gpa, "{s}\nLinks to\t{s}{s}", parts) catch break :link;
                 _ = c.siv_set_text(txn, p.info_body, out.items.ptr, out.items.len);
             }
         } else if (j.failed) |msg| {

@@ -172,7 +172,11 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
     const txn = win.begin() orelse return;
     if (m.node != .null) _ = c.siv_remove(txn, m.node);
     m.node = c.siv_menu(txn, win.root, &.{ .label = "Actions", .label_len = 7 });
-    m.fill(txn, m.node, list.items) catch {};
+    m.fill(txn, m.node, list.items) catch {
+        // Out of memory part way: the old menu goes, the new one is not opened.
+        _ = ui.commit(txn);
+        return;
+    };
     if (!ui.commit(txn)) return;
     _ = c.siv_menu_open_at(m.node, anchor, x, y);
 }

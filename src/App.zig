@@ -224,7 +224,8 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     self.thumbnail_cache = try gpa.print("{s}/thumbnails", .{cache_root});
     self.preview_cache = try gpa.print("{s}/" ++ program ++ "/previews", .{cache_root});
     if (opts.icon_dir) |dir| try siv.check(c.siv_app_add_icon_path(sapp, dir.ptr, dir.len));
-    for (Config.default_bindings) |b| self.keymap.map(b[0], b[1], .{ .command = b[2] }, b[3]) catch {};
+    errdefer self.keymap.deinit();
+    for (Config.default_bindings) |b| try self.keymap.map(b[0], b[1], .{ .command = b[2] }, b[3]);
     self.loadBookmarks();
     self.loadHistory();
     self.loadWidths();
@@ -534,8 +535,8 @@ pub fn openPaths(self: *App, win: *Window, paths: []const []const u8, with: ?*co
         if (app) |a| {
             const gop = groups.getOrPut(self.gpa, a) catch continue;
             if (!gop.found_existing) gop.value_ptr.* = .empty;
-            gop.value_ptr.append(self.gpa, p) catch {};
-        } else orphans.append(self.gpa, p) catch {};
+            gop.value_ptr.append(self.gpa, p) catch return;
+        } else orphans.append(self.gpa, p) catch return;
     }
     var it = groups.iterator();
     while (it.next()) |kv| self.launch(win, kv.key_ptr.*, kv.value_ptr.items);
@@ -643,7 +644,7 @@ pub fn refreshMountDrives(self: *App) void {
             .label = a.dupe(u8, places_mod.basename(m.mount_point)) catch continue,
             .mount_point = a.dupe(u8, m.mount_point) catch continue,
             .icon = places_mod.removable_icon[1..],
-        }) catch {};
+        }) catch return; // The places keep the last list: they copied it.
     }
     self.setDrives(drives.items);
 }
@@ -905,7 +906,11 @@ fn loadHistory(self: *App) void {
     defer self.gpa.free(data);
     var it = std.mem.splitScalar(u8, data, '\n');
     while (it.next()) |line| if (line.len != 0) {
-        self.history.append(self.gpa, self.gpa.dupe(u8, line) catch continue) catch {};
+        const h = self.gpa.dupe(u8, line) catch continue;
+        self.history.append(self.gpa, h) catch {
+            self.gpa.free(h);
+            return;
+        };
     };
 }
 
@@ -986,7 +991,18 @@ fn writeAll(dir: []const u8, path: []const u8, data: []const u8) void {
 pub fn setRegister(self: *App, paths: []const []const u8, cut: bool) void {
     for (self.register.items) |p| self.gpa.free(p);
     self.register.clearRetainingCapacity();
-    for (paths) |p| self.register.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
+    for (paths) |p| {
+        const owned = self.gpa.dupe(u8, p) catch break;
+        self.register.append(self.gpa, owned) catch {
+            self.gpa.free(owned);
+            break;
+        };
+    }
+    // Out of memory: an empty register, not one that pastes only some of them.
+    if (self.register.items.len != paths.len) {
+        for (self.register.items) |p| self.gpa.free(p);
+        self.register.clearRetainingCapacity();
+    }
     self.register_cut = cut;
     for (self.windows.items) |w| w.refreshRows();
 }
@@ -1205,48 +1221,74 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
     }
     var staged: std.ArrayList([2][]const u8) = .empty;
     defer staged.deinit(self.gpa);
+    // Room for every pair before renaming any: nothing after a file's rename
+    // to its temporary name may fail and leave it there.
+    const room = blk: {
+        tmp_names.ensureTotalCapacity(self.gpa, pairs.len) catch break :blk false;
+        staged.ensureTotalCapacity(self.gpa, pairs.len) catch break :blk false;
+        done.ensureTotalCapacity(self.gpa, pairs.len) catch break :blk false;
+        break :blk true;
+    };
+    if (!room) {
+        win.notify("Out of memory; nothing was renamed", true);
+        return 0;
+    }
     for (pairs, 0..) |p, i| {
         if (std.mem.eql(u8, p[0], p[1])) continue;
         var tb: [linux.PATH_MAX]u8 = undefined;
         const tmp = std.mem.print(&tb, "{s}/." ++ program ++ "-rename-{d}-{d}", .{ model.parent(p[0]), linux.getpid(), i }) catch continue;
-        fsops.renamePath(p[0], tmp) catch {
+        const owned = self.gpa.dupe(u8, tmp) catch {
             failed += 1;
             continue;
         };
-        const owned = self.gpa.dupe(u8, tmp) catch continue;
-        tmp_names.append(self.gpa, owned) catch {};
-        staged.append(self.gpa, .{ owned, p[1] }) catch {};
-        done.append(self.gpa, .{ p[0], p[1] }) catch {};
+        fsops.renamePath(p[0], tmp) catch {
+            self.gpa.free(owned);
+            failed += 1;
+            continue;
+        };
+        tmp_names.appendAssumeCapacity(owned);
+        staged.appendAssumeCapacity(.{ owned, p[1] });
+        done.appendAssumeCapacity(.{ p[0], p[1] });
     }
+    // Files that could not go back to their old names either.
+    var stranded: usize = 0;
     for (staged.items, 0..) |s, k| {
         var zbuf: [linux.PATH_MAX]u8 = undefined;
         const z = std.mem.printSentinel(&zbuf, "{s}", .{s[1]}, 0) catch continue;
         const taken = fsops.exists(z);
-        if (taken) {
-            fsops.renamePath(s[0], done.items[k][0]) catch {};
-            done.items[k][1] = done.items[k][0];
-            failed += 1;
-            continue;
-        }
-        fsops.renamePath(s[0], s[1]) catch {
-            // Back under its old name.
-            fsops.renamePath(s[0], done.items[k][0]) catch {};
-            done.items[k][1] = done.items[k][0];
-            failed += 1;
+        const renamed = !taken and blk: {
+            fsops.renamePath(s[0], s[1]) catch break :blk false;
+            break :blk true;
         };
+        if (renamed) continue;
+        // Back under its old name.
+        fsops.renamePath(s[0], done.items[k][0]) catch {
+            var mb: [2 * linux.PATH_MAX]u8 = undefined;
+            self.logMessage(std.mem.print(&mb, "{s} is left as {s}", .{ done.items[k][0], s[0] }) catch s[0], true);
+            stranded += 1;
+        };
+        done.items[k][1] = done.items[k][0];
+        failed += 1;
     }
-    var effective: std.ArrayList([2][]const u8) = .empty;
-    defer effective.deinit(self.gpa);
-    for (done.items) |d| if (!std.mem.eql(u8, d[0], d[1])) effective.append(self.gpa, d) catch {};
-    self.undo.pushRenames(effective.items);
+    // The pairs that took effect, compacted in place.
+    var n_effective: usize = 0;
+    for (done.items) |d| if (!std.mem.eql(u8, d[0], d[1])) {
+        done.items[n_effective] = d;
+        n_effective += 1;
+    };
+    const effective = done.items[0..n_effective];
+    self.undo.pushRenames(effective);
     for (pairs) |p| self.cache.invalidate(model.parent(p[0]));
     var buf: [128]u8 = undefined;
-    if (failed != 0) {
+    if (stranded != 0) {
+        const msg = "{d} items are left under temporary names; :messages says where";
+        win.notify(std.mem.print(&buf, msg, .{stranded}) catch "Some items are left under temporary names", true);
+    } else if (failed != 0) {
         win.notify(std.mem.print(&buf, "{d} items could not be renamed", .{failed}) catch "Some items could not be renamed", true);
-    } else if (effective.items.len != 0) {
-        win.notify(std.mem.print(&buf, "Renamed {d} items", .{effective.items.len}) catch "Renamed", false);
+    } else if (effective.len != 0) {
+        win.notify(std.mem.print(&buf, "Renamed {d} items", .{effective.len}) catch "Renamed", false);
     }
-    return effective.items.len;
+    return effective.len;
 }
 
 /// Reverses the newest step.
@@ -1307,7 +1349,7 @@ pub fn restoreFromTrash(self: *App, win: *Window, trashed: []const []const u8) v
         var buf: [linux.PATH_MAX]u8 = undefined;
         const orig = trash.originalPath(&buf, p) orelse continue;
         targets.append(self.gpa, self.gpa.dupe(u8, orig) catch continue) catch continue;
-        sources.append(self.gpa, p) catch {};
+        sources.append(self.gpa, p) catch return; // Going on, targets would not line up with sources.
     }
     if (sources.items.len == 0) {
         win.notify("These items do not say where they came from", true);
@@ -1340,7 +1382,11 @@ pub fn emptyTrash(self: *App, win: *Window) void {
         while (it.next()) |nm| {
             var pb: [linux.PATH_MAX]u8 = undefined;
             const p = std.mem.print(&pb, "{s}/{s}", .{ d, nm }) catch continue;
-            items.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
+            const owned = self.gpa.dupe(u8, p) catch continue;
+            items.append(self.gpa, owned) catch {
+                self.gpa.free(owned);
+                return;
+            };
         }
     };
     if (items.items.len == 0) return win.notify("The trash is empty", false);

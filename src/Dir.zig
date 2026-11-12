@@ -372,7 +372,7 @@ fn finish(d: *Dir, l: *Load) void {
             marked_names.append(gpa, 0) catch break;
         }
         var nit = std.mem.splitScalar(u8, marked_names.items, 0);
-        while (nit.next()) |n| if (n.len != 0) marked.put(gpa, n, {}) catch {};
+        while (nit.next()) |n| if (n.len != 0) marked.put(gpa, n, {}) catch break;
     };
     if (d.trash_info) |*t| t.deinit();
     d.trash_info = l.info;
@@ -386,7 +386,10 @@ fn finish(d: *Dir, l: *Load) void {
     if (l.result) |listing| {
         d.listing = listing;
         d.err = null;
-        d.order.appendSlice(gpa, l.order) catch {};
+        // Out of memory leaves the order empty, short of the listing: rebuild sorts again.
+        d.order.appendSlice(gpa, l.order) catch |err| switch (err) {
+            error.OutOfMemory => {},
+        };
         d.sorted_by = l.sort;
     } else |err| {
         d.err = err;
@@ -397,11 +400,15 @@ fn finish(d: *Dir, l: *Load) void {
     d.stamp = now();
     d.visible.clearRetainingCapacity();
     // Marks again, by name.
-    d.marks.resize(gpa, if (d.listing) |li| li.entries.len else 0, false) catch {};
+    // Out of memory keeps the old size: only the entries within it can be
+    // marked, here and by setMark.
+    d.marks.resize(gpa, if (d.listing) |li| li.entries.len else 0, false) catch |err| switch (err) {
+        error.OutOfMemory => {},
+    };
     d.marks.unsetAll();
     d.mark_count = 0;
     if (marked.count() != 0) if (d.listing) |*li| for (li.entries, 0..) |e, i| {
-        if (marked.contains(li.name(e))) {
+        if (i < d.marks.bit_length and marked.contains(li.name(e))) {
             d.marks.set(i);
             d.mark_count += 1;
         }
@@ -457,7 +464,8 @@ fn rememberCursorName(d: *Dir) void {
     const gpa = d.cache.gpa;
     const e = d.entryAt(d.cursor) orelse return;
     d.cursor_name.clearRetainingCapacity();
-    d.cursor_name.appendSlice(gpa, d.listing.?.name(e)) catch {};
+    // Out of memory leaves no name: the cursor then keeps its position.
+    d.cursor_name.appendSlice(gpa, d.listing.?.name(e)) catch return;
 }
 
 /// Moves the cursor onto the entry named `cursor_name`, or keeps its
@@ -475,8 +483,9 @@ pub fn restoreCursor(d: *Dir) void {
 /// remembers the name for when it is.
 pub fn selectName(d: *Dir, name: []const u8) void {
     d.cursor_name.clearRetainingCapacity();
-    d.cursor_name.appendSlice(d.cache.gpa, name) catch {};
     if (d.indexOf(name)) |i| d.cursor = i;
+    // Out of memory leaves no name to keep the cursor on.
+    d.cursor_name.appendSlice(d.cache.gpa, name) catch return;
 }
 
 pub fn setCursor(d: *Dir, i: u32) void {

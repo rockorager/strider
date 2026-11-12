@@ -110,6 +110,7 @@ fn scoreWord(text: []const u8, word: []const u8, exact: bool, pos: *std.ArrayLis
     const base_at = if (std.mem.findScalarLast(u8, text[0 .. text.len - @intFromBool(text.len > 0 and text[text.len - 1] == '/')], '/')) |s| s + 1 else 0;
     var total: i32 = 0;
     var prev: ?usize = null;
+    var record = gpa;
     var w: usize = 0;
     var t = start;
     while (t <= end and w < word.len) : (t += 1) {
@@ -118,7 +119,10 @@ fn scoreWord(text: []const u8, word: []const u8, exact: bool, pos: *std.ArrayLis
         if (prev) |p| {
             if (p + 1 == t) total += bonus_run else total -= penalty_gap_start + penalty_gap * @as(i32, @intCast(@min(t - p - 2, 20)));
         }
-        if (gpa) |a| if (pos.items.len < max_positions) pos.append(a, @intCast(t)) catch {};
+        if (record) |a| if (pos.items.len < max_positions) pos.append(a, @intCast(t)) catch {
+            // Out of memory: the score stands; only the highlight stops here.
+            record = null;
+        };
         prev = t;
         w += 1;
     }
@@ -334,10 +338,13 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
         all: Paths = .{},
         batches: usize = 0,
         done: bool = false,
+        err: ?Allocator.Error = null,
         const Self = @This();
         fn sink(ctx: ?*anyopaque, batch: *Paths, done: bool) void {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
-            self.all.take(testing.allocator, batch) catch {};
+            self.all.take(testing.allocator, batch) catch |err| {
+                self.err = err;
+            };
             batch.deinit(testing.allocator);
             testing.allocator.destroy(batch);
             self.batches += 1;
@@ -350,6 +357,7 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
         defer s.all.deinit(gpa);
         const w: Walk = .{ .gpa = gpa, .root = root, .hidden = hidden, .cancel = &cancel, .sink = Sink.sink, .ctx = &s, .batch_size = 2 };
         w.run();
+        if (s.err) |err| return err;
         try testing.expect(s.done);
         var names: std.ArrayList([]const u8) = .empty;
         defer names.deinit(gpa);

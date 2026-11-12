@@ -187,7 +187,10 @@ fn walkTar(a: Allocator, r: *Io.Reader, out: *std.ArrayList(Entry), limit: usize
             // A GNU long name, or pax headers (whose path= we read).
             const body = try a.alloc(u8, @intCast(@min(size, 1 << 20)));
             const got = r.readSliceShort(body) catch 0;
-            _ = r.discardShort(@intCast(padded - got)) catch {};
+            _ = r.discardShort(@intCast(padded - got)) catch {
+                truncated.* = true;
+                return;
+            };
             if (typeflag == 'L') {
                 long_name = std.mem.sliceTo(body[0..got], 0);
             } else if (typeflag == 'x') {

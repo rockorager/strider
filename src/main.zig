@@ -210,7 +210,12 @@ fn onActivate(ud: ?*anyopaque, _: siv.App, act: *const siv.Activation) callconv(
             const text = u.uri.?[0..u.uri_len];
             var buf: [linux.PATH_MAX]u8 = undefined;
             const p = uri.filePath(&buf, text) orelse continue;
-            list.append(app.gpa, app.gpa.dupe(u8, p) catch continue) catch {};
+            const owned = app.gpa.dupe(u8, p) catch continue;
+            // Out of memory: the ones listed so far, rather than no window.
+            list.append(app.gpa, owned) catch {
+                app.gpa.free(owned);
+                break;
+            };
         }
         app.showPaths(list.items, s.new_window and act.source == .launch, token);
         return;
@@ -240,7 +245,7 @@ fn currentDir(app: *App) []const u8 {
 
 fn onNewWindowAction(ud: ?*anyopaque, _: *const siv.ActionEvent) callconv(.c) void {
     const app: *App = @ptrCast(@alignCast(ud.?));
-    _ = app.newWindow(app.home) catch {};
+    _ = app.newWindow(app.home) catch |err| print("strider: cannot open a window: {s}\n", .{@errorName(err)});
 }
 
 /// share/strider/icons beside the executable's bin directory.

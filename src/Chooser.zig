@@ -171,7 +171,8 @@ fn readOption(ch: *Chooser, key: []const u8, r: bus.Reader) void {
         var list: std.ArrayList(Filter) = .empty;
         if (bus.next(r) == 'a' and bus.enter(r)) {
             defer bus.exit(r);
-            while (bus.next(r) == '(') if (ch.readFilter(r)) |f| list.append(al, f) catch {};
+            // Out of memory: the filters read so far.
+            while (bus.next(r) == '(') if (ch.readFilter(r)) |f| list.append(al, f) catch break;
         }
         ch.filters = list.items;
     } else if (eql(u8, key, "current_filter")) {
@@ -191,7 +192,8 @@ fn readOption(ch: *Chooser, key: []const u8, r: bus.Reader) void {
         var list: std.ArrayList(Choice) = .empty;
         if (bus.next(r) == 'a' and bus.enter(r)) {
             defer bus.exit(r);
-            while (bus.next(r) == '(') if (ch.readChoice(r)) |x| list.append(al, x) catch {};
+            // Out of memory: the choices read so far.
+            while (bus.next(r) == '(') if (ch.readChoice(r)) |x| list.append(al, x) catch break;
         }
         ch.choices = list.items;
     } else if (eql(u8, key, "current_name")) {
@@ -212,7 +214,7 @@ fn readOption(ch: *Chooser, key: []const u8, r: bus.Reader) void {
             defer bus.exit(r);
             while (bus.next(r) == 'a') {
                 const n = bus.readBytePath(r, al) orelse break;
-                if (n.len != 0) list.append(al, model.basename(n)) catch {};
+                if (n.len != 0) list.append(al, model.basename(n)) catch break;
             }
         }
         ch.files = list.items;
@@ -235,10 +237,11 @@ fn readFilter(ch: *Chooser, r: bus.Reader) ?Filter {
             defer bus.exit(r);
             const kind: u32 = @intCast(bus.readInt(r) orelse continue);
             const pattern = bus.readString(r, al) orelse continue;
-            rules.append(al, .{ .kind = kind, .pattern = pattern }) catch {};
+            // Out of memory: no filter rather than one that shows the wrong files.
+            rules.append(al, .{ .kind = kind, .pattern = pattern }) catch return null;
             if (kind == 0) {
-                globs.append(al, std.ascii.allocLowerString(al, pattern) catch continue) catch {};
-            } else mimes.append(al, pattern) catch {};
+                globs.append(al, std.ascii.allocLowerString(al, pattern) catch continue) catch return null;
+            } else mimes.append(al, pattern) catch return null;
         }
     }
     return .{ .name = name, .rules = rules.items, .types = .{ .globs = globs.items, .mimes = mimes.items } };
@@ -259,7 +262,8 @@ fn readChoice(ch: *Chooser, r: bus.Reader) ?Choice {
             defer bus.exit(r);
             const oid = bus.readString(r, al) orelse continue;
             const olabel = bus.readString(r, al) orelse continue;
-            options.append(al, .{ .id = oid, .label = olabel }) catch {};
+            // Out of memory: no choice rather than one missing options.
+            options.append(al, .{ .id = oid, .label = olabel }) catch return null;
         }
     }
     const initial = bus.readString(r, al) orelse "";
@@ -621,11 +625,14 @@ pub fn open(ch: *Chooser, w: *Window) void {
             var paths: std.ArrayList([]const u8) = .empty;
             defer paths.deinit(gpa);
             if (several or (ch.multiple and sel.len == 1 and d.mark_count != 0)) {
+                // Out of memory: no answer rather than some of the folders picked.
                 for (sel) |i| if (d.entryAt(i)) |e| if (e.kind == .dir) if (d.pathAt(&pbuf, i)) |p| {
-                    paths.append(gpa, ch.a().dupe(u8, p) catch continue) catch {};
+                    paths.append(gpa, ch.a().dupe(u8, p) catch continue) catch return;
                 };
             } else if (d.current()) |e| {
-                if (e.kind == .dir) if (d.pathAt(&pbuf, d.cursor)) |p| paths.append(gpa, ch.a().dupe(u8, p) catch return) catch {};
+                if (e.kind == .dir) if (d.pathAt(&pbuf, d.cursor)) |p| {
+                    paths.append(gpa, ch.a().dupe(u8, p) catch return) catch return;
+                };
             }
             // Nothing that is a folder: the folder shown.
             if (paths.items.len == 0) paths.append(gpa, d.path) catch return;
@@ -635,8 +642,9 @@ pub fn open(ch: *Chooser, w: *Window) void {
             var paths: std.ArrayList([]const u8) = .empty;
             defer paths.deinit(gpa);
             if (several or (ch.multiple and sel.len == 1 and d.mark_count != 0)) {
+                // Out of memory: no answer rather than some of the files picked.
                 for (sel) |i| if (d.entryAt(i)) |e| if (e.kind != .dir) if (d.pathAt(&pbuf, i)) |p| {
-                    paths.append(gpa, ch.a().dupe(u8, p) catch continue) catch {};
+                    paths.append(gpa, ch.a().dupe(u8, p) catch continue) catch return;
                 };
                 if (paths.items.len == 0) return w.notify("Only folders are marked: mark files to open them", true);
                 return ch.answerPaths(paths.items);
@@ -729,7 +737,7 @@ pub fn saveAs(ch: *Chooser, name: []const u8) void {
         // A folder by that name: go in, as other choosers do.
         .dir => w.cd(p),
         .file => {
-            ch.setPending(&.{p});
+            ch.setPending(&.{p}) catch return;
             w.dialogs.confirmOverwrite(&.{base}, model.parent(p));
         },
     }
@@ -746,18 +754,20 @@ fn saveInto(ch: *Chooser, folder: []const u8) void {
     for (ch.files) |n| {
         const p = ch.a().print("{s}/{s}", .{ if (std.mem.eql(u8, folder, "/")) "" else folder, n }) catch return;
         paths.append(gpa, p) catch return;
-        if (pathKind(p) != .missing) existing.append(gpa, n) catch {};
+        // Out of memory: no answer rather than replacing a file without asking.
+        if (pathKind(p) != .missing) existing.append(gpa, n) catch return;
     }
     // With no names, the folder itself.
     if (ch.files.len == 0) paths.append(gpa, folder) catch return;
     if (existing.items.len == 0) return ch.answerPaths(paths.items);
-    ch.setPending(paths.items);
+    ch.setPending(paths.items) catch return;
     w.dialogs.confirmOverwrite(existing.items, folder);
 }
 
-fn setPending(ch: *Chooser, paths: []const []const u8) void {
+fn setPending(ch: *Chooser, paths: []const []const u8) Allocator.Error!void {
     ch.pending.clearRetainingCapacity();
-    for (paths) |p| ch.pending.append(ch.app.gpa, ch.a().dupe(u8, p) catch continue) catch {};
+    errdefer ch.pending.clearRetainingCapacity();
+    for (paths) |p| try ch.pending.append(ch.app.gpa, try ch.a().dupe(u8, p));
 }
 
 /// The overwrite dialog said Replace.

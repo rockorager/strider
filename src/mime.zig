@@ -243,22 +243,27 @@ pub const Db = struct {
     /// Icon names for the type, one per line, most specific first: the
     /// type's own icon, its generic icon, then the media type's generic.
     pub fn iconNames(db: *const Db, id: Id, buf: []u8) []const u8 {
-        const nm = db.name(id);
-        var w: Io.Writer = .fixed(buf);
         if (id == directory) return "folder";
-        if (db.icon.get(id)) |ic| w.print("{s}\n", .{ic}) catch {};
-        for (nm) |ch| w.writeByte(if (ch == '/') '-' else ch) catch {};
-        w.writeByte('\n') catch {};
+        var w: Io.Writer = .fixed(buf);
+        // A full buffer cuts the list short: the names before it still stand.
+        db.writeIconNames(id, &w) catch return w.buffered();
+        return w.buffered();
+    }
+
+    fn writeIconNames(db: *const Db, id: Id, w: *Io.Writer) Io.Writer.Error!void {
+        const nm = db.name(id);
+        if (db.icon.get(id)) |ic| try w.print("{s}\n", .{ic});
+        for (nm) |ch| try w.writeByte(if (ch == '/') '-' else ch);
+        try w.writeByte('\n');
         if (db.generic_icon.get(id)) |g| {
-            w.print("{s}\n", .{g}) catch {};
+            try w.print("{s}\n", .{g});
         } else {
             const slash = std.mem.findScalar(u8, nm, '/') orelse nm.len;
             const media = nm[0..slash];
             const generic: []const u8 = if (std.mem.eql(u8, media, "image")) "image-x-generic" else if (std.mem.eql(u8, media, "audio")) "audio-x-generic" else if (std.mem.eql(u8, media, "video")) "video-x-generic" else if (std.mem.eql(u8, media, "text")) "text-x-generic" else if (std.mem.eql(u8, media, "font")) "font-x-generic" else if (id == executable) "application-x-executable" else "application-x-generic";
-            w.print("{s}\n", .{generic}) catch {};
+            try w.print("{s}\n", .{generic});
         }
-        w.writeAll("text-x-generic") catch {};
-        return w.buffered();
+        try w.writeAll("text-x-generic");
     }
 
     /// The type's human-readable name ("PNG image"), read from its XML
@@ -270,7 +275,8 @@ pub const Db = struct {
         if (db.comments.get(id)) |cm| return cm;
         const value = db.readComment(id) catch null;
         const cm = value orelse fallbackComment(db.name(id));
-        db.comments.put(db.a(), id, cm) catch {};
+        // Out of memory leaves it uncached: the next call reads it again.
+        db.comments.put(db.a(), id, cm) catch return cm;
         return cm;
     }
 
@@ -345,22 +351,23 @@ pub fn load(gpa: Allocator, data_dirs: []const []const u8) !*Db {
     errdefer db.arena.deinit();
     for (builtin_types) |t| _ = try db.intern(t);
     for (data_dirs) |d| try db.dirs.append(db.a(), try db.a().dupe(u8, d));
-    // Least important first, so that more important directories win.
+    // Least important first, so that more important directories win. A
+    // directory that fails to load is skipped; the others still count.
     var k = data_dirs.len;
     while (k > 0) {
         k -= 1;
         const dir = data_dirs[k];
-        db.loadAliases(dir) catch {};
+        db.loadAliases(dir) catch continue;
     }
     // Globs most important first: on equal weights the first type wins.
-    for (data_dirs) |dir| db.loadGlobs(dir) catch {};
+    for (data_dirs) |dir| db.loadGlobs(dir) catch continue;
     k = data_dirs.len;
     while (k > 0) {
         k -= 1;
         const dir = data_dirs[k];
-        db.loadSubclasses(dir) catch {};
-        db.loadIcons(dir, "icons", &db.icon) catch {};
-        db.loadIcons(dir, "generic-icons", &db.generic_icon) catch {};
+        db.loadSubclasses(dir) catch continue;
+        db.loadIcons(dir, "icons", &db.icon) catch continue;
+        db.loadIcons(dir, "generic-icons", &db.generic_icon) catch continue;
     }
     try markContested(db);
     return db;
@@ -400,7 +407,7 @@ fn markContested(db: *Db) !void {
     var k = db.dirs.items.len;
     while (k > 0) {
         k -= 1;
-        loadMagic(db, db.dirs.items[k], &wanted) catch {};
+        loadMagic(db, db.dirs.items[k], &wanted) catch continue;
     }
     // Contested when content can tell: some candidate has magic, or the
     // candidates are not all text or all binary.

@@ -99,12 +99,13 @@ pub fn start(p: *Picker, kind: Kind, root: []const u8, hidden: bool) void {
     p.kind = kind;
     p.open = true;
     p.gen +%= 1;
-    p.root.clearRetainingCapacity();
-    p.root.appendSlice(gpa, root) catch {};
     p.paths.bytes.clearRetainingCapacity();
     p.paths.offs.clearRetainingCapacity();
     p.matches.clearRetainingCapacity();
     p.query.clearRetainingCapacity();
+    p.root.clearRetainingCapacity();
+    // Out of memory: no root to find files below, so nothing to pick.
+    p.root.appendSlice(gpa, root) catch return p.close();
     p.selected = 0;
     p.loading = true;
     const s = gpa.create(Source) catch return;
@@ -141,18 +142,28 @@ pub fn setQuery(p: *Picker, q: []const u8) void {
     // Narrow the last result when the query only grew (and no batch came
     // since, which `refilter` handles by scoring everything).
     const grew = p.query.items.len != 0 and std.mem.startsWith(u8, q, p.query.items);
+    // Out of memory: the results stay those of the last query.
+    p.query.ensureTotalCapacity(gpa, q.len) catch return;
     p.query.clearRetainingCapacity();
-    p.query.appendSlice(gpa, q) catch {};
+    p.query.appendSliceAssumeCapacity(q);
     if (grew) {
         std.mem.swap(std.ArrayList(fuzzy.Match), &p.matches, &p.spare);
-        fuzzy.filter(gpa, &p.paths, p.spare.items, p.query.items, &p.matches) catch {};
-    } else fuzzy.filter(gpa, &p.paths, null, p.query.items, &p.matches) catch {};
+        p.filter(p.spare.items);
+    } else p.filter(null);
     p.selected = 0;
     p.render();
 }
 
+/// Scores `candidates`, or every path, against the query into `matches`.
+fn filter(p: *Picker, candidates: ?[]const fuzzy.Match) void {
+    fuzzy.filter(p.win.gpa, &p.paths, candidates, p.query.items, &p.matches) catch {
+        // Out of memory: no results rather than some, unsorted.
+        p.matches.clearRetainingCapacity();
+    };
+}
+
 fn refilter(p: *Picker) void {
-    fuzzy.filter(p.win.gpa, &p.paths, null, p.query.items, &p.matches) catch {};
+    p.filter(null);
     p.selected = @min(p.selected, p.matches.items.len -| 1);
     p.render();
 }
@@ -295,7 +306,10 @@ const Delivery = struct {
         const p = for (live) |slot| {
             if (slot) |x| if (x.open and x.gen == d.gen) break x;
         } else return;
-        p.paths.take(p.win.gpa, d.batch) catch {};
+        p.paths.take(p.win.gpa, d.batch) catch {
+            // Out of memory: stop reading, and pick from the paths that fit.
+            p.stop();
+        };
         if (d.done) p.loading = false;
         p.refilter();
     }

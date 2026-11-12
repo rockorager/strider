@@ -86,6 +86,14 @@ fn begin(d: *Dialogs, kind: Kind, title: []const u8, text: []const u8) ?Txn {
     return txn;
 }
 
+/// Out of memory while building a dialog: it does not open.
+fn abandon(d: *Dialogs, txn: Txn) void {
+    _ = c.siv_txn_abort(txn);
+    d.node = .null;
+    d.freePaths();
+    d.win.notify("Out of memory", true);
+}
+
 fn button(d: *Dialogs, txn: Txn, label: []const u8, mnemonic: u8, style: siv.ButtonStyle, action: Action) void {
     const actions = c.siv_widget_get_part(d.node, .actions, 0);
     const b = c.siv_push_button(txn, actions, &.{ .label = label.ptr, .label_len = label.len, .style = style, .mnemonic = mnemonic });
@@ -136,12 +144,20 @@ pub fn confirmDelete(d: *Dialogs, paths: []const []const u8) void {
     else
         std.mem.print(&tb, "Delete {d} items permanently?", .{paths.len}) catch "Delete permanently?";
     const txn = d.begin(.delete, title, "They will not go to the trash, and this cannot be undone; folders go with everything in them.") orelse return;
-    for (paths) |p| d.paths.append(d.win.gpa, d.win.gpa.dupe(u8, p) catch continue) catch {};
+    for (paths) |p| {
+        const owned = d.win.gpa.dupe(u8, p) catch return d.abandon(txn);
+        d.paths.append(d.win.gpa, owned) catch {
+            d.win.gpa.free(owned);
+            return d.abandon(txn);
+        };
+    }
     if (paths.len > 1) {
         var list: std.ArrayList(u8) = .empty;
         defer list.deinit(d.win.gpa);
-        for (paths[0..@min(paths.len, 6)]) |p| list.print(d.win.gpa, "{s}\n", .{model.basename(p)}) catch {};
-        if (paths.len > 6) list.print(d.win.gpa, "and {d} more", .{paths.len - 6}) catch {};
+        for (paths[0..@min(paths.len, 6)]) |p| {
+            list.print(d.win.gpa, "{s}\n", .{model.basename(p)}) catch return d.abandon(txn);
+        }
+        if (paths.len > 6) list.print(d.win.gpa, "and {d} more", .{paths.len - 6}) catch return d.abandon(txn);
         _ = line(txn, d.content(), std.mem.trimEnd(u8, list.items, "\n"), .card_fg);
     }
     d.button(txn, "Cancel", 'c', .default, .cancel);
@@ -172,8 +188,8 @@ pub fn confirmOverwrite(d: *Dialogs, names: []const []const u8, folder: []const 
     if (names.len > 1) {
         var list: std.ArrayList(u8) = .empty;
         defer list.deinit(d.win.gpa);
-        for (names[0..@min(names.len, 6)]) |n| list.print(d.win.gpa, "{s}\n", .{n}) catch {};
-        if (names.len > 6) list.print(d.win.gpa, "and {d} more", .{names.len - 6}) catch {};
+        for (names[0..@min(names.len, 6)]) |n| list.print(d.win.gpa, "{s}\n", .{n}) catch return d.abandon(txn);
+        if (names.len > 6) list.print(d.win.gpa, "and {d} more", .{names.len - 6}) catch return d.abandon(txn);
         _ = line(txn, d.content(), std.mem.trimEnd(u8, list.items, "\n"), .card_fg);
     }
     d.button(txn, "Cancel", 'c', .default, .cancel);
@@ -279,16 +295,25 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
     var title_copy: [512]u8 = undefined;
     @memcpy(title_copy[0..title.len], title);
     const txn = d.begin(.properties, title_copy[0..title.len], "") orelse return;
-    for (f.paths) |p| d.paths.append(gpa, gpa.dupe(u8, p) catch continue) catch {};
+    for (f.paths) |p| {
+        const owned = gpa.dupe(u8, p) catch return d.abandon(txn);
+        d.paths.append(gpa, owned) catch {
+            gpa.free(owned);
+            return d.abandon(txn);
+        };
+    }
     const tz = if (d.win.app.opts.reproducible) 0 else d.win.app.tz_offset_s;
     var info: std.ArrayList(u8) = .empty;
     defer info.deinit(gpa);
     var sb: [32]u8 = undefined;
     var mb: [32]u8 = undefined;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    info.print(gpa, "Location\t{s}\n", .{d.win.shortPathIn(&pb, model.parent(f.paths[0]))}) catch {};
-    if (!f.dir or !one) info.print(gpa, "Size\t{s}{s}\n", .{ model.formatSize(&sb, f.size), if (f.dir) " in files, not counting folders" else "" }) catch {};
-    if (one) info.print(gpa, "Modified\t{s}\n", .{model.formatTime(&mb, f.mtime, tz)}) catch {};
+    info.print(gpa, "Location\t{s}\n", .{d.win.shortPathIn(&pb, model.parent(f.paths[0]))}) catch return d.abandon(txn);
+    if (!f.dir or !one) {
+        const in_files = if (f.dir) " in files, not counting folders" else "";
+        info.print(gpa, "Size\t{s}{s}\n", .{ model.formatSize(&sb, f.size), in_files }) catch return d.abandon(txn);
+    }
+    if (one) info.print(gpa, "Modified\t{s}\n", .{model.formatTime(&mb, f.mtime, tz)}) catch return d.abandon(txn);
     _ = line(txn, d.content(), std.mem.trimEnd(u8, info.items, "\n"), .card_fg);
 
     // The mode, typed as chmod takes it (octal or symbolic), and the same

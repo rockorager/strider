@@ -294,7 +294,7 @@ fn searchBack(ctx: Ctx) void {
 }
 fn searchFor(win: *Window, q: []const u8, backward: bool) void {
     win.last_search.clearRetainingCapacity();
-    win.last_search.appendSlice(win.gpa, q) catch {};
+    win.last_search.appendSlice(win.gpa, q) catch return win.notify("search: out of memory", true);
     win.last_search_back = backward;
     win.searchNext(false, 1);
 }
@@ -311,7 +311,8 @@ fn filter(ctx: Ctx) void {
     const d = ctx.win.curDir();
     if (!ctx.from_key or ctx.args.len != 0) {
         d.filter.clearRetainingCapacity();
-        d.filter.appendSlice(ctx.win.gpa, ctx.args) catch {};
+        // Out of memory: no filter, and the status line says why.
+        d.filter.appendSlice(ctx.win.gpa, ctx.args) catch ctx.win.notify("filter: out of memory", true);
         d.refilter();
         ctx.win.showTab();
         return;
@@ -1229,7 +1230,7 @@ fn unmap(ctx: Ctx) void {
         mode = m;
         first = it.next() orelse return;
     }
-    _ = ctx.win.app.keymap.unmap(mode, first) catch {};
+    _ = ctx.win.app.keymap.unmap(mode, first) catch return ctx.win.notify("Invalid keys", true);
 }
 fn luaCmd(ctx: Ctx) void {
     const l = ctx.win.app.lua orelse return ctx.win.notify("Lua is not available", true);
@@ -1285,7 +1286,8 @@ fn messages(ctx: Ctx) void {
         out.print(gpa, "{d:0>2}:{d:0>2}:{d:0>2}  ", .{ ds.getHoursIntoDay(), ds.getMinutesIntoHour(), ds.getSecondsIntoMinute() }) catch return;
         // One line each.
         for (m.text) |ch| out.append(gpa, if (ch == '\n') ' ' else ch) catch return;
-        if (m.is_error) spans.append(gpa, .{ .start = start, .end = @intCast(out.items.len), .class = .removed }) catch {};
+        const end: u32 = @intCast(out.items.len);
+        if (m.is_error) spans.append(gpa, .{ .start = start, .end = end, .class = .removed }) catch return;
         out.append(gpa, '\n') catch return;
     }
     win.preview.showOutput("Messages", out.items, spans.items);
@@ -1357,7 +1359,11 @@ fn commandLine(ctx: Ctx) void {
     ctx.win.startPrompt(.command, ctx.args, @intCast(ctx.args.len), @intCast(ctx.args.len));
 }
 fn newWindow(ctx: Ctx) void {
-    _ = ctx.win.app.newWindow(ctx.win.curDir().path) catch {};
+    _ = ctx.win.app.newWindow(ctx.win.curDir().path) catch |err| {
+        var buf: [128]u8 = undefined;
+        const msg = std.mem.print(&buf, "Cannot open a window: {s}", .{@errorName(err)}) catch "Cannot open a window";
+        ctx.win.notify(msg, true);
+    };
 }
 fn quit(ctx: Ctx) void {
     if (ctx.win.chooser) |ch| return ch.finish(1);
