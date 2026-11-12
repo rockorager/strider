@@ -5,6 +5,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
+const uri = @import("uri.zig");
 const c = siv.c;
 
 pub const Message = siv.DbusMessage;
@@ -113,7 +114,6 @@ pub fn readFileUris(r: Reader, a: Allocator) [][]const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     if (next(r) != 'a' or !enter(r)) return out.items;
     defer exit(r);
-    const uri = @import("uri.zig");
     while (next(r) == 's') {
         const text = readString(r, a) orelse break;
         var buf: [std.os.linux.PATH_MAX]u8 = undefined;

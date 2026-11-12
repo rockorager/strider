@@ -8,7 +8,6 @@ const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const model = @import("model.zig");
 const mime = @import("mime.zig");
-const uri = @import("uri.zig");
 const mounts = @import("mounts.zig");
 
 /// Where each entry of a trash listing came from, parallel to its entries.
@@ -154,10 +153,15 @@ fn topOf(dir: []const u8) []const u8 {
     return "";
 }
 
-const Parsed = struct { path: []const u8 = "", date: []const u8 = "" };
+pub const Parsed = struct {
+    path: []const u8,
+    date: []const u8,
+
+    pub const empty: Parsed = .{ .path = "", .date = "" };
+};
 
 pub fn parseInfo(body: []const u8) Parsed {
-    var p: Parsed = .{};
+    var p: Parsed = .empty;
     var it = std.mem.splitScalar(u8, body, '\n');
     var in_section = false;
     while (it.next()) |raw| {
@@ -236,7 +240,8 @@ pub fn sortIndices(l: *const model.Listing, info: *const Info, order: []u32, s: 
         l: *const model.Listing,
         info: *const Info,
         s: model.Sort,
-        fn less(ctx: @This(), a: u32, b: u32) bool {
+        const Self = @This();
+        fn less(ctx: Self, a: u32, b: u32) bool {
             const ia = ctx.info.get(a);
             const ib = ctx.info.get(b);
             var ord: std.math.Order = switch (ctx.s.key) {

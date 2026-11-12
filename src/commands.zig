@@ -144,7 +144,7 @@ pub const list = [_]Command{
     .{ .name = "qa", .desc = "Quit", .run = quitAll },
 };
 
-pub fn find_(name: []const u8) ?*const Command {
+pub fn byName(name: []const u8) ?*const Command {
     for (&list) |*cmd| if (std.mem.eql(u8, cmd.name, name)) return cmd;
     return null;
 }
@@ -171,7 +171,7 @@ pub fn execute(win: *Window, line_in: []const u8, count: ?u32, from_key: bool) v
     if (win.app.lua) |l| if (l.runCommand(win, name, args, cnt)) return;
     // A bare number goes to that entry, as in vim.
     if (i == line.len) return win.moveCursor(@as(i64, std.fmt.parseInt(u32, line, 10) catch 1) - 1);
-    const cmd = find_(name) orelse {
+    const cmd = byName(name) orelse {
         var buf: [256]u8 = undefined;
         win.notify(std.mem.print(&buf, "Unknown command: {s}", .{name}) catch "Unknown command", true);
         return;
@@ -769,7 +769,7 @@ fn runShellArgs(win: *Window, cmd: []const u8, paths: []const []const u8, in_ter
     }
     const shell_prog = app.options.shell;
     if (in_terminal) {
-        const term = terminalCommand(app);
+        var term = terminalCommand(app);
         var line: std.ArrayList(u8) = .empty;
         defer line.deinit(gpa);
         line.appendSlice(gpa, expanded.items) catch return;
@@ -816,12 +816,12 @@ fn appendQuoted(gpa: Allocator, out: *std.ArrayList(u8), s: []const u8) !void {
     try out.append(gpa, '\'');
 }
 
-const TermCmd = struct {
+pub const TermCmd = struct {
     arena: std.heap.ArenaAllocator,
     items: []const []const u8,
-    fn deinit(t: *const TermCmd) void {
-        var a = t.arena;
-        a.deinit();
+    pub fn deinit(t: *TermCmd) void {
+        t.arena.deinit();
+        t.* = undefined;
     }
 };
 
@@ -985,7 +985,7 @@ fn bulkRename(ctx: Ctx) void {
     const ed_argv = apps.splitExec(arena.allocator(), editor) catch &.{};
     var argv: std.ArrayList([]u8) = .empty;
     if (app.options.editor_in_terminal) {
-        const term = terminalCommand(app);
+        var term = terminalCommand(app);
         defer term.deinit();
         for (term.items) |t| argv.append(gpa, gpa.dupe(u8, t) catch return) catch return;
     }
@@ -1394,7 +1394,7 @@ pub fn complete(win: *Window, a: Allocator, text: []const u8, shell_line: bool) 
     const head = if (sp) |i| text[0 .. i + 1] else "";
     const word = if (sp) |i| text[i + 1 ..] else text;
     const name = text[0 .. std.mem.findScalar(u8, text, ' ') orelse text.len];
-    const kind: Complete = if (shell_line) .path else if (find_(name)) |cmd| cmd.complete else .path;
+    const kind: Complete = if (shell_line) .path else if (byName(name)) |cmd| cmd.complete else .path;
     var cands: std.ArrayList([]const u8) = .empty;
     switch (kind) {
         .option => for (Config.infos) |i| if (std.mem.startsWith(u8, i.name, word)) try cands.append(a, i.name),

@@ -144,6 +144,7 @@ pub const Places = struct {
         p.gpa.free(p.trash_files);
         p.gpa.free(p.bookmarks_file);
         p.gpa.free(p.home);
+        p.* = undefined;
     }
 
     fn clearItems(p: *Places) void {

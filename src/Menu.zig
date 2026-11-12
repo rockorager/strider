@@ -9,10 +9,12 @@ const std = @import("std");
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
+const App = @import("App.zig");
 const Window = @import("Window.zig");
 const commands = @import("commands.zig");
 const keys = @import("keys.zig");
 const model = @import("model.zig");
+const ui = @import("ui.zig");
 
 const Menu = @This();
 const Node = siv.Node;
@@ -41,6 +43,7 @@ pub fn init(win: *Window) Menu {
 pub fn deinit(m: *Menu) void {
     m.clearItems();
     m.items.deinit(m.win.gpa);
+    m.* = undefined;
 }
 
 fn clearItems(m: *Menu) void {
@@ -90,7 +93,7 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
     } else switch (ctx) {
         .entries => {
             const paths = win.targets() catch return;
-            defer @import("App.zig").freePaths(win.gpa, paths);
+            defer App.freePaths(win.gpa, paths);
             if (paths.len == 0) return m.open(.folder, anchor, x, y);
             const one = paths.len == 1;
             const e = d.current();
@@ -170,7 +173,7 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
     if (m.node != .null) _ = c.siv_remove(txn, m.node);
     m.node = c.siv_menu(txn, win.root, &.{ .label = "Actions", .label_len = 7 });
     m.fill(txn, m.node, list.items) catch {};
-    if (!@import("ui.zig").commit(txn)) return;
+    if (!ui.commit(txn)) return;
     _ = c.siv_menu_open_at(m.node, anchor, x, y);
 }
 

@@ -20,6 +20,7 @@ pub const Paths = struct {
     pub fn deinit(p: *Paths, gpa: Allocator) void {
         p.bytes.deinit(gpa);
         p.offs.deinit(gpa);
+        p.* = undefined;
     }
 
     pub fn len(p: *const Paths) usize {
@@ -154,7 +155,8 @@ pub fn filter(gpa: Allocator, paths: *const Paths, candidates: ?[]const Match, q
     if (query.len == 0) return; // as listed
     const Ctx = struct {
         paths: *const Paths,
-        fn less(ctx: @This(), a: Match, b: Match) bool {
+        const Self = @This();
+        fn less(ctx: Self, a: Match, b: Match) bool {
             if (a.score != b.score) return a.score > b.score;
             const la = ctx.paths.get(a.index).len;
             const lb = ctx.paths.get(b.index).len;
@@ -332,8 +334,9 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
         all: Paths = .{},
         batches: usize = 0,
         done: bool = false,
+        const Self = @This();
         fn sink(ctx: ?*anyopaque, batch: *Paths, done: bool) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            const self: *Self = @ptrCast(@alignCast(ctx.?));
             self.all.take(testing.allocator, batch) catch {};
             batch.deinit(testing.allocator);
             testing.allocator.destroy(batch);

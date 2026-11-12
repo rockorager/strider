@@ -187,6 +187,7 @@ pub const Harness = struct {
             _ = c.siv_app_dispatch(h.sapp, 0);
         }
         if (h.sapp != .null) _ = c.siv_app_destroy(h.sapp);
+        h.* = undefined;
     }
 
     pub fn window(h: *Harness) siv.Window {

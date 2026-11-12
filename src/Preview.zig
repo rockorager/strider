@@ -19,7 +19,6 @@ const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
 const c = siv.c;
-const App = @import("App.zig");
 const Window = @import("Window.zig");
 const Column = @import("Column.zig");
 const Dir = @import("Dir.zig");
@@ -83,6 +82,7 @@ pub fn deinit(p: *Preview) void {
     if (p.column.dir) |d| d.pins -= 1;
     p.column.dir = null;
     p.path.deinit(p.win.gpa);
+    p.* = undefined;
 }
 
 pub fn build(p: *Preview, txn: Txn, parent: Node) void {

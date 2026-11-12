@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 const siv = @import("siv");
 const c = siv.c;
 const App = @import("App.zig");
+const apps = @import("apps.zig");
 const Dir = @import("Dir.zig");
 const Column = @import("Column.zig");
 const Preview = @import("Preview.zig");
@@ -2559,7 +2560,7 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
     defer self.gpa.free(list);
     if (list.len == 0 and !folder) return self.notify("No applications found", true);
     const state = self.gpa.create(OpenWith) catch return;
-    state.* = .{ .win = self, .terminal = folder, .apps = self.gpa.dupe(*const @import("apps.zig").App, list) catch {
+    state.* = .{ .win = self, .terminal = folder, .apps = self.gpa.dupe(*const apps.App, list) catch {
         self.gpa.destroy(state);
         return;
     }, .paths = .empty };
@@ -2583,7 +2584,7 @@ const OpenWith = struct {
     win: *Window,
     /// Item 0 is the terminal (a folder).
     terminal: bool = false,
-    apps: []*const @import("apps.zig").App,
+    apps: []*const apps.App,
     paths: std.ArrayList([]u8),
 
     fn free(s: *OpenWith) void {

@@ -38,6 +38,7 @@ pub const Db = struct {
 
     pub fn deinit(db: *Db) void {
         db.arena.deinit();
+        db.* = undefined;
     }
 
     fn a(db: *Db) Allocator {

@@ -58,6 +58,7 @@ pub fn init(win: *Window) Dialogs {
 pub fn deinit(d: *Dialogs) void {
     d.freePaths();
     d.paths.deinit(d.win.gpa);
+    d.* = undefined;
 }
 
 pub fn isOpen(d: *const Dialogs) bool {

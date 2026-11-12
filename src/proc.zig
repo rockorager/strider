@@ -32,6 +32,7 @@ pub const Result = struct {
 
     pub fn deinit(r: *Result, gpa: Allocator) void {
         gpa.free(r.output);
+        r.* = undefined;
     }
 };
 

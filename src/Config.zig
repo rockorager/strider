@@ -109,6 +109,7 @@ pub const Strings = struct {
     pub fn deinit(s: *Strings) void {
         for (s.owned.items) |x| s.gpa.free(x);
         s.owned.deinit(s.gpa);
+        s.* = undefined;
     }
 
     pub fn keep(s: *Strings, v: []const u8) ![]const u8 {

@@ -353,12 +353,14 @@ fn Text(comptime n: usize) type {
         buf: [n]u8 = undefined,
         len: usize = 0,
 
-        fn set(t: *@This(), s: []const u8) void {
+        const Self = @This();
+
+        fn set(t: *Self, s: []const u8) void {
             t.len = @min(s.len, n);
             @memcpy(t.buf[0..t.len], s[0..t.len]);
         }
 
-        fn get(t: *const @This()) []const u8 {
+        fn get(t: *const Self) []const u8 {
             return t.buf[0..t.len];
         }
     };

@@ -13,7 +13,6 @@ const siv = @import("siv");
 const c = siv.c;
 const Window = @import("Window.zig");
 const fuzzy = @import("fuzzy.zig");
-const model = @import("model.zig");
 const proc = @import("proc.zig");
 const ui = @import("ui.zig");
 
@@ -62,6 +61,7 @@ pub fn deinit(p: *Picker) void {
     p.matches.deinit(gpa);
     p.spare.deinit(gpa);
     p.query.deinit(gpa);
+    p.* = undefined;
 }
 
 pub fn build(p: *Picker, txn: Txn, parent: Node) void {

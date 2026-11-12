@@ -261,6 +261,7 @@ pub const Keymap = struct {
     pub fn deinit(km: *Keymap) void {
         for (km.bindings.items) |*b| km.freeBinding(b);
         km.bindings.deinit(km.gpa);
+        km.* = undefined;
     }
 
     fn freeBinding(km: *Keymap, b: *Binding) void {

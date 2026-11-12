@@ -80,19 +80,19 @@ pub const Db = struct {
     comments: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
 
     fn loadGlobs(db: *Db, dir: []const u8) !void {
-        try eachLine(db.gpa, dir, "globs2", db, loadGlobsImpl);
+        try eachLine(loadGlobsImpl, db.gpa, dir, "globs2", db);
     }
 
     fn loadAliases(db: *Db, dir: []const u8) !void {
-        try eachLine(db.gpa, dir, "aliases", db, loadAliasImpl);
+        try eachLine(loadAliasImpl, db.gpa, dir, "aliases", db);
     }
 
     fn loadSubclasses(db: *Db, dir: []const u8) !void {
-        try eachLine(db.gpa, dir, "subclasses", db, loadSubclassImpl);
+        try eachLine(loadSubclassImpl, db.gpa, dir, "subclasses", db);
     }
 
     fn loadIcons(db: *Db, dir: []const u8, file: []const u8, map: *std.AutoHashMapUnmanaged(Id, []const u8)) !void {
-        try eachLine(db.gpa, dir, file, IconCtx{ .db = db, .map = map }, loadIconsImpl);
+        try eachLine(loadIconsImpl, db.gpa, dir, file, IconCtx{ .db = db, .map = map });
     }
 
     pub fn deinit(db: *Db) void {
@@ -297,7 +297,8 @@ pub const Db = struct {
             if (std.mem.find(u8, xml, "<comment>")) |start| {
                 const s = start + "<comment>".len;
                 const e = std.mem.findPos(u8, xml, s, "</comment>") orelse continue;
-                return try unescapeXml(db.a(), xml[s..e]);
+                const text = try unescapeXml(db.a(), xml[s..e]);
+                return text;
             }
         }
         return null;
@@ -612,7 +613,7 @@ fn readFile(path: []const u8, buf: []u8) ?[]u8 {
     return buf[0..n];
 }
 
-fn eachLine(gpa: Allocator, dir: []const u8, file: []const u8, ctx: anytype, comptime f: fn (@TypeOf(ctx), []const u8) anyerror!void) !void {
+fn eachLine(comptime f: anytype, gpa: Allocator, dir: []const u8, file: []const u8, ctx: anytype) !void {
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = try std.mem.print(&pbuf, "{s}/mime/{s}", .{ dir, file });
     const data = readAll(gpa, p) orelse return;

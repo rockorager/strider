@@ -108,6 +108,7 @@ pub const Cache = struct {
         var it = cache.dirs.valueIterator();
         while (it.next()) |d| d.*.destroy();
         cache.dirs.deinit(cache.gpa);
+        cache.* = undefined;
     }
 
     fn onChange(ctx: ?*anyopaque, wd: i32) void {

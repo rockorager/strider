@@ -143,6 +143,7 @@ const FakeUDisks = struct {
     fn deinit(u: *FakeUDisks) void {
         for (u.calls.items) |x| testing.allocator.free(x);
         u.calls.deinit(testing.allocator);
+        u.* = undefined;
     }
 
     fn called(u: *const FakeUDisks, what: []const u8) bool {

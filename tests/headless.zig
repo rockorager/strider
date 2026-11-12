@@ -941,10 +941,10 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
     try testing.expectEqual(App.Window.Await.none, h.win.?.await_key);
     try h.typeText("gw");
     try testing.expectEqualStrings("src", model.basename(h.dir().path));
-    const L = app.lua.?.L;
-    _ = App.Lua.lc.lua_getglobal(L, "entered");
-    try testing.expect(std.mem.endsWith(u8, App.Lua.lh.toString(L, -1).?, "/work/src"));
-    App.Lua.lh.pop(L, 1);
+    const state = app.lua.?.state;
+    _ = App.Lua.lc.lua_getglobal(state, "entered");
+    try testing.expect(std.mem.endsWith(u8, App.Lua.lh.toString(state, -1).?, "/work/src"));
+    App.Lua.lh.pop(state, 1);
 }
 
 fn widthOf(n: siv.Node) f32 {
@@ -1493,7 +1493,8 @@ fn recorded(h: *Harness, f: *const Fixture, buf: []u8) ![]const u8 {
     const out = try std.mem.printSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
     const Ctx = struct {
         p: [*:0]const u8,
-        fn ready(x: @This()) bool {
+        const Self = @This();
+        fn ready(x: Self) bool {
             return linux.errno(linux.faccessat(linux.AT.FDCWD, x.p, linux.F_OK, 0)) == .SUCCESS;
         }
     };

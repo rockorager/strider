@@ -20,6 +20,7 @@ pub const Listing = struct {
 
     pub fn deinit(l: *Listing) void {
         l.arena.deinit();
+        l.* = undefined;
     }
 };
 

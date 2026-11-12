@@ -16,6 +16,7 @@ const siv = @import("siv");
 const c = siv.c;
 const App = @import("App.zig");
 const uri = @import("uri.zig");
+const build_options = @import("build_options");
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 extern "c" fn realpath(path: [*:0]const u8, resolved: ?[*]u8) ?[*:0]u8;
@@ -90,7 +91,7 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--service") or std.mem.eql(u8, a, "--gapplication-service")) {
             service = true;
         } else if (std.mem.eql(u8, a, "--version")) {
-            print("strider " ++ @import("build_options").version ++ "\n", .{});
+            print("strider " ++ build_options.version ++ "\n", .{});
             return 0;
         } else if (std.mem.eql(u8, a, "--help") or std.mem.eql(u8, a, "-h")) {
             print("{s}", .{usage});

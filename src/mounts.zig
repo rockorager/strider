@@ -20,6 +20,7 @@ pub const Table = struct {
 
     pub fn deinit(t: *Table) void {
         t.arena.deinit();
+        t.* = undefined;
     }
 
     /// Mount points of real (block device or network) file systems.

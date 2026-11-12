@@ -78,6 +78,7 @@ pub const Builder = struct {
     pub fn deinit(b: *Builder) void {
         b.names.deinit(b.gpa);
         b.entries.deinit(b.gpa);
+        b.* = undefined;
     }
 
     pub fn add(b: *Builder, rel: []const u8, e_in: Entry) !void {

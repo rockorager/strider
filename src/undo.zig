@@ -37,6 +37,7 @@ pub const Stack = struct {
     pub fn deinit(s: *Stack) void {
         for (s.steps.items) |*st| freeStep(s.gpa, st);
         s.steps.deinit(s.gpa);
+        s.* = undefined;
     }
 
     pub fn top(s: *const Stack) ?*const Step {

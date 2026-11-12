@@ -79,6 +79,7 @@ pub const Source = struct {
         App.freePaths(gpa, s.paths);
         gpa.free(s.dir);
         if (s.icon != .null) c.siv_image_destroy(s.icon);
+        s.* = undefined;
     }
 };
 
@@ -128,6 +129,7 @@ pub fn deinit(d: *Dnd) void {
     d.dest.deinit(gpa);
     d.hint.deinit(gpa);
     d.spring_path.deinit(gpa);
+    d.* = undefined;
 }
 
 // Starting ---------------------------------------------------------------------------------
