@@ -1,5 +1,18 @@
 # Strider: a keyboard-driven file manager for Wayland. `just --list` shows
-# the recipes.
+# the recipes. AGENTS.md holds the working conventions.
+#
+# `zig` is the compiler: bs for development builds, or upstream Zig where
+# bs is not installed. `just zig=zig test` uses upstream Zig anyway, for a
+# release build or what bs cannot compile.
+
+zig := `command -v bs >/dev/null && echo bs || echo zig`
+
+# bs has no releases yet, so `just setup` builds it from this commit, and
+# baskingspot-lint and its ast-grep rules from github.com/baskingspot/nix's.
+
+bs_rev := "1326dd04bc9af2f32238f6ba8a549ab1c1f99fad"
+rules_rev := "b246e853a3836a6279526db1d8f8fa54c14e6b7a"
+
 # Where releases are published, as GitHub Releases: `just release` attaches
 # each release's build to its tag, and `just fetch` installs the newest.
 
@@ -9,10 +22,48 @@ github := "rockorager/strider"
 default:
     @just --list
 
+[doc("Build bs and baskingspot-lint from their pins into ~/.local/bin; `mise install` installs the rest")]
+[group("build")]
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cache=${XDG_CACHE_HOME:-$HOME/.cache}/strider
+    bin=$HOME/.local/bin
+    mkdir -p "$cache" "$bin"
+    # checkout URL REV DIR: the tree at REV in DIR, unless DIR is there.
+    checkout() {
+        [ -d "$3" ] && return
+        rm -rf "$3.tmp"
+        git init -q "$3.tmp"
+        git -C "$3.tmp" fetch -q --depth 1 "$1" "$2"
+        git -C "$3.tmp" checkout -q FETCH_HEAD
+        mv "$3.tmp" "$3"
+    }
+    # bs times itself only in ReleaseFast; a Debug bs is about ten times slower.
+    # Its checkout has no mise.toml, so mise's shims would not know which Zig.
+    bs=$cache/bs-{{ bs_rev }}
+    if [ ! -x "$bs/bin/bs" ]; then
+        echo "building bs {{ bs_rev }}"
+        zig=$(mise which zig 2>/dev/null || command -v zig)
+        checkout https://github.com/baskingspot/bs {{ bs_rev }} "$bs.src"
+        (cd "$bs.src" && "$zig" build -Doptimize=ReleaseFast --prefix "$bs")
+        rm -rf "$bs.src"
+    fi
+    ln -sfn "$bs/bin/bs" "$bin/bs"
+    rules=$cache/baskingspot-nix-{{ rules_rev }}
+    checkout https://github.com/baskingspot/nix {{ rules_rev }} "$rules"
+    cat >"$bin/baskingspot-lint" <<EOF
+    #!/usr/bin/env bash
+    export BASKINGSPOT_RULES="$rules/pkgs/ast-grep-rules/rules"
+    exec bash "$rules/pkgs/baskingspot-lint/baskingspot-lint.sh" "\$@"
+    EOF
+    chmod +x "$bin/baskingspot-lint"
+    "$bin/bs" version
+
 [doc("Build strider into zig-out/bin/strider")]
 [group("build")]
 build *ARGS:
-    zig build {{ ARGS }}
+    {{ zig }} build {{ ARGS }}
 
 [doc("Install a release build of strider, its desktop entry, and its icon under PREFIX")]
 [group("build")]
@@ -142,6 +193,11 @@ release version="":
         rm -rf "$src"
         git worktree add -q --detach "$src" "$base"
     fi
+    # mise runs a checkout's own pins only once it is trusted.
+    if command -v mise >/dev/null && [ -e "$src/mise.toml" ]; then
+        mise trust -q "$src/mise.toml"
+        (cd "$src" && mise install -q)
+    fi
     # The release commit sets build.zig.zon's version, which strider
     # --version reports, unless origin/main says it already.
     sha=$base
@@ -216,13 +272,32 @@ release version="":
 [doc("Build and run strider on the Wayland display")]
 [group("build")]
 run *ARGS:
-    zig build run -- {{ ARGS }}
+    {{ zig }} build run -- {{ ARGS }}
 
 [doc("The unit and headless tests, on siv's headless backend: no display needed")]
 [group("test")]
 test *ARGS:
-    zig build test --summary failures {{ ARGS }}
+    {{ zig }} build test --summary failures {{ ARGS }}
 
-[doc("The build and the tests")]
+[doc("Lint Zig, shell, Markdown, and this justfile: zig fmt, ziglint, baskingspot-lint, shellcheck, shfmt, oxfmt, and just --fmt")]
+[group("lint")]
+lint:
+    zig fmt --check build.zig build.zig.zon src tests tools
+    ziglint build.zig src tests tools
+    baskingspot-lint build.zig src tests tools
+    shellcheck .agents/setup .agents/resume
+    shfmt --diff .agents/setup .agents/resume
+    oxfmt --check README.md AGENTS.md
+    just --unstable --fmt --check
+
+[doc("Format everything lint checks")]
+[group("lint")]
+fmt:
+    zig fmt build.zig build.zig.zon src tests tools
+    shfmt --write .agents/setup .agents/resume
+    oxfmt README.md AGENTS.md
+    just --unstable --fmt
+
+[doc("The build, the tests, and lint; tests alone leave unused code unchecked")]
 [group("ci")]
-ci: build test
+ci: build test lint

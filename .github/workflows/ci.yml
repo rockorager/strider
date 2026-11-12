@@ -28,8 +28,7 @@ jobs:
         # As an unprivileged user, like an orb.
         shell: runuser -u ci -- bash -eo pipefail {0}
     env:
-      ZIG_VERSION: 0.17.0
-      ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+      MISE_VERSION: 2026.11.6
     steps:
       # What siv links (libwayland-client, xkbcommon, Fontconfig, FreeType,
       # the Vulkan headers) and the keymaps; shared-mime-info for types;
@@ -50,13 +49,13 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      - name: Zig
-        shell: bash
+      # The toolchain mise.toml pins, checked against
+      # mise.lock, as the orb setup and `just release` install it.
+      - name: mise
         run: |
-          curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz" -o /tmp/zig.tar.xz
-          echo "$ZIG_SHA256  /tmp/zig.tar.xz" | sha256sum -c --quiet
-          mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1
-          ln -s /opt/zig/zig /usr/local/bin/zig
+          curl -fsSL https://mise.run | MISE_VERSION="v$MISE_VERSION" sh
+          ~/.local/bin/mise trust -q mise.toml
+          ~/.local/bin/mise install
 
       # Zig's global cache (compiler-rt, libc++, siv's vendored C
       # libraries), once per siv commit and set of pinned packages.
@@ -70,4 +69,4 @@ jobs:
             zig-${{ hashFiles('build.zig.zon') }}-
 
       - name: zig build test
-        run: zig build test -j16 --summary failures
+        run: ~/.local/bin/mise exec -- zig build test -j16 --summary failures

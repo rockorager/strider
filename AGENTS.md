@@ -1,21 +1,55 @@
 # Strider
 
-A keyboard-driven file manager for Linux on Wayland, in Zig 0.17.0, on the
+A keyboard-driven file manager for Linux on Wayland, in Zig 0.17.1, on the
 [siv](https://github.com/rockorager/siv) GUI toolkit.
+
+## Toolchain
+
+- Zig 0.17.1 exactly. bs refuses any other release.
+- [bs](https://github.com/baskingspot/bs) compiles development builds. It
+  takes `zig build`'s commands and flags and needs upstream `zig` 0.17.1 on
+  `PATH` for the std library and for C sources. Release builds use upstream
+  `zig build`. Where bs is not installed, as for someone building from the
+  README, the recipes use upstream `zig`.
+- mise and just set up development. `mise install` installs what
+  `mise.toml` pins (zig, just, shellcheck, shfmt, ast-grep, oxfmt,
+  ziglint; `mise.lock` holds their checksums), for the orb setup, CI, and
+  `just release` alike, and `just setup` builds bs and the baskingspot
+  ast-grep rules' `baskingspot-lint` from the commits the justfile pins
+  (`bs_rev`, `rules_rev`) into `~/.local/bin`. To move a pin, change it
+  there and run `mise lock --platform linux-x64,linux-arm64` or
+  `just setup`.
+- In an orb, `.agents/setup` installs siv's system libraries and mise,
+  then runs both, and links mise's shims into `~/.local/bin`, since the
+  agent's shells do not activate mise.
 
 ## Commands
 
 The justfile is the interface. `just --list` shows every recipe.
 
 ```sh
+just setup          # bs and baskingspot-lint, from their pins
 just build          # zig-out/bin/strider
 just install        # a release build, desktop entry, and icon in ~/.local
 just release [BUMP] # release origin/main: patch, minor, major, or X.Y.Z
 just fetch          # install the published build, no compiler
 just run            # on the Wayland display
 just test           # siv's headless backend; no display needed
-just ci             # build and test
+just lint           # zig fmt, ziglint, baskingspot-lint, shellcheck, shfmt, oxfmt, just --fmt
+just fmt            # format what lint checks
+just ci             # build, test, and lint
+just zig=zig test   # any recipe with upstream Zig instead of bs
 ```
+
+## Writing Zig
+
+- Load the `zig-017` skill (`.agents/skills/zig-017`, vendored from
+  baskingspot/skills at 6888cc2 by way of parcel) before writing Zig, and
+  follow its style. Check APIs against the pinned toolchain's std
+  (`zig env`), not memory.
+- `ziglint` and `baskingspot-lint`, the org's ast-grep rules, run in
+  `just lint`. Fix a finding rather than suppress it, unless the rule's
+  own note names the exception.
 
 ## Releasing
 

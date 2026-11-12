@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Prepares a fresh Amp orb (Debian) to build and test Strider.
+# Prepares a fresh Amp orb (Debian) to build, test, and lint Strider: siv's
+# system libraries and what the program and tests call from apt, the
+# toolchain in mise.toml from mise, and bs and baskingspot-lint from
+# `just setup`, as on any other machine.
 # Idempotent: a warm orb skips downloads and package installs.
 set -euo pipefail
 
-ZIG_VERSION=0.17.0
+MISE_VERSION=2026.11.6
 
 step() { printf '==> %s\n' "$*"; }
 
@@ -11,16 +14,17 @@ step() { printf '==> %s\n' "$*"; }
 # headers), the keymaps its keyboard handling compiles, shared-mime-info
 # and desktop-file-utils for running the program, dbus (with dbus-daemon)
 # for its single-instance and FileManager1 services and the D-Bus tests,
-# what previews call: poppler's pdftoppm and libarchive's bsdtar; and just,
-# which runs the recipes (justfile).
+# and what previews call: poppler's pdftoppm and libarchive's bsdtar.
 packages=(
 	ca-certificates curl xz-utils pkg-config git
 	libwayland-dev libxkbcommon-dev libfontconfig-dev xkb-data
 	libvulkan-dev mesa-vulkan-drivers
 	shared-mime-info desktop-file-utils dbus
 	poppler-utils libarchive-tools
-	just
 )
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bin="$HOME/.local/bin"
 
 install_packages() {
 	local missing=()
@@ -36,40 +40,35 @@ install_packages() {
 	fi
 }
 
-install_zig() {
-	local dir=/opt/zig-$ZIG_VERSION
-	if [[ ! -x $dir/zig ]]; then
-		local arch sha
-		arch=$(uname -m)
-		case $arch in
-		x86_64) sha=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
-		aarch64) sha=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8 ;;
-		*) echo "unsupported architecture: $arch" >&2; exit 1 ;;
-		esac
-		local name=zig-$arch-linux-$ZIG_VERSION tmp
-		tmp=$(mktemp -d)
-		step "download $name"
-		curl -fsSL "https://ziglang.org/download/$ZIG_VERSION/$name.tar.xz" -o "$tmp/zig.tar.xz"
-		echo "$sha  $tmp/zig.tar.xz" | sha256sum -c --quiet
-		sudo mkdir -p "$dir"
-		sudo tar -xJf "$tmp/zig.tar.xz" -C "$dir" --strip-components=1
-		rm -rf "$tmp"
-	else
-		step "zig $ZIG_VERSION already installed"
+install_mise() {
+	if [[ $(mise --version 2>/dev/null) != "$MISE_VERSION "* ]]; then
+		step "install mise $MISE_VERSION"
+		curl -fsSL https://mise.run | MISE_VERSION="v$MISE_VERSION" MISE_INSTALL_PATH="$bin/mise" sh
 	fi
-	sudo ln -sfn "$dir/zig" /usr/local/bin/zig
+	mise trust -q mise.toml
+	mise install
+	# The agent's shells do not activate mise, so its shims go on PATH,
+	# where they run the versions mise.toml names.
+	local shims="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims" shim
+	for shim in "$shims"/*; do
+		ln -sfn "$shim" "$bin/$(basename "$shim")"
+	done
 }
 
-# Fetch siv and its pinned packages and warm the caches with a debug
-# build and the tests, so the first build in a thread is incremental.
+# Fetch siv and its pinned packages and warm the caches with the tests,
+# built by bs as development builds are, so the first build in a thread
+# is incremental.
 build_once() {
-	step "zig build test"
-	zig build test
+	step "just test"
+	just test
 }
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$repo_root"
+mkdir -p "$bin"
+export PATH="$bin:$PATH"
 .agents/resume
 install_packages
-install_zig
+install_mise
+just setup
 build_once
 zig version

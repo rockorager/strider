@@ -43,7 +43,7 @@ catppuccin-latte themes, which it follows live (headless captures).
 
 ## Install
 
-You need Zig 0.17.0 and the development files of libwayland-client,
+You need Zig 0.17 and the development files of libwayland-client,
 xkbcommon, Fontconfig, and the Vulkan headers. On Arch:
 
 ```sh
@@ -51,7 +51,8 @@ sudo pacman -S --needed zig wayland libxkbcommon fontconfig vulkan-headers share
 sudo pacman -S --needed udisks2 poppler   # optional: drives, PDF previews
 ```
 
-(If your distribution's Zig is not 0.17.0, take it from ziglang.org.
+(If your distribution's Zig is not 0.17, take it from ziglang.org, or
+let [mise](https://mise.jdx.dev) install the one `mise.toml` pins.
 libarchive's `bsdtar`, which lists archives other than zip and tar.gz,
 comes with pacman.) The build fetches siv and its other Zig packages,
 pinned in `build.zig.zon`, on first use:
@@ -450,6 +451,12 @@ shows which backend serves FileChooser. A chooser started by the bus
 quits 30 seconds after its last window.
 
 ## Develop
+
+[mise](https://mise.jdx.dev) installs the toolchain: `mise install`, then
+`just setup` for [bs](https://github.com/baskingspot/bs), the Debug-mode
+compiler used for development builds, which it builds from a pinned
+commit. `just --list` shows the recipes, and `just ci` builds Strider and
+runs the tests and lint. [`AGENTS.md`](AGENTS.md) has the conventions.
 
 ```sh
 zig build test                        # unit tests, and the app on siv's headless backend
