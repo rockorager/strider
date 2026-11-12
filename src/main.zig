@@ -149,6 +149,10 @@ pub fn main(init: std.process.Init) !u8 {
     }
     defer _ = c.siv_app_destroy(sapp);
     if (scheme != .follow) _ = c.siv_app_set_theme(sapp, &.{ .scheme = scheme });
+    // Names, sizes, and dates line up in a monospace face, as Fontconfig
+    // resolves the alias, live, rather than in the desktop's sans-serif.
+    const family = "monospace";
+    _ = c.siv_app_set_default_font(sapp, family, family.len);
 
     var icon_buf: [4096]u8 = undefined;
     const config_file = if (clean) null else config_override orelse try arena.print(

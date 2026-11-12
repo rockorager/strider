@@ -320,10 +320,9 @@ Bookmarks and the command history persist in
   siv's. Folder icons come from the icon theme, else a bundled symbolic
   folder in the folder color. `SIV_THEME=none` turns user themes off. `--dark` and `--light`
   pick a variant, and a theme for the other one gives way to siv's.
-- Fonts come from Fontconfig: the file names in `sans-serif`, previews
-  and permission fields in `monospace`, so `omarchy font set` (or any
-  fonts.conf change) applies live. On GNOME and KDE the desktop's font
-  settings apply instead.
+- Fonts come from Fontconfig: all of Strider's text is in `monospace`,
+  so `omarchy font set` (or any fonts.conf change) applies live. On GNOME
+  and KDE the desktop's monospace font applies instead.
 - Screen readers: the columns are lists whose focused row is the cursor,
   marked entries say so, the status line is a live region, prompts are
   labeled text fields (AT-SPI, through siv).
