@@ -641,7 +641,7 @@ fn striderOn(Lq: ?*State) callconv(.c) c_int {
 fn striderSivApp(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
-    _ = sl.siv_lua_push_handle(L, "app", @intFromEnum(self.app.app));
+    _ = sl.siv_lua_push_handle(L, "app", @backingInt(self.app.app));
     return 1;
 }
 
@@ -650,7 +650,7 @@ fn striderSivWindow(Lq: ?*State) callconv(.c) c_int {
     const L = Lq.?;
     const self = get(L);
     const w = self.windowOf(L) orelse return 0;
-    _ = sl.siv_lua_push_handle(L, "window", @intFromEnum(w.window));
+    _ = sl.siv_lua_push_handle(L, "window", @backingInt(w.window));
     return 1;
 }
 

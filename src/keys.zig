@@ -59,12 +59,12 @@ pub const sym = struct {
 
 const Name = struct { []const u8, u32 };
 const names = [_]Name{
-    .{ "Space", ' ' },        .{ "CR", sym.@"return" },     .{ "Enter", sym.@"return" }, .{ "Return", sym.@"return" },
-    .{ "Esc", sym.escape },   .{ "Tab", sym.tab },          .{ "BS", sym.backspace },    .{ "Backspace", sym.backspace },
-    .{ "Del", sym.delete },   .{ "Delete", sym.delete },    .{ "Up", sym.up },           .{ "Down", sym.down },
-    .{ "Left", sym.left },    .{ "Right", sym.right },      .{ "Home", sym.home },       .{ "End", sym.end },
-    .{ "PageUp", sym.page_up }, .{ "PageDown", sym.page_down }, .{ "Insert", sym.insert },  .{ "Menu", sym.menu },
-    .{ "lt", '<' },           .{ "gt", '>' },               .{ "Bar", '|' },             .{ "Bslash", '\\' },
+    .{ "Space", ' ' },          .{ "CR", sym.@"return" },       .{ "Enter", sym.@"return" }, .{ "Return", sym.@"return" },
+    .{ "Esc", sym.escape },     .{ "Tab", sym.tab },            .{ "BS", sym.backspace },    .{ "Backspace", sym.backspace },
+    .{ "Del", sym.delete },     .{ "Delete", sym.delete },      .{ "Up", sym.up },           .{ "Down", sym.down },
+    .{ "Left", sym.left },      .{ "Right", sym.right },        .{ "Home", sym.home },       .{ "End", sym.end },
+    .{ "PageUp", sym.page_up }, .{ "PageDown", sym.page_down }, .{ "Insert", sym.insert },   .{ "Menu", sym.menu },
+    .{ "lt", '<' },             .{ "gt", '>' },                 .{ "Bar", '|' },             .{ "Bslash", '\\' },
 };
 
 /// The name `format` gives a keysym or character, if it has one.

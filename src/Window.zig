@@ -1059,7 +1059,7 @@ fn buildCrumbs(self: *Window, txn: Txn, d: *Dir) void {
         rest_from = dr.mount_point.len;
     } else {
         labels.append(self.gpa, if (in_home) "~" else "/") catch return;
-        paths.append(self.gpa, d.path[0 .. if (in_home) home.len else 1]) catch return;
+        paths.append(self.gpa, d.path[0..if (in_home) home.len else 1]) catch return;
         if (in_home) rest_from = home.len;
     }
     var it = std.mem.tokenizeScalar(u8, d.path[rest_from..], '/');
@@ -1350,7 +1350,7 @@ pub fn cdKnown(self: *Window, path: []const u8, select: ?[]const u8, record: boo
     if (select) |s| d.selectName(s);
     // Going up: the cursor on the folder we came from.
     if (select == null and d != old and model.isWithin(old.path, d.path)) {
-        const rest = old.path[if (std.mem.eql(u8, d.path, "/")) 1 else d.path.len + 1 ..];
+        const rest = old.path[if (std.mem.eql(u8, d.path, "/")) 1 else d.path.len + 1..];
         const first = rest[0 .. std.mem.indexOfScalar(u8, rest, '/') orelse rest.len];
         if (first.len != 0) d.selectName(first);
     }
@@ -1650,13 +1650,13 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
         if (ev.keysym == .tab and !m.ctrl and !m.alt and !m.shift and !m.super and ch.focusName()) return .handled;
     }
     const text = if (ev.text) |t| t[0..ev.text_len] else "";
-    const keysym: u32 = @bitCast(@intFromEnum(ev.keysym));
+    const keysym: u32 = @bitCast(@backingInt(ev.keysym));
     const typed = keys.fromEvent(keysym, text, m.ctrl, m.alt, m.super, m.shift) orelse return .pass;
     // On a layout without Latin letters (Russian, Greek, Hebrew), a key
     // the keymap does not bind as typed acts as its Latin equivalent, so
     // hjkl and Ctrl+... work there too; a binding of the key's own
     // character wins (siv D44).
-    const shortcut: u32 = @bitCast(@intFromEnum(ev.shortcut_key));
+    const shortcut: u32 = @bitCast(@backingInt(ev.shortcut_key));
     const latin = if (shortcut != keysym) keys.fromEvent(shortcut, "", m.ctrl, m.alt, m.super, m.shift) else null;
     const k = if (latin) |l| (if (self.await_key == .none and !self.binds(typed) and self.binds(l)) l else typed) else typed;
     if (self.chooserInsertKey(k)) return .handled;
@@ -2247,7 +2247,7 @@ fn onPromptKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.
         else => {},
     }
     // Ctrl+N and Ctrl+P (Ctrl+J and Ctrl+K) move in the picker, as in fzf.
-    if (kind == .pick and m.ctrl) switch (@intFromEnum(ev.keysym)) {
+    if (kind == .pick and m.ctrl) switch (@backingInt(ev.keysym)) {
         'n', 'j' => {
             self.picker.move(1);
             return .handled;
@@ -2259,7 +2259,7 @@ fn onPromptKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.
         else => {},
     };
     // Ctrl+C and Ctrl+[ cancel, as in a terminal.
-    if (m.ctrl and (@intFromEnum(ev.keysym) == 'c' or @intFromEnum(ev.keysym) == '[')) {
+    if (m.ctrl and (@backingInt(ev.keysym) == 'c' or @backingInt(ev.keysym) == '[')) {
         self.cancelPrompt(kind);
         return .handled;
     }
@@ -2723,4 +2723,3 @@ fn transferUris(self: *Window, uris: []const u8, dest: []const u8, kind: fsops.K
     if (paths.items.len == 0) return self.notify("Only local files can be pasted here", false);
     self.app.startOpWith(self, kind, toConst(paths.items), dest, &.{}, true, if (replace) .replace else .none);
 }
-

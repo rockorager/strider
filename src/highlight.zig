@@ -70,19 +70,19 @@ pub const langs = struct {
 
 const ByExt = struct { []const u8, *const Lang };
 const by_ext = [_]ByExt{
-    .{ "c", &langs.c },        .{ "h", &langs.c },          .{ "cc", &langs.c },        .{ "cpp", &langs.c },
-    .{ "cxx", &langs.c },      .{ "hpp", &langs.c },        .{ "hh", &langs.c },        .{ "zig", &langs.zig },
-    .{ "zon", &langs.zig },    .{ "rs", &langs.rust },      .{ "go", &langs.go },       .{ "py", &langs.python },
-    .{ "js", &langs.js },      .{ "mjs", &langs.js },       .{ "cjs", &langs.js },      .{ "ts", &langs.js },
-    .{ "tsx", &langs.js },     .{ "jsx", &langs.js },       .{ "lua", &langs.lua },     .{ "sh", &langs.sh },
-    .{ "bash", &langs.sh },    .{ "zsh", &langs.sh },       .{ "fish", &langs.sh },     .{ "json", &langs.json },
-    .{ "toml", &langs.toml },  .{ "yaml", &langs.yaml },    .{ "yml", &langs.yaml },    .{ "java", &langs.java },
-    .{ "kt", &langs.java },    .{ "scala", &langs.java },   .{ "cs", &langs.java },     .{ "swift", &langs.java },
-    .{ "rb", &langs.ruby },    .{ "css", &langs.css },      .{ "scss", &langs.css },    .{ "html", &langs.html },
-    .{ "htm", &langs.html },   .{ "xml", &langs.html },     .{ "svg", &langs.html },    .{ "sql", &langs.sql },
-    .{ "mk", &langs.make },    .{ "md", &langs.markdown },  .{ "markdown", &langs.markdown }, .{ "diff", &langs.diff },
-    .{ "patch", &langs.diff }, .{ "ini", &langs.ini },      .{ "conf", &langs.ini },    .{ "cfg", &langs.ini },
-    .{ "desktop", &langs.ini }, .{ "service", &langs.ini }, .{ "nix", &langs.sh },      .{ "pl", &langs.sh },
+    .{ "c", &langs.c },         .{ "h", &langs.c },         .{ "cc", &langs.c },              .{ "cpp", &langs.c },
+    .{ "cxx", &langs.c },       .{ "hpp", &langs.c },       .{ "hh", &langs.c },              .{ "zig", &langs.zig },
+    .{ "zon", &langs.zig },     .{ "rs", &langs.rust },     .{ "go", &langs.go },             .{ "py", &langs.python },
+    .{ "js", &langs.js },       .{ "mjs", &langs.js },      .{ "cjs", &langs.js },            .{ "ts", &langs.js },
+    .{ "tsx", &langs.js },      .{ "jsx", &langs.js },      .{ "lua", &langs.lua },           .{ "sh", &langs.sh },
+    .{ "bash", &langs.sh },     .{ "zsh", &langs.sh },      .{ "fish", &langs.sh },           .{ "json", &langs.json },
+    .{ "toml", &langs.toml },   .{ "yaml", &langs.yaml },   .{ "yml", &langs.yaml },          .{ "java", &langs.java },
+    .{ "kt", &langs.java },     .{ "scala", &langs.java },  .{ "cs", &langs.java },           .{ "swift", &langs.java },
+    .{ "rb", &langs.ruby },     .{ "css", &langs.css },     .{ "scss", &langs.css },          .{ "html", &langs.html },
+    .{ "htm", &langs.html },    .{ "xml", &langs.html },    .{ "svg", &langs.html },          .{ "sql", &langs.sql },
+    .{ "mk", &langs.make },     .{ "md", &langs.markdown }, .{ "markdown", &langs.markdown }, .{ "diff", &langs.diff },
+    .{ "patch", &langs.diff },  .{ "ini", &langs.ini },     .{ "conf", &langs.ini },          .{ "cfg", &langs.ini },
+    .{ "desktop", &langs.ini }, .{ "service", &langs.ini }, .{ "nix", &langs.sh },            .{ "pl", &langs.sh },
 };
 
 /// The language of a file by its name, or null for plain text.

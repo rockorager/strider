@@ -1075,7 +1075,7 @@ fn fileUmask() u32 {
         defer _ = linux.close(@intCast(fd));
         const n = linux.read(@intCast(fd), &buf, buf.len);
         if (linux.errno(n) == .SUCCESS) if (std.mem.indexOf(u8, buf[0..n], "Umask:\t")) |at| {
-            const rest = buf[at + 7 ..n];
+            const rest = buf[at + 7 .. n];
             const end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
             m = std.fmt.parseInt(u32, rest[0..end], 8) catch m;
         };

@@ -260,7 +260,8 @@ test "archive kinds by name" {
 
 test "lists a zip and a tarball made by the system's tools" {
     if (!proc.onPath("tar") or !proc.onPath("gzip")) return error.SkipZigTest;
-    var r = try proc.run(testing.allocator, &.{ "sh", "-c",
+    var r = try proc.run(testing.allocator, &.{
+        "sh", "-c",
         \\set -e
         \\rm -rf /tmp/strider-archive-test && mkdir -p /tmp/strider-archive-test/src/sub
         \\cd /tmp/strider-archive-test

@@ -153,9 +153,9 @@ test "keys: counts, gg and G, search, find, and history" {
     try testing.expectEqualStrings("work", model.basename(h.dir().path));
     // Half pages, and the cursor stays in bounds.
     try h.typeText("gg");
-    try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
-    try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
-    try h.key(@enumFromInt('d'), .{ .ctrl = true }, "\x04");
+    try h.key(@fromBackingInt(@intCast('d')), .{ .ctrl = true }, "\x04");
+    try h.key(@fromBackingInt(@intCast('d')), .{ .ctrl = true }, "\x04");
+    try h.key(@fromBackingInt(@intCast('d')), .{ .ctrl = true }, "\x04");
     try testing.expectEqualStrings("run.sh", h.hovered());
     // On a Russian layout the keys labeled G, J, and D (П, О, В) act as
     // g, j, and d, with Shift and Ctrl; a binding of the key's own
@@ -638,7 +638,7 @@ test "tabs, bookmarks, sorting, and hidden files" {
     try h.typeText("gt");
     try testing.expectEqual(@as(usize, 0), h.win.?.active);
     try testing.expectEqualStrings("work", model.basename(h.dir().path));
-    try h.key(@enumFromInt('2'), .{ .alt = true }, "2");
+    try h.key(@fromBackingInt(@intCast('2')), .{ .alt = true }, "2");
     try testing.expectEqualStrings("src", model.basename(h.dir().path));
     // ' and the key goes to the bookmark; '' back.
     try h.typeText("'");
@@ -1019,9 +1019,9 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
     var sbuf: [256]u8 = undefined;
     const want = sbuf[0..second.len];
     @memcpy(want, second);
-    try h.key(@enumFromInt('n'), .{ .ctrl = true }, "\x0e");
-    try h.key(@enumFromInt('n'), .{ .ctrl = true }, "\x0e");
-    try h.key(@enumFromInt('p'), .{ .ctrl = true }, "\x10");
+    try h.key(@fromBackingInt(@intCast('n')), .{ .ctrl = true }, "\x0e");
+    try h.key(@fromBackingInt(@intCast('n')), .{ .ctrl = true }, "\x0e");
+    try h.key(@fromBackingInt(@intCast('p')), .{ .ctrl = true }, "\x10");
     try testing.expectEqual(@as(usize, 1), w.picker.selected);
     try h.expectGolden(h.window(), "picker");
     try h.typeText("\x1b");
@@ -1350,7 +1350,7 @@ test "the properties dialog: the mode typed or ticked, the owner, applied as ope
     try testing.expectEqual(@as(u32, 0o775), modeOf(&f, "work/build.zig"));
     try h.key(.@"return", .{ .alt = true }, "");
     try h.typeText("go-w");
-    try h.key(@enumFromInt('a'), .{ .alt = true }, "");
+    try h.key(@fromBackingInt(@intCast('a')), .{ .alt = true }, "");
     try h.waitFor(&h, opsDone);
     try testing.expectEqual(@as(u32, 0o755), modeOf(&f, "work/build.zig"));
 }

@@ -24,58 +24,73 @@ pub fn main(init: std.process.Init) !void {
     const abs = if (std.mem.startsWith(u8, trimmed, "/")) trimmed else try std.fmt.allocPrint(arena, "{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
     const bin = try std.fmt.allocPrint(arena, "{s}/bin/strider", .{abs});
     const files = [_]struct { []const u8, []const u8 }{
-        .{ app_id ++ ".desktop", try std.fmt.allocPrint(arena,
-            \\[Desktop Entry]
-            \\Type=Application
-            \\Name=Strider
-            \\GenericName=File Manager
-            \\Comment=Browse and organize files from the keyboard, in Miller columns
-            \\Icon={s}
-            \\Exec={s} %U
-            \\DBusActivatable=true
-            \\StartupNotify=true
-            \\Terminal=false
-            \\Categories=System;FileManager;FileTools;
-            \\Keywords=folder;manager;explore;disk;filesystem;ranger;yazi;vim;keyboard;miller;columns;
-            \\MimeType=inode/directory;
-            \\Actions=new-window;
-            \\
-            \\[Desktop Action new-window]
-            \\Name=New Window
-            \\Exec={s} --new-window
-            \\
-        , .{ app_id, bin, bin }) },
+        .{
+            app_id ++ ".desktop",
+            try std.fmt.allocPrint(arena,
+                \\[Desktop Entry]
+                \\Type=Application
+                \\Name=Strider
+                \\GenericName=File Manager
+                \\Comment=Browse and organize files from the keyboard, in Miller columns
+                \\Icon={s}
+                \\Exec={s} %U
+                \\DBusActivatable=true
+                \\StartupNotify=true
+                \\Terminal=false
+                \\Categories=System;FileManager;FileTools;
+                \\Keywords=folder;manager;explore;disk;filesystem;ranger;yazi;vim;keyboard;miller;columns;
+                \\MimeType=inode/directory;
+                \\Actions=new-window;
+                \\
+                \\[Desktop Action new-window]
+                \\Name=New Window
+                \\Exec={s} --new-window
+                \\
+            , .{ app_id, bin, bin }),
+        },
         // File chooser windows' app id: hidden from launchers, there for
         // its name and icon (and for compositor rules to match).
-        .{ app_id ++ ".Chooser.desktop", try std.fmt.allocPrint(arena,
-            \\[Desktop Entry]
-            \\Type=Application
-            \\Name=Strider File Chooser
-            \\Comment=The desktop's file chooser, in Miller columns
-            \\Icon={s}
-            \\Exec={s} --service
-            \\NoDisplay=true
-            \\Terminal=false
-            \\
-        , .{ app_id, bin }) },
-        .{ app_id ++ ".service", try std.fmt.allocPrint(arena,
-            \\[D-BUS Service]
-            \\Name={s}
-            \\Exec={s} --service
-            \\
-        , .{ app_id, bin }) },
-        .{ "org.freedesktop.impl.portal.desktop.strider.service", try std.fmt.allocPrint(arena,
-            \\[D-BUS Service]
-            \\Name=org.freedesktop.impl.portal.desktop.strider
-            \\Exec={s} --service
-            \\
-        , .{bin}) },
-        .{ "org.freedesktop.FileManager1.service", try std.fmt.allocPrint(arena,
-            \\[D-BUS Service]
-            \\Name=org.freedesktop.FileManager1
-            \\Exec={s} --service
-            \\
-        , .{bin}) },
+        .{
+            app_id ++ ".Chooser.desktop",
+            try std.fmt.allocPrint(arena,
+                \\[Desktop Entry]
+                \\Type=Application
+                \\Name=Strider File Chooser
+                \\Comment=The desktop's file chooser, in Miller columns
+                \\Icon={s}
+                \\Exec={s} --service
+                \\NoDisplay=true
+                \\Terminal=false
+                \\
+            , .{ app_id, bin }),
+        },
+        .{
+            app_id ++ ".service",
+            try std.fmt.allocPrint(arena,
+                \\[D-BUS Service]
+                \\Name={s}
+                \\Exec={s} --service
+                \\
+            , .{ app_id, bin }),
+        },
+        .{
+            "org.freedesktop.impl.portal.desktop.strider.service",
+            try std.fmt.allocPrint(arena,
+                \\[D-BUS Service]
+                \\Name=org.freedesktop.impl.portal.desktop.strider
+                \\Exec={s} --service
+                \\
+            , .{bin}),
+        },
+        .{
+            "org.freedesktop.FileManager1.service",
+            try std.fmt.allocPrint(arena,
+                \\[D-BUS Service]
+                \\Name=org.freedesktop.FileManager1
+                \\Exec={s} --service
+                \\
+            , .{bin}),
+        },
     };
     const io = init.io;
     var dir = try std.Io.Dir.cwd().openDir(io, out, .{});

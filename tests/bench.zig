@@ -280,7 +280,7 @@ pub fn main() !void {
         var total: u64 = 0;
         for (0..100) |_| {
             const c0 = threadCpu();
-            try r.key(@enumFromInt('f'), .{ .ctrl = true }, "\x06");
+            try r.key(@fromBackingInt(@intCast('f')), .{ .ctrl = true }, "\x06");
             const cpu = threadCpu() - c0;
             total += cpu;
             worst = @max(worst, cpu);
@@ -293,7 +293,7 @@ pub fn main() !void {
     {
         const c0 = threadCpu();
         const w0 = now();
-        try r.key(@enumFromInt('a'), .{ .ctrl = true }, "\x01");
+        try r.key(@fromBackingInt(@intCast('a')), .{ .ctrl = true }, "\x01");
         report("Ctrl+A marking all {d}: UI thread CPU {d:.1} ms, {d:.1} ms wall", .{ r.win.curDir().mark_count, ms(threadCpu() - c0), ms(now() - w0) });
     }
     try timed(&r, "Escape (unmark all)", "\x1b");

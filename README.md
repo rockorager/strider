@@ -32,14 +32,14 @@ copy paused in the tasks view (`w`), a program in hex, the context menu
 view with a surface per column. Last, Omarchy's tokyo-night and
 catppuccin-latte themes, which it follows live (headless captures).
 
-| | |
-| --- | --- |
-| ![landscape.png previewed](docs/screenshots/image-preview.png) | ![assets.tar.gz listed](docs/screenshots/archive-preview.png) |
-| ![The keys after g](docs/screenshots/which-key.png) | ![The dark style](docs/screenshots/dark-text.png) |
-| ![gf: files below, ranked as you type](docs/screenshots/picker.png) | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png) |
-| ![A program's start in hex](docs/screenshots/hex.png) | ![The context menu, its keys beside each command](docs/screenshots/menu.png) |
-| ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png) |
-| ![Omarchy's tokyo-night theme](tests/golden/strider-omarchy-tokyo-night.png) | ![Omarchy's catppuccin-latte theme](tests/golden/strider-omarchy-catppuccin-latte.png) |
+|                                                                                     |                                                                                        |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| ![landscape.png previewed](docs/screenshots/image-preview.png)                      | ![assets.tar.gz listed](docs/screenshots/archive-preview.png)                          |
+| ![The keys after g](docs/screenshots/which-key.png)                                 | ![The dark style](docs/screenshots/dark-text.png)                                      |
+| ![gf: files below, ranked as you type](docs/screenshots/picker.png)                 | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png)                      |
+| ![A program's start in hex](docs/screenshots/hex.png)                               | ![The context menu, its keys beside each command](docs/screenshots/menu.png)           |
+| ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png)            |
+| ![Omarchy's tokyo-night theme](tests/golden/strider-omarchy-tokyo-night.png)        | ![Omarchy's catppuccin-latte theme](tests/golden/strider-omarchy-catppuccin-latte.png) |
 
 ## Install
 
@@ -90,39 +90,39 @@ prefix (`g`, `s`, `d`, `y`, `z`, `'`, `m`) a popup shows what can follow.
 Counts work where they make sense: `5j`, `3H`, `2u`; `10G` goes to the
 tenth entry.
 
-| Keys | |
-| --- | --- |
-| `j` `k` `h` `l`, arrows | down, up, the parent folder, enter or open |
-| `gg` `G`, `Ctrl+d` `Ctrl+u`, `Ctrl+f` `Ctrl+b` | first, last, half pages, pages |
-| `H` `L` | back and forward in the tab's history |
-| `Enter`, `o` | open with the default application (mimeapps.list), open with… |
-| `/` `?` `n` `N` | search forward and backward as you type, next, previous |
-| `f` | jump by typing part of a name |
-| `zf` | filter the folder as you type (Enter keeps it, Esc drops it) |
-| `Space`, `v`, `Ctrl+a`, `Esc` | mark and move down, visual selection, mark all, cancel and unmark |
-| `yy` `dd` `p` `P` | copy, cut, paste, paste replacing |
-| `yp` `yn` `yd` | copy the paths, the names, the folder's path |
-| `D` `dT` `Del`, `dD` `Shift+Del`, `u` | move to the trash, delete permanently (a dialog asks), undo |
-| `r` `A` `I`, `R` | rename (the name without its extension selected, at the end, at the start), bulk rename in `$EDITOR` |
-| `a` | new file, or folder with a trailing `/` (`a/b/c/` makes them all) |
-| `zh`, `zp`, `zi` | hidden files, the preview, icons |
-| `sn` `ss` `sm` `st` `se`, `sr` `sd` | sort by name, size, modified, type, extension; reverse; folders first |
-| `m` + key, `'` + key, `''`, `dm` + key | set a bookmark, go to one, back, remove one |
-| `gh` `g/` `gd` `gD` `gc` `gm` | home, root, Downloads, Documents, ~/.config, mounted media |
-| `gf` | find a file or folder below, fuzzily (`:fuzzy`) |
-| `gz`, `:z words` | jump to a folder zoxide knows: pick one, or its best for the words |
-| `gx`, `dr` | the trash, restore from it |
-| `gv` | the drives as a folder: free space, `l` opens or mounts (asks for LUKS passphrases), `:unmount` and `:eject` act on the cursor's |
-| `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close |
-| `!`, `S` | run a shell command on the selection, a terminal here (`:terminal [folder]`) |
-| `=` | change permissions (`:chmod`); `:chown` changes owners |
-| `w` | the tasks view: running and recent file operations |
-| Menu key, `Shift+F10`, right click | the context menu |
-| `Alt+Enter` | properties: details, permissions, owner |
-| `>` `<`, `z=` | widen and narrow the current column, back to the ratio |
-| `J` `K` | scroll the preview |
-| `:` | the command line: Tab completes commands and paths, Up and Down recall history |
-| `q`, `ZZ` | close the tab (the window with the last), quit |
+| Keys                                                       |                                                                                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `j` `k` `h` `l`, arrows                                    | down, up, the parent folder, enter or open                                                                                       |
+| `gg` `G`, `Ctrl+d` `Ctrl+u`, `Ctrl+f` `Ctrl+b`             | first, last, half pages, pages                                                                                                   |
+| `H` `L`                                                    | back and forward in the tab's history                                                                                            |
+| `Enter`, `o`                                               | open with the default application (mimeapps.list), open with…                                                                    |
+| `/` `?` `n` `N`                                            | search forward and backward as you type, next, previous                                                                          |
+| `f`                                                        | jump by typing part of a name                                                                                                    |
+| `zf`                                                       | filter the folder as you type (Enter keeps it, Esc drops it)                                                                     |
+| `Space`, `v`, `Ctrl+a`, `Esc`                              | mark and move down, visual selection, mark all, cancel and unmark                                                                |
+| `yy` `dd` `p` `P`                                          | copy, cut, paste, paste replacing                                                                                                |
+| `yp` `yn` `yd`                                             | copy the paths, the names, the folder's path                                                                                     |
+| `D` `dT` `Del`, `dD` `Shift+Del`, `u`                      | move to the trash, delete permanently (a dialog asks), undo                                                                      |
+| `r` `A` `I`, `R`                                           | rename (the name without its extension selected, at the end, at the start), bulk rename in `$EDITOR`                             |
+| `a`                                                        | new file, or folder with a trailing `/` (`a/b/c/` makes them all)                                                                |
+| `zh`, `zp`, `zi`                                           | hidden files, the preview, icons                                                                                                 |
+| `sn` `ss` `sm` `st` `se`, `sr` `sd`                        | sort by name, size, modified, type, extension; reverse; folders first                                                            |
+| `m` + key, `'` + key, `''`, `dm` + key                     | set a bookmark, go to one, back, remove one                                                                                      |
+| `gh` `g/` `gd` `gD` `gc` `gm`                              | home, root, Downloads, Documents, ~/.config, mounted media                                                                       |
+| `gf`                                                       | find a file or folder below, fuzzily (`:fuzzy`)                                                                                  |
+| `gz`, `:z words`                                           | jump to a folder zoxide knows: pick one, or its best for the words                                                               |
+| `gx`, `dr`                                                 | the trash, restore from it                                                                                                       |
+| `gv`                                                       | the drives as a folder: free space, `l` opens or mounts (asks for LUKS passphrases), `:unmount` and `:eject` act on the cursor's |
+| `gn` `Ctrl+t`, `gt` `gT` `Tab`, `Alt+1`…`9`, `gq` `Ctrl+w` | tabs: new, next and previous, by number, close                                                                                   |
+| `!`, `S`                                                   | run a shell command on the selection, a terminal here (`:terminal [folder]`)                                                     |
+| `=`                                                        | change permissions (`:chmod`); `:chown` changes owners                                                                           |
+| `w`                                                        | the tasks view: running and recent file operations                                                                               |
+| Menu key, `Shift+F10`, right click                         | the context menu                                                                                                                 |
+| `Alt+Enter`                                                | properties: details, permissions, owner                                                                                          |
+| `>` `<`, `z=`                                              | widen and narrow the current column, back to the ratio                                                                           |
+| `J` `K`                                                    | scroll the preview                                                                                                               |
+| `:`                                                        | the command line: Tab completes commands and paths, Up and Down recall history                                                   |
+| `q`, `ZZ`                                                  | close the tab (the window with the last), quit                                                                                   |
 
 What commands act on: the visual range, else the marked entries, else the
 entry under the cursor. In visual mode operators act on the range at once
@@ -200,6 +200,7 @@ keyboard: each button and check box has an underlined key that presses
 it (with Alt while typing in a field), Enter presses the focused button
 (Cancel when the dialog opens, so Enter alone destroys nothing; Tab
 moves to the others), Escape cancels.
+
 - Deleting permanently and emptying the trash, which cannot be undone.
 - A name already taken in an operation of several items or a folder:
   both files compared, replace, skip, keep both, or merge, and a check
@@ -488,27 +489,27 @@ to its author, are in [FRICTION.md](FRICTION.md).
 `zig build bench` (ReleaseSafe, siv's headless backend with the system's
 fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
 
-| Measurement | Result |
-| --- | --- |
-| Startup to the first frame showing a 40-entry folder (its rows included) | 23 ms (UI thread CPU 12 ms) |
-| The same with the example `data/init.lua` loaded | 18 ms |
-| Resident memory with that window open | 36 MiB (heap in use 19.8 MiB) |
-| Idle for 2 s | no wakeups |
-| A 100 100-entry folder: read, typed, and sorted | 248 ms, rows shown at 252 ms; the first frame at 18 ms |
-| Memory for those entries | 8.3 MiB of heap (87 bytes each); 64 MiB resident in all |
-| `j`, 300 times, each frame presented and the preview updated | 1.0 ms UI thread CPU per key (4.0 ms worst, a hex view), each on the next 60 Hz frame |
-| 100 `j`s queued at once (a held key) | 19 ms UI thread CPU in all |
-| `G`, `gg` | 1.7 ms each |
-| `Ctrl+f` (a page) | 1.3 ms (1.7 ms worst) |
-| `/file-99999` typed, every keystroke searching all names | 23 ms for the eleven keystrokes |
-| `n` (the next match, wrapping around) | 11 ms |
-| `h` to the parent and `l` back in (both folders cached and watched) | 4.2 ms |
-| `Ctrl+a` marking all 100 100 | 1.6 ms |
-| `sS` (by size, largest first, the cursor kept on its entry), `sn` | 68 ms, 86 ms |
-| `zf-12` typed (filtering as you type) | 22 ms for the three keystrokes |
-| `gf`: the picker, every one of the 100 100 entries walked | 52 ms (17 ms UI thread CPU) |
-| `f9999` typed in it, every keystroke scoring the candidates | 30 ms for the five keystrokes |
-| Peak memory | 86 MiB |
+| Measurement                                                              | Result                                                                                |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Startup to the first frame showing a 40-entry folder (its rows included) | 23 ms (UI thread CPU 12 ms)                                                           |
+| The same with the example `data/init.lua` loaded                         | 18 ms                                                                                 |
+| Resident memory with that window open                                    | 36 MiB (heap in use 19.8 MiB)                                                         |
+| Idle for 2 s                                                             | no wakeups                                                                            |
+| A 100 100-entry folder: read, typed, and sorted                          | 248 ms, rows shown at 252 ms; the first frame at 18 ms                                |
+| Memory for those entries                                                 | 8.3 MiB of heap (87 bytes each); 64 MiB resident in all                               |
+| `j`, 300 times, each frame presented and the preview updated             | 1.0 ms UI thread CPU per key (4.0 ms worst, a hex view), each on the next 60 Hz frame |
+| 100 `j`s queued at once (a held key)                                     | 19 ms UI thread CPU in all                                                            |
+| `G`, `gg`                                                                | 1.7 ms each                                                                           |
+| `Ctrl+f` (a page)                                                        | 1.3 ms (1.7 ms worst)                                                                 |
+| `/file-99999` typed, every keystroke searching all names                 | 23 ms for the eleven keystrokes                                                       |
+| `n` (the next match, wrapping around)                                    | 11 ms                                                                                 |
+| `h` to the parent and `l` back in (both folders cached and watched)      | 4.2 ms                                                                                |
+| `Ctrl+a` marking all 100 100                                             | 1.6 ms                                                                                |
+| `sS` (by size, largest first, the cursor kept on its entry), `sn`        | 68 ms, 86 ms                                                                          |
+| `zf-12` typed (filtering as you type)                                    | 22 ms for the three keystrokes                                                        |
+| `gf`: the picker, every one of the 100 100 entries walked                | 52 ms (17 ms UI thread CPU)                                                           |
+| `f9999` typed in it, every keystroke scoring the candidates              | 30 ms for the five keystrokes                                                         |
+| Peak memory                                                              | 86 MiB                                                                                |
 
 Rows are virtualized by siv's views, so a frame costs what is on screen,
 not what is in the folder.
@@ -521,17 +522,17 @@ renderer stopped making a 16 MiB path mask step and an unused 8 MiB
 color glyph atlas. Method, caveats, and every number:
 [bench/README.md](bench/README.md).
 
-| | Strider | Nautilus |
-| --- | --- | --- |
-| Warm start to the folder's rows on screen (cold) | 48 ms (116 ms) | 228 ms (498 ms) |
-| Memory after starting: RSS, PSS | 61, 43 MiB | 106, 82 MiB |
-| Opening 100 100 entries to sorted rows on screen, warm (cold) | 157 ms (809 ms) | 3.4 s (4.8 s) |
-| Memory with them open (RSS) | 68 MiB | 288 MiB |
-| Down, key to photon: median, worst | 12, 21 ms | 13, 46 ms |
-| End, Home: median | 12, 12 ms | 44, 72 ms |
-| Filtering "12345": each key; the result after the last key | 13 ms; 13 ms | 408 ms; 1.8 s |
-| Idle wakeups: after starting, with 100 100 entries open | 0, 0.2 per second | 0.6, 98 per second |
-| GPU memory with 100 100 entries open (after starting) | 40 MiB (39 MiB) | 31 MiB (30 MiB) |
+|                                                               | Strider           | Nautilus           |
+| ------------------------------------------------------------- | ----------------- | ------------------ |
+| Warm start to the folder's rows on screen (cold)              | 48 ms (116 ms)    | 228 ms (498 ms)    |
+| Memory after starting: RSS, PSS                               | 61, 43 MiB        | 106, 82 MiB        |
+| Opening 100 100 entries to sorted rows on screen, warm (cold) | 157 ms (809 ms)   | 3.4 s (4.8 s)      |
+| Memory with them open (RSS)                                   | 68 MiB            | 288 MiB            |
+| Down, key to photon: median, worst                            | 12, 21 ms         | 13, 46 ms          |
+| End, Home: median                                             | 12, 12 ms         | 44, 72 ms          |
+| Filtering "12345": each key; the result after the last key    | 13 ms; 13 ms      | 408 ms; 1.8 s      |
+| Idle wakeups: after starting, with 100 100 entries open       | 0, 0.2 per second | 0.6, 98 per second |
+| GPU memory with 100 100 entries open (after starting)         | 40 MiB (39 MiB)   | 31 MiB (30 MiB)    |
 
 ## License
 
