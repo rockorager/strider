@@ -4,6 +4,7 @@
 //! Skipped where dbus-daemon is not installed.
 
 const std = @import("std");
+const Io = std.Io;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -27,12 +28,12 @@ const Daemon = struct {
         d.dir = dir;
         var cmd: [512]u8 = undefined;
         // Beside the fixture, not in it, so captures do not show it.
-        const out = try std.fmt.bufPrint(&d.address, "{s}.bus", .{dir});
-        const z = try std.fmt.bufPrintSentinel(&cmd, "dbus-daemon --session --fork --print-address=1 --print-pid=1 > '{s}' 2>/dev/null", .{out}, 0);
+        const out = try std.mem.print(&d.address, "{s}.bus", .{dir});
+        const z = try std.mem.printSentinel(&cmd, "dbus-daemon --session --fork --print-address=1 --print-pid=1 > '{s}' 2>/dev/null", .{out}, 0);
         if (system(z.ptr) != 0) return error.SkipZigTest;
         var buf: [512]u8 = undefined;
         var zpath: [256]u8 = undefined;
-        const p = try std.fmt.bufPrintSentinel(&zpath, "{s}", .{out}, 0);
+        const p = try std.mem.printSentinel(&zpath, "{s}", .{out}, 0);
         const rc = linux.openat(linux.AT.FDCWD, p, .{ .CLOEXEC = true }, 0);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         const fd: i32 = @intCast(rc);
@@ -53,7 +54,7 @@ const Daemon = struct {
     fn stop(d: *Daemon) void {
         if (d.pid > 0) _ = linux.kill(d.pid, linux.SIG.TERM);
         var buf: [300]u8 = undefined;
-        const p = std.fmt.bufPrintSentinel(&buf, "{s}.bus", .{d.dir}, 0) catch return;
+        const p = std.mem.printSentinel(&buf, "{s}.bus", .{d.dir}, 0) catch return;
         _ = linux.unlinkat(linux.AT.FDCWD, p, 0);
     }
 };
@@ -161,7 +162,7 @@ const FakeUDisks = struct {
             _ = c.siv_dbus_message_send(m);
             return;
         }
-        const entry_ = std.fmt.allocPrint(testing.allocator, "{s} {s}", .{ member, std.fs.path.basename(path) }) catch return;
+        const entry_ = testing.allocator.print("{s} {s}", .{ member, Io.Dir.path.basename(path) }) catch return;
         u.calls.append(testing.allocator, entry_) catch {};
         if (eql(u8, member, "Unlock")) {
             var buf: [64]u8 = undefined;
@@ -522,19 +523,19 @@ test "FileManager1: show items, folders, and properties for other applications" 
     // ShowItems: a folder is shown under the cursor in its parent, not
     // opened, in a new tab.
     var buf: [512]u8 = undefined;
-    try callFileManager(&h, client, "ShowItems", try std.fmt.bufPrint(&buf, "file://{s}/Projects/siv", .{f.path}));
+    try callFileManager(&h, client, "ShowItems", try std.mem.print(&buf, "file://{s}/Projects/siv", .{f.path}));
     try h.settle();
     try testing.expectEqual(@as(usize, 2), win.tabs.items.len);
     try testing.expect(std.mem.endsWith(u8, h.dir().path, "/Projects"));
     try testing.expectEqualStrings("siv", h.hovered());
     // ShowFolders opens the folder itself.
-    try callFileManager(&h, client, "ShowFolders", try std.fmt.bufPrint(&buf, "file://{s}/Projects/siv", .{f.path}));
+    try callFileManager(&h, client, "ShowFolders", try std.mem.print(&buf, "file://{s}/Projects/siv", .{f.path}));
     try h.settle();
     try testing.expectEqual(@as(usize, 3), win.tabs.items.len);
     try testing.expect(std.mem.endsWith(u8, h.dir().path, "/Projects/siv"));
     // ShowItemProperties: the file under the cursor, its details in the
     // preview.
-    try callFileManager(&h, client, "ShowItemProperties", try std.fmt.bufPrint(&buf, "file://{s}/notes.txt", .{f.path}));
+    try callFileManager(&h, client, "ShowItemProperties", try std.mem.print(&buf, "file://{s}/notes.txt", .{f.path}));
     try h.settle();
     try testing.expectEqualStrings("notes.txt", h.hovered());
     try testing.expectEqual(@as(usize, 4), win.tabs.items.len);
@@ -670,7 +671,7 @@ var handle_buf: [128]u8 = undefined;
 /// the answer. The request's handle is in `handle_buf`.
 fn callChooser(conn: siv.Dbus, member: []const u8, f: *const Fixture, title: []const u8, opts: Options, out: *Chosen) ![]const u8 {
     request_serial += 1;
-    const handle = try std.fmt.bufPrint(&handle_buf, "/org/freedesktop/portal/desktop/request/1_42/t{d}", .{request_serial});
+    const handle = try std.mem.print(&handle_buf, "/org/freedesktop/portal/desktop/request/1_42/t{d}", .{request_serial});
     const path = "/org/freedesktop/portal/desktop";
     const iface = "org.freedesktop.impl.portal.FileChooser";
     var m: siv.DbusMessage = .null;
@@ -715,7 +716,7 @@ fn answered(h: *Harness, main: *App.Window, out: *Chosen) !void {
 }
 
 fn fileUri(buf: []u8, f: *const Fixture, rel: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "file://{s}/{s}", .{ f.path, rel }) catch unreachable;
+    return std.mem.print(buf, "file://{s}/{s}", .{ f.path, rel }) catch unreachable;
 }
 
 fn chooserFixture(f: *Fixture, name: []const u8) !void {

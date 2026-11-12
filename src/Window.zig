@@ -5,6 +5,7 @@
 //! prompts for search, find, filter, rename, and commands.
 
 const std = @import("std");
+const Io = std.Io;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
@@ -679,7 +680,7 @@ fn fitWidth(self: *Window, d: ?*Dir) f32 {
             n += 1;
             continue;
         }
-        const min_at = std.mem.indexOfMin(usize, &lens);
+        const min_at = std.mem.findMin(usize, &lens);
         if (len > lens[min_at]) {
             longest[min_at] = i;
             lens[min_at] = len;
@@ -783,7 +784,7 @@ pub fn closeTabAt(self: *Window, i: usize) void {
 fn tabLabel(self: *Window, buf: []u8, i: usize) []const u8 {
     const p = self.tabs.items[i].path();
     const name = if (std.mem.eql(u8, p, self.app.home)) "~" else model.basename(p);
-    return std.fmt.bufPrint(buf, "{d} {s}", .{ i + 1, name }) catch name;
+    return std.mem.print(buf, "{d} {s}", .{ i + 1, name }) catch name;
 }
 
 const tab_radius: siv.Corners = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 };
@@ -838,7 +839,7 @@ fn styleTab(self: *Window, txn: Txn, i: usize) void {
     _ = c.siv_set_cursor(txn, n.close, if (shown) .pointer else .default);
     var lb: [96]u8 = undefined;
     var buf: [104]u8 = undefined;
-    const name = std.fmt.bufPrint(&buf, "Close {s}", .{self.tabLabel(&lb, i)}) catch "Close";
+    const name = std.mem.print(&buf, "Close {s}", .{self.tabLabel(&lb, i)}) catch "Close";
     _ = c.siv_set_semantics(txn, n.close, &.{ .role = if (shown) .button else .none, .label = name.ptr, .label_len = name.len, .flags = .{ .focusable = false } });
     _ = c.siv_set_image_view(txn, n.icon, &.{ .icon = "window-close-symbolic", .icon_len = 21, .icon_size = 12, .color_token = fg });
 }
@@ -847,7 +848,7 @@ fn onTabDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv
     const self: *Window = @ptrCast(@alignCast(ud.?));
     const i = self.tabIndex(node, "root") orelse return .pass;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    const path = std.fmt.bufPrint(&pb, "{s}", .{self.tabs.items[i].path()}) catch return .pass;
+    const path = std.mem.print(&pb, "{s}", .{self.tabs.items[i].path()}) catch return .pass;
     return self.dnd.onDrop(ev, .{ .tab = i }, path);
 }
 
@@ -1109,7 +1110,7 @@ fn onCrumbDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) s
         if (x.node == node) break x;
     } else return .pass;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    const path = std.fmt.bufPrint(&pb, "{s}", .{cr.path}) catch return .pass;
+    const path = std.mem.print(&pb, "{s}", .{cr.path}) catch return .pass;
     return self.dnd.onDrop(ev, .{ .crumb = node }, path);
 }
 
@@ -1173,8 +1174,8 @@ fn applyStatus(self: *Window, txn: Txn) void {
         if (app.taskAt(self.task_cursor)) |t| {
             var tb: [512]u8 = undefined;
             left = switch (t) {
-                .running => |e| std.fmt.bufPrint(&lbuf, "{s}: {s}", .{ e.op.title(&tb), taskState(e) }) catch "",
-                .finished => |f| std.fmt.bufPrint(&lbuf, "{s}: {s}", .{ f.title, f.result }) catch "",
+                .running => |e| std.mem.print(&lbuf, "{s}: {s}", .{ e.op.title(&tb), taskState(e) }) catch "",
+                .finished => |f| std.mem.print(&lbuf, "{s}: {s}", .{ f.title, f.result }) catch "",
             };
         } else left = "No file operations yet";
         left_token = .window_fg;
@@ -1191,9 +1192,9 @@ fn applyStatus(self: *Window, txn: Txn) void {
         var tb: [32]u8 = undefined;
         const mp = row.drive.mount_point;
         left = if (mp.len == 0)
-            (if (row.drive.size != 0) std.fmt.bufPrint(&lbuf, "Not mounted   {s}", .{model.formatSize(&tb, row.drive.size)}) catch "" else "Not mounted")
+            (if (row.drive.size != 0) std.mem.print(&lbuf, "Not mounted   {s}", .{model.formatSize(&tb, row.drive.size)}) catch "" else "Not mounted")
         else if (row.total != 0)
-            std.fmt.bufPrint(&lbuf, "{s} free of {s}   {s}", .{ model.formatSize(&fb, row.free), model.formatSize(&tb, row.total), mp }) catch ""
+            std.mem.print(&lbuf, "{s} free of {s}   {s}", .{ model.formatSize(&fb, row.free), model.formatSize(&tb, row.total), mp }) catch ""
         else
             mp;
     } else if (d.current()) |e| {
@@ -1207,7 +1208,7 @@ fn applyStatus(self: *Window, txn: Txn) void {
             .other => if (e.link) 'l' else '?',
         };
         const size = if (e.kind == .dir) (if (d.trash_info != null) "" else "") else model.formatSize(&sb, e.size);
-        left = std.fmt.bufPrint(&lbuf, "{c}{s}   {s}{s}{s}", .{ kind, model.formatMode(&mb, e.mode), size, if (size.len != 0) "   " else "", model.formatTime(&tb, e.mtime, tz) }) catch "";
+        left = std.mem.print(&lbuf, "{c}{s}   {s}{s}{s}", .{ kind, model.formatMode(&mb, e.mode), size, if (size.len != 0) "   " else "", model.formatTime(&tb, e.mtime, tz) }) catch "";
     } else if (d.err) |_| {
         left = "Cannot read this folder";
     }
@@ -1215,7 +1216,7 @@ fn applyStatus(self: *Window, txn: Txn) void {
     _ = c.siv_set_text_style(txn, self.status_left, &.{ .color_token = left_token, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
     // Pending keys and count.
     var kbuf: [64]u8 = undefined;
-    var kw: std.Io.Writer = .fixed(&kbuf);
+    var kw: Io.Writer = .fixed(&kbuf);
     if (self.count) |n| kw.print("{d}", .{n}) catch {};
     var fbuf: [48]u8 = undefined;
     kw.writeAll(keys.format(&fbuf, self.pending[0..self.pending_len])) catch {};
@@ -1223,7 +1224,7 @@ fn applyStatus(self: *Window, txn: Txn) void {
     _ = c.siv_set_text(txn, self.status_keys, ktext.ptr, ktext.len);
     // Right: operations, marks, filter, sort, and the position.
     var rbuf: [256]u8 = undefined;
-    var w: std.Io.Writer = .fixed(&rbuf);
+    var w: Io.Writer = .fixed(&rbuf);
     if (app.ops.items.len != 0) {
         const op = app.ops.items[0].op;
         const total = op.total_bytes.load(.monotonic);
@@ -1269,11 +1270,11 @@ fn questionText(self: *Window, buf: []u8) []const u8 {
         .bookmark_set => "Set a bookmark: press a key",
         .bookmark_jump => "Go to a bookmark: press its key",
         .bookmark_remove => "Remove a bookmark: press its key",
-        .confirm_delete => std.fmt.bufPrint(buf, "Delete {d} item{s} permanently? y/N", .{ self.confirm_paths.items.len, if (self.confirm_paths.items.len == 1) "" else "s" }) catch "",
+        .confirm_delete => std.mem.print(buf, "Delete {d} item{s} permanently? y/N", .{ self.confirm_paths.items.len, if (self.confirm_paths.items.len == 1) "" else "s" }) catch "",
         .confirm_empty_trash => "Empty the trash? Everything in it is deleted permanently. y/N",
         .conflict => blk: {
             const e = self.conflict orelse break :blk "";
-            break :blk std.fmt.bufPrint(buf, "“{s}” exists: (r)eplace (s)kip (k)eep both{s} (c)ancel — Shift for all", .{ model.basename(e.op.conflict.dstPath()), if (e.op.conflict.src_dir and e.op.conflict.dst_dir) " (m)erge" else "" }) catch "";
+            break :blk std.mem.print(buf, "“{s}” exists: (r)eplace (s)kip (k)eep both{s} (c)ancel — Shift for all", .{ model.basename(e.op.conflict.dstPath()), if (e.op.conflict.src_dir and e.op.conflict.dst_dir) " (m)erge" else "" }) catch "";
         },
     };
 }
@@ -1351,7 +1352,7 @@ pub fn cdKnown(self: *Window, path: []const u8, select: ?[]const u8, record: boo
     // Going up: the cursor on the folder we came from.
     if (select == null and d != old and model.isWithin(old.path, d.path)) {
         const rest = old.path[if (std.mem.eql(u8, d.path, "/")) 1 else d.path.len + 1..];
-        const first = rest[0 .. std.mem.indexOfScalar(u8, rest, '/') orelse rest.len];
+        const first = rest[0 .. std.mem.findScalar(u8, rest, '/') orelse rest.len];
         if (first.len != 0) d.selectName(first);
     }
     if (d != old) {
@@ -1370,7 +1371,7 @@ pub fn cdKnown(self: *Window, path: []const u8, select: ?[]const u8, record: boo
 /// cd wins.
 const Probe = struct {
     win: ?*Window,
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
     gen: u64,
     path: []u8,
     select: ?[]u8,
@@ -1393,7 +1394,7 @@ const Probe = struct {
             .file => w.cdSelect(model.parent(pr.path), model.basename(pr.path), pr.record),
             .missing => {
                 var mbuf: [linux.PATH_MAX + 32]u8 = undefined;
-                w.notify(std.fmt.bufPrint(&mbuf, "No such folder: {s}", .{pr.path}) catch "No such folder", true);
+                w.notify(std.mem.print(&mbuf, "No such folder: {s}", .{pr.path}) catch "No such folder", true);
             },
         }
     }
@@ -1454,15 +1455,15 @@ pub fn expandPath(self: *Window, buf: []u8, p: []const u8) []const u8 {
     const home = self.app.home;
     if (p.len == 0) return home;
     if (std.mem.eql(u8, p, "~")) return home;
-    if (std.mem.startsWith(u8, p, "~/")) return std.fmt.bufPrint(buf, "{s}{s}", .{ home, p[1..] }) catch p;
+    if (std.mem.startsWith(u8, p, "~/")) return std.mem.print(buf, "{s}{s}", .{ home, p[1..] }) catch p;
     if (p[0] == '$') {
-        const end = std.mem.indexOfScalar(u8, p, '/') orelse p.len;
+        const end = std.mem.findScalar(u8, p, '/') orelse p.len;
         var nb: [128]u8 = undefined;
-        const name = std.fmt.bufPrintSentinel(&nb, "{s}", .{p[1..end]}, 0) catch return p;
+        const name = std.mem.printSentinel(&nb, "{s}", .{p[1..end]}, 0) catch return p;
         const v = getenv(name.ptr) orelse return p;
-        return std.fmt.bufPrint(buf, "{s}{s}", .{ std.mem.span(v), p[end..] }) catch p;
+        return std.mem.print(buf, "{s}{s}", .{ std.mem.span(v), p[end..] }) catch p;
     }
-    if (p[0] != '/') return std.fmt.bufPrint(buf, "{s}/{s}", .{ self.curDir().path, p }) catch p;
+    if (p[0] != '/') return std.mem.print(buf, "{s}/{s}", .{ self.curDir().path, p }) catch p;
     return p;
 }
 
@@ -1470,7 +1471,7 @@ extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 
 pub fn isDirPath(path: []const u8) bool {
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return false;
+    const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return false;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true }, &st)) != .SUCCESS) return false;
     return st.mode & linux.S.IFMT == linux.S.IFDIR;
@@ -1478,7 +1479,7 @@ pub fn isDirPath(path: []const u8) bool {
 
 pub fn isPath(path: []const u8) bool {
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return false;
+    const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return false;
     var st: linux.Statx = undefined;
     return linux.errno(linux.statx(linux.AT.FDCWD, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS;
 }
@@ -1691,7 +1692,7 @@ fn chooserInsertKey(self: *Window, k: keys.Key) bool {
         return false;
     self.resetPending();
     var buf: [16]u8 = undefined;
-    commands.execute(self, std.fmt.bufPrint(&buf, "insert {s}", .{arg}) catch return true, null, true);
+    commands.execute(self, std.mem.print(&buf, "insert {s}", .{arg}) catch return true, null, true);
     return true;
 }
 
@@ -1742,7 +1743,7 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
         var kb: [64]u8 = undefined;
         var mb: [128]u8 = undefined;
         const seq = keys.format(&kb, self.pending[0..self.pending_len]);
-        self.notify(std.fmt.bufPrint(&mb, "{s} isn't bound in {s} mode", .{ seq, @tagName(self.mode) }) catch "Not bound", false);
+        self.notify(std.mem.print(&mb, "{s} isn't bound in {s} mode", .{ seq, @tagName(self.mode) }) catch "Not bound", false);
     }
     self.resetPending();
     return was_pending or !(k.code == keys.sym.tab and @as(u8, @bitCast(k.mods)) == 0);
@@ -1865,14 +1866,14 @@ pub fn showWhichKey(self: *Window) void {
 pub fn shortPathIn(self: *Window, buf: []u8, p: []const u8) []const u8 {
     const home = self.app.home;
     if (std.mem.eql(u8, p, home)) return "~";
-    if (home.len > 1 and model.isWithin(p, home)) return std.fmt.bufPrint(buf, "~{s}", .{p[home.len..]}) catch p;
+    if (home.len > 1 and model.isWithin(p, home)) return std.mem.print(buf, "~{s}", .{p[home.len..]}) catch p;
     return p;
 }
 
 fn shortPath(self: *Window, a: Allocator, p: []const u8) []const u8 {
     const home = self.app.home;
     if (std.mem.eql(u8, p, home)) return "~";
-    if (home.len > 1 and model.isWithin(p, home)) return std.fmt.allocPrint(a, "~{s}", .{p[home.len..]}) catch p;
+    if (home.len > 1 and model.isWithin(p, home)) return a.print("~{s}", .{p[home.len..]}) catch p;
     return p;
 }
 
@@ -1958,7 +1959,7 @@ fn taskState(e: *const App.OpEntry) []const u8 {
     if (op.isPaused()) return "Paused";
     if (e.asking) return "Waiting for an answer";
     if (op.scanning.load(.acquire)) return "Counting…";
-    return std.fmt.bufPrint(&S.buf, "{d}%", .{taskPercent(op)}) catch "";
+    return std.mem.print(&S.buf, "{d}%", .{taskPercent(op)}) catch "";
 }
 
 fn taskPercent(op: *const fsops.Op) u64 {
@@ -2008,7 +2009,7 @@ pub fn refreshTasks(self: *Window) void {
                 const bar = c.siv_progress_bar(txn, row, &.{ .label = title.ptr, .label_len = title.len, .min = 0, .max = 100, .value = @floatFromInt(taskPercent(e.op)) });
                 _ = c.siv_set_layout(txn, bar, &.{ .width = ui.fill() });
                 var db: [512]u8 = undefined;
-                var w: std.Io.Writer = .fixed(&db);
+                var w: Io.Writer = .fixed(&db);
                 var b1: [32]u8 = undefined;
                 var b2: [32]u8 = undefined;
                 const total = e.op.total_bytes.load(.monotonic);
@@ -2063,7 +2064,7 @@ fn answerAwait(self: *Window, k: keys.Key) void {
             var buf: [64]u8 = undefined;
             var kb: [4]u8 = undefined;
             const n = std.unicode.utf8Encode(@intCast(k.code), &kb) catch 0;
-            self.notify(std.fmt.bufPrint(&buf, "Bookmark '{s}' set", .{kb[0..n]}) catch "Bookmark set", false);
+            self.notify(std.mem.print(&buf, "Bookmark '{s}' set", .{kb[0..n]}) catch "Bookmark set", false);
         },
         .bookmark_jump => if (!esc) {
             if (k.code == '\'' or k.code == '`') {
@@ -2143,7 +2144,7 @@ pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {
     if (op.kind == .copy or op.kind == .move) {
         const d = self.curDir();
         if (std.mem.eql(u8, op.dest, d.path)) {
-            const first = op.created.items[0 .. std.mem.indexOfScalar(u8, op.created.items, '\n') orelse op.created.items.len];
+            const first = op.created.items[0 .. std.mem.findScalar(u8, op.created.items, '\n') orelse op.created.items.len];
             if (first.len != 0) d.selectName(first);
         }
     }
@@ -2364,7 +2365,7 @@ fn submitPrompt(self: *Window, kind: PromptKind) void {
         .shell => {
             if (t.len == 0) return;
             var hbuf: [4100]u8 = undefined;
-            self.app.addHistory(std.fmt.bufPrint(&hbuf, "shell {s}", .{t}) catch t);
+            self.app.addHistory(std.mem.print(&hbuf, "shell {s}", .{t}) catch t);
             commands.runShell(self, t, false);
         },
         .search, .search_back => {
@@ -2506,9 +2507,9 @@ fn askPassphraseAgain(self: *Window, block: []const u8, label: []const u8, new_t
     var buf: [600]u8 = undefined;
     self.message.clearRetainingCapacity();
     const msg = if (failure) |f|
-        std.fmt.bufPrint(&buf, "{s} Unlock “{s}”", .{ f, label_copy }) catch "Unlock"
+        std.mem.print(&buf, "{s} Unlock “{s}”", .{ f, label_copy }) catch "Unlock"
     else
-        std.fmt.bufPrint(&buf, "Unlock “{s}”", .{label_copy}) catch "Unlock";
+        std.mem.print(&buf, "Unlock “{s}”", .{label_copy}) catch "Unlock";
     self.message.appendSlice(self.gpa, msg) catch {};
     self.message_error = failure != null;
     self.updateStatus();
@@ -2569,7 +2570,7 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
     if (folder) _ = c.siv_menu_item(txn, menu, &.{ .label = "Terminal", .label_len = 8, .shortcut = "1", .shortcut_len = 1, .mnemonic = '1', .icon = "utilities-terminal", .icon_len = 18 });
     for (list, first..) |app, i| {
         var sb: [8]u8 = undefined;
-        const shortcut = if (i < 9) std.fmt.bufPrint(&sb, "{d}", .{i + 1}) catch "" else "";
+        const shortcut = if (i < 9) std.mem.print(&sb, "{d}", .{i + 1}) catch "" else "";
         _ = c.siv_menu_item(txn, menu, &.{ .label = app.name.ptr, .label_len = app.name.len, .shortcut = shortcut.ptr, .shortcut_len = shortcut.len, .mnemonic = if (i < 9) @intCast('1' + i) else 0, .icon = app.icon.ptr, .icon_len = app.icon.len });
     }
     _ = c.siv_on(txn, menu, .select, OpenWith.onSelect, OpenWith.destroy, state);

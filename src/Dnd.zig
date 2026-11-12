@@ -20,6 +20,7 @@
 //! it highlights and its timers.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -74,7 +75,7 @@ pub const Source = struct {
     icon_action: ?Action = null,
     icon_width: f32 = 0,
 
-    fn deinit(s: *Source, gpa: std.mem.Allocator) void {
+    fn deinit(s: *Source, gpa: Allocator) void {
         App.freePaths(gpa, s.paths);
         gpa.free(s.dir);
         if (s.icon != .null) c.siv_image_destroy(s.icon);
@@ -196,7 +197,7 @@ const DrawCtx = struct { win: *Window, s: *Source, action: ?Action, label: []con
 /// The file's icon and name ("3 items"), with what a drop would do.
 fn drawIcon(win: *Window, s: *Source, action: ?Action) siv.Image {
     var nb: [64]u8 = undefined;
-    const label = if (s.paths.len == 1) model.basename(s.paths[0]) else std.fmt.bufPrint(&nb, "{d} items", .{s.paths.len}) catch "items";
+    const label = if (s.paths.len == 1) model.basename(s.paths[0]) else std.mem.print(&nb, "{d} items", .{s.paths.len}) catch "items";
     var ib: [512]u8 = undefined;
     const one = s.paths.len == 1;
     const folder = one and Window.isDirPath(s.paths[0]);
@@ -290,7 +291,7 @@ pub fn onDrop(d: *Dnd, ev: *const siv.Event, target: Target, dest: []const u8) s
             const ok = d.dest_ok;
             const action = d.actionFor(ev.modifiers);
             var db: [linux.PATH_MAX]u8 = undefined;
-            const to = std.fmt.bufPrint(&db, "{s}", .{dest}) catch return .pass;
+            const to = std.mem.print(&db, "{s}", .{dest}) catch return .pass;
             d.leave();
             if (!ok) return .pass;
             const data = if (ev.data) |p| p[0..ev.data_count] else return .pass;
@@ -331,7 +332,7 @@ fn takes(src: ?*Source, dest: []const u8) bool {
         for (s.paths) |p| if (std.mem.eql(u8, dest, p) or model.isWithin(dest, p)) return false;
     }
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{dest}, 0) catch return false;
+    const z = std.mem.printSentinel(&zb, "{s}", .{dest}, 0) catch return false;
     return linux.errno(linux.faccessat(linux.AT.FDCWD, z, linux.W_OK | linux.X_OK, 0)) == .SUCCESS;
 }
 
@@ -361,10 +362,10 @@ pub fn leave(d: *Dnd) void {
 fn setHint(d: *Dnd, action: Action) void {
     const s = d.win.app.drag;
     var nb: [300]u8 = undefined;
-    const what = if (s) |x| (if (x.paths.len == 1) std.fmt.bufPrint(&nb, "“{s}”", .{model.basename(x.paths[0])}) catch "it" else std.fmt.bufPrint(&nb, "{d} items", .{x.paths.len}) catch "them") else "the files";
+    const what = if (s) |x| (if (x.paths.len == 1) std.mem.print(&nb, "“{s}”", .{model.basename(x.paths[0])}) catch "it" else std.mem.print(&nb, "{d} items", .{x.paths.len}) catch "them") else "the files";
     const name = if (std.mem.eql(u8, d.dest.items, d.win.app.home)) "~" else model.basename(d.dest.items);
     var hb: [600]u8 = undefined;
-    const text = std.fmt.bufPrint(&hb, "{s} {s} {s} {s}", .{ action.word(), what, if (action == .link) "in" else "to", if (name.len == 0) "/" else name }) catch return;
+    const text = std.mem.print(&hb, "{s} {s} {s} {s}", .{ action.word(), what, if (action == .link) "in" else "to", if (name.len == 0) "/" else name }) catch return;
     if (std.mem.eql(u8, text, d.hint.items)) return;
     d.hint.clearRetainingCapacity();
     d.hint.appendSlice(d.win.gpa, text) catch return;
@@ -422,7 +423,7 @@ fn onSpring(ud: ?*anyopaque) callconv(.c) void {
     const tab = d.spring_tab;
     d.spring_tab = null;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    const path = std.fmt.bufPrint(&pb, "{s}", .{d.spring_path.items}) catch return;
+    const path = std.mem.print(&pb, "{s}", .{d.spring_path.items}) catch return;
     d.clearHighlight();
     d.over = null;
     if (tab) |i| d.win.selectTab(i) else d.win.cd(path);
@@ -479,7 +480,7 @@ fn stopTimers(d: *Dnd) void {
 
 fn devOf(path: []const u8) ?u64 {
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return null;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true }, &st)) != .SUCCESS) return null;
     return (@as(u64, st.dev_major) << 32) | st.dev_minor;

@@ -10,6 +10,7 @@
 //! user; a dismissed prompt says nothing.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const siv = @import("siv");
 const c = siv.c;
 const bus = @import("bus.zig");
@@ -157,7 +158,7 @@ fn onObjects(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReade
 const Kind = enum { block, fs, drive, encrypted, other };
 
 /// a{oa{sa{sv}}}: objects, their interfaces, and their properties.
-fn parseObjects(r: siv.DbusReader, a: std.mem.Allocator) ![]Object {
+fn parseObjects(r: siv.DbusReader, a: Allocator) ![]Object {
     var list: std.ArrayList(Object) = .empty;
     if (bus.next(r) != 'a' or !bus.enter(r)) return error.Invalid;
     while (bus.next(r) == '{') {
@@ -199,7 +200,7 @@ fn parseObjects(r: siv.DbusReader, a: std.mem.Allocator) ![]Object {
 }
 
 /// Reads the property `name` (the reader is inside its variant).
-fn property(o: *Object, kind: Kind, name: []const u8, r: siv.DbusReader, a: std.mem.Allocator) void {
+fn property(o: *Object, kind: Kind, name: []const u8, r: siv.DbusReader, a: Allocator) void {
     const eql = std.mem.eql;
     switch (kind) {
         .block => {
@@ -262,7 +263,7 @@ fn apply(self: *UDisks, objects: []const Object) void {
         const mounted = o.mount_point.len != 0;
         if (outer.hint_system and !removable and !(mounted and userMountPoint(o.mount_point))) continue;
         var size_buf: [32]u8 = undefined;
-        const label = if (o.label.len != 0) o.label else if (outer.label.len != 0) outer.label else if (outer.hint_name.len != 0) outer.hint_name else std.fmt.allocPrint(a, "{s} {s}", .{ model.formatSize(&size_buf, outer.size), if (locked or backing != null) "Encrypted Volume" else "Volume" }) catch continue;
+        const label = if (o.label.len != 0) o.label else if (outer.label.len != 0) outer.label else if (outer.hint_name.len != 0) outer.hint_name else a.print("{s} {s}", .{ model.formatSize(&size_buf, outer.size), if (locked or backing != null) "Encrypted Volume" else "Volume" }) catch continue;
         const ejectable = if (d) |dd| dd.ejectable else false;
         const power_off = if (d) |dd| dd.can_power_off and removable else false;
         volumes.append(a, .{
@@ -280,7 +281,7 @@ fn apply(self: *UDisks, objects: []const Object) void {
             .icon = icon: {
                 const fallback = if (removable) places_mod.removable_icon else places_mod.harddisk_icon;
                 if (outer.hint_icon.len == 0) break :icon fallback[1..];
-                break :icon std.fmt.allocPrint(a, "{s}{s}", .{ outer.hint_icon, fallback }) catch continue;
+                break :icon a.print("{s}{s}", .{ outer.hint_icon, fallback }) catch continue;
             },
             .can_mount = !mounted,
             .can_unmount = mounted,
@@ -481,7 +482,7 @@ fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader)
             .lock => "lock",
             .eject => "eject",
         };
-        const msg = std.fmt.bufPrint(&mbuf, "Cannot {s} “{s}”: {s}", .{ verb, label, detail }) catch "The drive refused";
+        const msg = std.mem.print(&mbuf, "Cannot {s} “{s}”: {s}", .{ verb, label, detail }) catch "The drive refused";
         if (req.window()) |w| w.notify(msg, true);
         return;
     }
@@ -519,7 +520,7 @@ fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader)
 fn toastRemovable(req: *const Request) void {
     const w = req.window() orelse return;
     var mbuf: [256]u8 = undefined;
-    w.notify(std.fmt.bufPrint(&mbuf, "“{s}” can be removed", .{req.label.get()}) catch "Done", false);
+    w.notify(std.mem.print(&mbuf, "“{s}” can be removed", .{req.label.get()}) catch "Done", false);
 }
 
 fn onRetry(ud: ?*anyopaque) callconv(.c) void {

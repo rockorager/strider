@@ -169,8 +169,8 @@ pub fn chosen(p: *const Picker, buf: []u8) ?[]const u8 {
     if (p.selected >= p.matches.items.len) return null;
     const rel = p.paths.get(p.matches.items[p.selected].index);
     return switch (p.kind) {
-        .files => std.fmt.bufPrint(buf, "{s}/{s}", .{ if (std.mem.eql(u8, p.root.items, "/")) "" else p.root.items, rel }) catch null,
-        .folders => std.fmt.bufPrint(buf, "{s}/", .{rel}) catch null,
+        .files => std.mem.print(buf, "{s}/{s}", .{ if (std.mem.eql(u8, p.root.items, "/")) "" else p.root.items, rel }) catch null,
+        .folders => std.mem.print(buf, "{s}/", .{rel}) catch null,
     };
 }
 
@@ -189,7 +189,7 @@ fn render(p: *Picker) void {
         .files => "files and folders",
         .folders => "folders zoxide knows",
     };
-    const head = std.fmt.bufPrint(&hb, "{s} of {s} {s}{s}", .{ grouped(&nb1, p.matches.items.len), grouped(&nb2, p.paths.len()), what, if (p.loading) " (reading…)" else "" }) catch "";
+    const head = std.mem.print(&hb, "{s} of {s} {s}{s}", .{ grouped(&nb1, p.matches.items.len), grouped(&nb2, p.paths.len()), what, if (p.loading) " (reading…)" else "" }) catch "";
     _ = ui.text(txn, p.panel, head, .muted_fg, .caption);
     if (p.matches.items.len == 0) {
         const none: []const u8 = if (p.loading) "Reading…" else if (p.kind == .folders and p.paths.len() == 0) "zoxide knows no folders yet" else "Nothing matches";
@@ -225,7 +225,7 @@ fn render(p: *Picker) void {
 }
 
 fn grouped(buf: []u8, n: usize) []const u8 {
-    return std.fmt.bufPrint(buf, "{d}", .{n}) catch "";
+    return std.mem.print(buf, "{d}", .{n}) catch "";
 }
 
 // Reading candidates ---------------------------------------------------------------------

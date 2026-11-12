@@ -4,20 +4,21 @@
 //! thread at a safe point; the cache coalesces bursts with a timer.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
 
 const Watcher = @This();
 
-gpa: std.mem.Allocator,
+gpa: Allocator,
 /// Called with the watch descriptor of a folder that changed.
 on_change: *const fn (ctx: ?*anyopaque, wd: i32) void,
 ctx: ?*anyopaque,
 inotify: i32,
 watch: siv.Watch = .null,
 
-pub fn create(gpa: std.mem.Allocator, app: siv.App, on_change: *const fn (?*anyopaque, i32) void, ctx: ?*anyopaque) !*Watcher {
+pub fn create(gpa: Allocator, app: siv.App, on_change: *const fn (?*anyopaque, i32) void, ctx: ?*anyopaque) !*Watcher {
     const ino = linux.inotify_init1(linux.IN.CLOEXEC | linux.IN.NONBLOCK);
     if (linux.errno(ino) != .SUCCESS) return error.Unavailable;
     errdefer _ = linux.close(@intCast(ino));
@@ -40,7 +41,7 @@ pub fn destroy(w: *Watcher) void {
 /// file system holds a worker rather than the UI thread.
 pub fn add(inotify: i32, path: []const u8) i32 {
     var buf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{path}, 0) catch return -1;
+    const z = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return -1;
     const mask = linux.IN.CREATE | linux.IN.DELETE | linux.IN.MOVED_FROM | linux.IN.MOVED_TO |
         linux.IN.CLOSE_WRITE | linux.IN.ATTRIB | linux.IN.DELETE_SELF | linux.IN.MOVE_SELF | linux.IN.ONLYDIR;
     const r = linux.inotify_add_watch(inotify, z, mask);

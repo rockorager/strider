@@ -4,6 +4,7 @@
 //! between fork and exec.
 
 const std = @import("std");
+const testing = std.testing;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 
@@ -138,16 +139,16 @@ pub fn onPath(prog: []const u8) bool {
     const S = struct {
         extern "c" fn getenv(name: [*:0]const u8) ?[*:0]const u8;
     };
-    if (std.mem.indexOfScalar(u8, prog, '/') != null) {
+    if (std.mem.findScalar(u8, prog, '/') != null) {
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const p = std.fmt.bufPrintSentinel(&buf, "{s}", .{prog}, 0) catch return false;
+        const p = std.mem.printSentinel(&buf, "{s}", .{prog}, 0) catch return false;
         return linux.errno(linux.faccessat(linux.AT.FDCWD, p, linux.X_OK, 0)) == .SUCCESS;
     }
     const path = if (S.getenv("PATH")) |p| std.mem.span(p) else "/usr/bin:/bin";
     var it = std.mem.tokenizeScalar(u8, path, ':');
     while (it.next()) |dir| {
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ dir, prog }, 0) catch continue;
+        const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ dir, prog }, 0) catch continue;
         if (linux.errno(linux.faccessat(linux.AT.FDCWD, p, linux.X_OK, 0)) == .SUCCESS) return true;
     }
     return false;
@@ -156,24 +157,24 @@ pub fn onPath(prog: []const u8) bool {
 test "a cancelled or timed-out program is killed with what it started" {
     var cancel: std.atomic.Value(bool) = .init(true);
     const t0 = nowMs();
-    var r = try run(std.testing.allocator, &.{ "sh", "-c", "sleep 30 & sleep 30" }, .{ .cancel = &cancel });
-    defer r.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(u8, 128 + 9), r.status);
-    var t = try run(std.testing.allocator, &.{ "sh", "-c", "sleep 30" }, .{ .timeout_ms = 200 });
-    defer t.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(u8, 128 + 9), t.status);
+    var r = try run(testing.allocator, &.{ "sh", "-c", "sleep 30 & sleep 30" }, .{ .cancel = &cancel });
+    defer r.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 128 + 9), r.status);
+    var t = try run(testing.allocator, &.{ "sh", "-c", "sleep 30" }, .{ .timeout_ms = 200 });
+    defer t.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 128 + 9), t.status);
     // The background sleep held the pipe too: killing only sh would have
     // waited for it.
-    try std.testing.expect(nowMs() - t0 < 5000);
+    try testing.expect(nowMs() - t0 < 5000);
 }
 
 test "runs a program and collects its output and status" {
-    var r = try run(std.testing.allocator, &.{ "sh", "-c", "echo hi; echo err >&2; exit 3" }, .{});
-    defer r.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(u8, 3), r.status);
-    try std.testing.expect(std.mem.indexOf(u8, r.output, "hi\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, r.output, "err\n") != null);
-    var missing = try run(std.testing.allocator, &.{"/nonexistent/program"}, .{});
-    defer missing.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(u8, 127), missing.status);
+    var r = try run(testing.allocator, &.{ "sh", "-c", "echo hi; echo err >&2; exit 3" }, .{});
+    defer r.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 3), r.status);
+    try testing.expect(std.mem.find(u8, r.output, "hi\n") != null);
+    try testing.expect(std.mem.find(u8, r.output, "err\n") != null);
+    var missing = try run(testing.allocator, &.{"/nonexistent/program"}, .{});
+    defer missing.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 127), missing.status);
 }

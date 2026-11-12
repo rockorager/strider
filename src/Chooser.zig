@@ -15,6 +15,7 @@
 //! the user cancelled, 2 when the caller closed the request.
 
 const std = @import("std");
+const print = std.debug.print;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
@@ -127,7 +128,7 @@ pub fn firstFrame(ch: *const Chooser, commit_ns: u64) void {
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     const ms = @as(f64, @floatFromInt(commit_ns -| ch.called_ns)) / std.time.ns_per_ms;
-    std.debug.print("strider: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n", .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) });
+    print("strider: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n", .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) });
 }
 
 // Reading the request ---------------------------------------------------------------------
@@ -267,7 +268,7 @@ fn readChoice(ch: *Chooser, r: bus.Reader) ?Choice {
 
 /// "_Open" is "Open": GTK's mnemonic marks, which the bar does not use.
 fn stripMnemonic(al: Allocator, s: []const u8) []const u8 {
-    if (std.mem.indexOfScalar(u8, s, '_') == null) return s;
+    if (std.mem.findScalar(u8, s, '_') == null) return s;
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < s.len) : (i += 1) {
@@ -364,7 +365,7 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
         _ = c.siv_set_semantics(txn, ch.field, &.{ .role = .text_input, .label = "Name", .label_len = 4, .flags = .{ .focusable = true } });
         _ = c.siv_set_text(txn, ch.field, ch.current_name.ptr, ch.current_name.len);
         // The name without its extension selected, ready to type over.
-        const stem = if (std.mem.lastIndexOfScalar(u8, ch.current_name, '.')) |dot| (if (dot > 0) dot else ch.current_name.len) else ch.current_name.len;
+        const stem = if (std.mem.findScalarLast(u8, ch.current_name, '.')) |dot| (if (dot > 0) dot else ch.current_name.len) else ch.current_name.len;
         _ = c.siv_set_selection(txn, ch.field, @intCast(stem), 0);
         _ = c.siv_on(txn, ch.field, .key, onNameKey, null, ch);
         _ = c.siv_on(txn, ch.field, .focus, onNameFocus, null, ch);
@@ -467,8 +468,8 @@ fn shownPath(ch: *Chooser, buf: []u8, w: *Window) []const u8 {
     const home = ch.app.home;
     if (std.mem.eql(u8, p, "/")) return "/";
     if (home.len > 1 and std.mem.eql(u8, p, home)) return "~/";
-    if (home.len > 1 and model.isWithin(p, home)) return std.fmt.bufPrint(buf, "~{s}/", .{p[home.len..]}) catch p;
-    return std.fmt.bufPrint(buf, "{s}/", .{p}) catch p;
+    if (home.len > 1 and model.isWithin(p, home)) return std.mem.print(buf, "~{s}/", .{p[home.len..]}) catch p;
+    return std.mem.print(buf, "{s}/", .{p}) catch p;
 }
 
 /// Where insert mode puts the caret in the name.
@@ -498,7 +499,7 @@ pub fn insert(ch: *Chooser, how: Insert) bool {
         const at: usize = switch (how) {
             .clear, .start => 0,
             .keep, .end => name.len,
-            .stem => if (ch.kind != .save) name.len else if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
+            .stem => if (ch.kind != .save) name.len else if (std.mem.findScalarLast(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
         };
         if (how == .clear) _ = c.siv_set_text(txn, ch.field, "", 0);
         _ = c.siv_set_selection(txn, ch.field, @intCast(at), @intCast(at));
@@ -672,7 +673,7 @@ pub fn goPath(ch: *Chooser, typed: []const u8) void {
     switch (pathKind(p)) {
         .missing => {
             var mb: [linux.PATH_MAX + 32]u8 = undefined;
-            w.notify(std.fmt.bufPrint(&mb, "No such file or folder: {s}", .{typed}) catch "No such file or folder", true);
+            w.notify(std.mem.print(&mb, "No such file or folder: {s}", .{typed}) catch "No such file or folder", true);
         },
         .dir => if (ch.kind == .save_files)
             ch.saveInto(p)
@@ -712,7 +713,7 @@ pub fn saveAs(ch: *Chooser, name: []const u8) void {
     const d = w.curDir();
     // A path, as Emacs takes one: "~/Documents/a.pdf" or "../a.pdf"
     // saves in that folder, which must exist.
-    const p = if (std.mem.indexOfScalar(u8, name, '/') != null) blk: {
+    const p = if (std.mem.findScalar(u8, name, '/') != null) blk: {
         if (name[name.len - 1] == '/') return w.notify("Type a name after the folder", true);
         const full = model.normalize(&pbuf, w.expandPath(&xbuf, name));
         if (pathKind(model.parent(full)) != .dir) return w.notify("No such folder", true);
@@ -720,7 +721,7 @@ pub fn saveAs(ch: *Chooser, name: []const u8) void {
     } else blk: {
         if (d.isDrives()) return w.notify("Save in a folder, not Drives", true);
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return w.notify("Not a name for a file", true);
-        break :blk std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
+        break :blk std.mem.print(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
     };
     const base = model.basename(p);
     switch (pathKind(p)) {
@@ -743,7 +744,7 @@ fn saveInto(ch: *Chooser, folder: []const u8) void {
     var existing: std.ArrayList([]const u8) = .empty;
     defer existing.deinit(gpa);
     for (ch.files) |n| {
-        const p = std.fmt.allocPrint(ch.a(), "{s}/{s}", .{ if (std.mem.eql(u8, folder, "/")) "" else folder, n }) catch return;
+        const p = ch.a().print("{s}/{s}", .{ if (std.mem.eql(u8, folder, "/")) "" else folder, n }) catch return;
         paths.append(gpa, p) catch return;
         if (pathKind(p) != .missing) existing.append(gpa, n) catch {};
     }
@@ -769,7 +770,7 @@ const PathKind = enum { missing, file, dir };
 
 fn pathKind(p: []const u8) PathKind {
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{p}, 0) catch return .missing;
+    const z = std.mem.printSentinel(&zb, "{s}", .{p}, 0) catch return .missing;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true }, &st)) != .SUCCESS) return .missing;
     return if (st.mode & linux.S.IFMT == linux.S.IFDIR) .dir else .file;

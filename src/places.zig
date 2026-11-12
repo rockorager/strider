@@ -5,6 +5,8 @@
 //! the mount table without it). Headers separate the sections.
 
 const std = @import("std");
+const assert = std.debug.assert;
+const testing = std.testing;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const uri = @import("uri.zig");
@@ -112,9 +114,9 @@ pub fn listDrives(gpa: Allocator, rows: *DriveRows) model.ReadError!model.Listin
 fn spaceOf(path: []const u8) ?struct { total: u64, free: u64 } {
     // The kernel's struct statfs on 64-bit Linux.
     const Statfs = extern struct { type: i64, bsize: i64, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, fsid: [2]i32, namelen: i64, frsize: i64, flags: i64, spare: [4]i64 };
-    comptime std.debug.assert(@sizeOf(usize) == 8);
+    comptime assert(@sizeOf(usize) == 8);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     var st: Statfs = undefined;
     if (linux.errno(linux.syscall2(.statfs, @intFromPtr(z.ptr), @intFromPtr(&st))) != .SUCCESS) return null;
     const unit: u64 = @intCast(if (st.frsize > 0) st.frsize else st.bsize);
@@ -201,11 +203,11 @@ pub const Places = struct {
         try p.add(.header, "Places", "", "");
         try p.add(.place, "Home", env.home, "user-home");
 
-        const config = env.config_home orelse (std.fmt.bufPrint(&buf, "{s}/.config", .{env.home}) catch env.home);
+        const config = env.config_home orelse (std.mem.print(&buf, "{s}/.config", .{env.home}) catch env.home);
         var cfg_buf: [linux.PATH_MAX]u8 = undefined;
         const cfg = try p.gpa.dupe(u8, config);
         defer p.gpa.free(cfg);
-        const dirs_path = std.fmt.bufPrint(&cfg_buf, "{s}/user-dirs.dirs", .{cfg}) catch "";
+        const dirs_path = std.mem.print(&cfg_buf, "{s}/user-dirs.dirs", .{cfg}) catch "";
         const wanted = [_]struct { []const u8, []const u8, []const u8, []const u8 }{
             .{ "XDG_DESKTOP_DIR", "Desktop", "user-desktop", "Desktop" },
             .{ "XDG_DOCUMENTS_DIR", "Documents", "folder-documents", "Documents" },
@@ -219,7 +221,7 @@ pub const Places = struct {
         for (wanted) |wd| {
             const key, const label, const icon, const default = wd;
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            const path = userDir(contents, key, env.home, &pbuf) orelse (std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ env.home, default }) catch continue);
+            const path = userDir(contents, key, env.home, &pbuf) orelse (std.mem.print(&pbuf, "{s}/{s}", .{ env.home, default }) catch continue);
             // XDG says a user directory equal to $HOME is disabled.
             if (std.mem.eql(u8, path, env.home)) continue;
             if (isDir(path) and !p.has(path)) try p.add(.place, label, path, icon);
@@ -235,7 +237,7 @@ pub const Places = struct {
         var lines = std.mem.splitScalar(u8, bm, '\n');
         var first_bookmark = true;
         while (lines.next()) |line| {
-            const sp = std.mem.indexOfScalar(u8, line, ' ');
+            const sp = std.mem.findScalar(u8, line, ' ');
             const u = if (sp) |i| line[0..i] else line;
             var pbuf: [linux.PATH_MAX]u8 = undefined;
             const path = uri.filePath(&pbuf, u) orelse continue;
@@ -291,7 +293,7 @@ pub const Places = struct {
         var lines = std.mem.splitScalar(u8, old, '\n');
         while (lines.next()) |line| {
             if (line.len == 0) continue;
-            const sp = std.mem.indexOfScalar(u8, line, ' ');
+            const sp = std.mem.findScalar(u8, line, ' ');
             const u = if (sp) |i| line[0..i] else line;
             var pbuf: [linux.PATH_MAX]u8 = undefined;
             if (uri.filePath(&pbuf, u)) |bp| if (std.mem.eql(u8, bp, path)) continue;
@@ -314,18 +316,18 @@ pub fn load(gpa: Allocator, env: Env) !Places {
     errdefer p.deinit();
     var buf: [linux.PATH_MAX]u8 = undefined;
     p.home = try gpa.dupe(u8, env.home);
-    const data = env.data_home orelse (std.fmt.bufPrint(&buf, "{s}/.local/share", .{env.home}) catch env.home);
-    p.trash_dir = try std.fmt.allocPrint(gpa, "{s}/Trash", .{data});
-    p.trash_files = try std.fmt.allocPrint(gpa, "{s}/Trash/files", .{data});
-    const config = env.config_home orelse (std.fmt.bufPrint(&buf, "{s}/.config", .{env.home}) catch env.home);
-    p.bookmarks_file = try std.fmt.allocPrint(gpa, "{s}/gtk-3.0/bookmarks", .{config});
+    const data = env.data_home orelse (std.mem.print(&buf, "{s}/.local/share", .{env.home}) catch env.home);
+    p.trash_dir = try gpa.print("{s}/Trash", .{data});
+    p.trash_files = try gpa.print("{s}/Trash/files", .{data});
+    const config = env.config_home orelse (std.mem.print(&buf, "{s}/.config", .{env.home}) catch env.home);
+    p.bookmarks_file = try gpa.print("{s}/gtk-3.0/bookmarks", .{config});
     try p.rebuild(env, &.{});
     return p;
 }
 
 pub fn basename(path: []const u8) []const u8 {
     if (path.len <= 1) return path;
-    const i = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;
+    const i = std.mem.findScalarLast(u8, path, '/') orelse return path;
     return if (i + 1 == path.len) path else path[i + 1 ..];
 }
 
@@ -338,9 +340,9 @@ fn userDir(contents: []const u8, key: []const u8, home: []const u8, out: []u8) ?
         var v = std.mem.trim(u8, line[key.len + 1 ..], " ");
         if (v.len >= 2 and v[0] == '"' and v[v.len - 1] == '"') v = v[1 .. v.len - 1];
         if (std.mem.startsWith(u8, v, "$HOME")) {
-            return std.fmt.bufPrint(out, "{s}{s}", .{ home, v["$HOME".len..] }) catch null;
+            return std.mem.print(out, "{s}{s}", .{ home, v["$HOME".len..] }) catch null;
         }
-        if (v.len > 0 and v[0] == '/') return std.fmt.bufPrint(out, "{s}", .{v}) catch null;
+        if (v.len > 0 and v[0] == '/') return std.mem.print(out, "{s}", .{v}) catch null;
         return null;
     }
     return null;
@@ -348,7 +350,7 @@ fn userDir(contents: []const u8, key: []const u8, home: []const u8, out: []u8) ?
 
 fn readSmall(path: []const u8, buf: []u8) []const u8 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return "";
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return "";
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return "";
     const fd: i32 = @intCast(rc);
@@ -372,13 +374,13 @@ fn readAllAlloc(gpa: Allocator, path: []const u8) ?[]u8 {
 fn writeFile(path: []const u8, data: []const u8) !void {
     // The directory may not exist yet ($XDG_CONFIG_HOME/gtk-3.0).
     var dbuf: [linux.PATH_MAX]u8 = undefined;
-    const dir = path[0 .. std.mem.lastIndexOfScalar(u8, path, '/') orelse return error.Unexpected];
-    const zd = try std.fmt.bufPrintSentinel(&dbuf, "{s}", .{dir}, 0);
+    const dir = path[0 .. std.mem.findScalarLast(u8, path, '/') orelse return error.Unexpected];
+    const zd = try std.mem.printSentinel(&dbuf, "{s}", .{dir}, 0);
     _ = linux.mkdirat(linux.AT.FDCWD, zd, 0o755);
     var tbuf: [linux.PATH_MAX]u8 = undefined;
-    const tmp = try std.fmt.bufPrintSentinel(&tbuf, "{s}.tmp", .{path}, 0);
+    const tmp = try std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = try std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0);
+    const z = try std.mem.printSentinel(&zbuf, "{s}", .{path}, 0);
     const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
     if (linux.errno(rc) != .SUCCESS) return error.AccessDenied;
     const fd: i32 = @intCast(rc);
@@ -389,7 +391,7 @@ fn writeFile(path: []const u8, data: []const u8) !void {
 
 pub fn isDir(path: []const u8) bool {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return false;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return false;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true }, &st)) != .SUCCESS) return false;
     return st.mode & linux.S.IFMT == linux.S.IFDIR;
@@ -398,7 +400,7 @@ pub fn isDir(path: []const u8) bool {
 test "user dirs" {
     var out: [256]u8 = undefined;
     const contents = "# comment\nXDG_PICTURES_DIR=\"$HOME/Bilder\"\nXDG_MUSIC_DIR=\"/srv/music\"\n";
-    try std.testing.expectEqualStrings("/home/me/Bilder", userDir(contents, "XDG_PICTURES_DIR", "/home/me", &out).?);
-    try std.testing.expectEqualStrings("/srv/music", userDir(contents, "XDG_MUSIC_DIR", "/home/me", &out).?);
-    try std.testing.expect(userDir(contents, "XDG_VIDEOS_DIR", "/home/me", &out) == null);
+    try testing.expectEqualStrings("/home/me/Bilder", userDir(contents, "XDG_PICTURES_DIR", "/home/me", &out).?);
+    try testing.expectEqualStrings("/srv/music", userDir(contents, "XDG_MUSIC_DIR", "/home/me", &out).?);
+    try testing.expect(userDir(contents, "XDG_VIDEOS_DIR", "/home/me", &out) == null);
 }

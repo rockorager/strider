@@ -5,6 +5,8 @@
 //! require("siv"), with the running application from strider.siv_app().
 
 const std = @import("std");
+const print = std.debug.print;
+const Io = std.Io;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
@@ -116,8 +118,8 @@ fn pcall(self: *Lua, nargs: c_int, nresults: c_int) bool {
 
 fn report(self: *Lua, msg: []const u8) void {
     // The first line in the status line and a toast; all of it on stderr.
-    if (self.app.opts.log_errors) std.debug.print("{s}: {s}\n", .{ App.program, msg });
-    const first = msg[0 .. std.mem.indexOfScalar(u8, msg, '\n') orelse msg.len];
+    if (self.app.opts.log_errors) print("{s}: {s}\n", .{ App.program, msg });
+    const first = msg[0 .. std.mem.findScalar(u8, msg, '\n') orelse msg.len];
     if (self.window orelse self.app.lastWindow()) |w| {
         w.notify(first, true);
     } else if (self.app.config_error == null) {
@@ -128,15 +130,15 @@ fn report(self: *Lua, msg: []const u8) void {
 /// Runs init.lua, if it exists.
 pub fn runFile(self: *Lua, path: []const u8) void {
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
+    const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true }, &st)) != .SUCCESS) return;
     const L = self.L;
     // Modules beside init.lua: require("plugins.foo") finds lua/plugins/foo.lua too.
-    const dir = std.fs.path.dirname(path) orelse ".";
+    const dir = Io.Dir.path.dirname(path) orelse ".";
     _ = lc.lua_getglobal(L, "package");
     var pb: [linux.PATH_MAX * 3]u8 = undefined;
-    const pp = std.fmt.bufPrintSentinel(&pb, "{s}/?.lua;{s}/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua", .{ dir, dir, dir, dir }, 0) catch "";
+    const pp = std.mem.printSentinel(&pb, "{s}/?.lua;{s}/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua", .{ dir, dir, dir, dir }, 0) catch "";
     _ = lc.lua_pushstring(L, pp.ptr);
     lc.lua_setfield(L, -2, "path");
     lh.pop(L, 1);
@@ -155,7 +157,7 @@ pub fn runString(self: *Lua, win: *Window, code: []const u8) void {
     defer self.window = null;
     // An expression prints its value.
     var buf: [4096]u8 = undefined;
-    const expr = std.fmt.bufPrint(&buf, "return {s}", .{code}) catch code;
+    const expr = std.mem.print(&buf, "return {s}", .{code}) catch code;
     if (lc.luaL_loadbufferx(L, expr.ptr, expr.len, "=:lua", "t") != lh.ok) {
         lh.pop(L, 1);
         if (lc.luaL_loadbufferx(L, code.ptr, code.len, "=:lua", "t") != lh.ok) {

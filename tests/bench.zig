@@ -6,6 +6,7 @@
 //! Prints numbers; README.md records them.
 
 const std = @import("std");
+const print = std.debug.print;
 const linux = std.os.linux;
 const builtin = @import("builtin");
 const siv = @import("siv");
@@ -67,7 +68,7 @@ fn switches() u64 {
             const tid = std.mem.span(name);
             if (tid[0] == '.') continue;
             var pbuf: [64]u8 = undefined;
-            const p = std.fmt.bufPrintSentinel(&pbuf, "/proc/self/task/{s}/status", .{tid}, 0) catch continue;
+            const p = std.mem.printSentinel(&pbuf, "/proc/self/task/{s}/status", .{tid}, 0) catch continue;
             const rc = linux.openat(linux.AT.FDCWD, p, .{ .CLOEXEC = true }, 0);
             if (linux.errno(rc) != .SUCCESS) continue;
             const fd: i32 = @intCast(rc);
@@ -89,12 +90,12 @@ fn makeFolder(path: [:0]const u8, n: usize) !void {
     for (0..n) |i| {
         // Varied names, sizes, and kinds, as in a real download folder.
         const ext = [_][]const u8{ "txt", "pdf", "png", "zig", "tar.gz", "flac", "md" };
-        const p = try std.fmt.bufPrintSentinel(&buf, "{s}/file-{d}.{s}", .{ path, i, ext[i % ext.len] }, 0);
+        const p = try std.mem.printSentinel(&buf, "{s}/file-{d}.{s}", .{ path, i, ext[i % ext.len] }, 0);
         const fd: i32 = @intCast(linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true }, 0o644));
         if (i % 3 == 0) _ = linux.ftruncate(fd, @intCast(i * 37));
         _ = linux.close(fd);
         if (i % 1000 == 0) {
-            const d = try std.fmt.bufPrintSentinel(&buf, "{s}/folder-{d}", .{ path, i }, 0);
+            const d = try std.mem.printSentinel(&buf, "{s}/folder-{d}", .{ path, i }, 0);
             _ = linux.mkdirat(linux.AT.FDCWD, d, 0o755);
         }
     }
@@ -113,12 +114,12 @@ fn heapInUse() u64 {
 
 fn removeFolder(path: []const u8) void {
     var buf: [256]u8 = undefined;
-    const cmd = std.fmt.bufPrintSentinel(&buf, "rm -rf '{s}'", .{path}, 0) catch return;
+    const cmd = std.mem.printSentinel(&buf, "rm -rf '{s}'", .{path}, 0) catch return;
     _ = system(cmd.ptr);
 }
 
 fn report(comptime fmt: []const u8, args: anytype) void {
-    std.debug.print("bench: " ++ fmt ++ "\n", args);
+    print("bench: " ++ fmt ++ "\n", args);
 }
 
 /// The application on the headless backend, with the system's fonts and
@@ -186,13 +187,13 @@ fn timed(r: *Run, comptime label: []const u8, keys_text: []const u8) !void {
 pub fn main() !void {
     if (builtin.mode == .debug) report("warning: a Debug build; use -Doptimize=safe or fast", .{});
     var dir_buf: [128]u8 = undefined;
-    const base = try std.fmt.bufPrintSentinel(&dir_buf, "/tmp/strider-bench-{d}", .{linux.getpid()}, 0);
+    const base = try std.mem.printSentinel(&dir_buf, "/tmp/strider-bench-{d}", .{linux.getpid()}, 0);
     _ = linux.mkdirat(linux.AT.FDCWD, base, 0o755);
     defer removeFolder(base);
     var root_buf: [160]u8 = undefined;
-    const root = try std.fmt.bufPrintSentinel(&root_buf, "{s}/big", .{base}, 0);
+    const root = try std.mem.printSentinel(&root_buf, "{s}/big", .{base}, 0);
     var small_buf: [160]u8 = undefined;
-    const small = try std.fmt.bufPrintSentinel(&small_buf, "{s}/small", .{base}, 0);
+    const small = try std.mem.printSentinel(&small_buf, "{s}/small", .{base}, 0);
     try makeFolder(small, 40);
     const t_make = now();
     try makeFolder(root, entries);

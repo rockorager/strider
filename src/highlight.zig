@@ -87,11 +87,11 @@ const by_ext = [_]ByExt{
 
 /// The language of a file by its name, or null for plain text.
 pub fn detect(name: []const u8, head: []const u8) ?*const Lang {
-    const base = if (std.mem.lastIndexOfScalar(u8, name, '/')) |i| name[i + 1 ..] else name;
+    const base = if (std.mem.findScalarLast(u8, name, '/')) |i| name[i + 1 ..] else name;
     if (std.mem.eql(u8, base, "Makefile") or std.mem.eql(u8, base, "makefile") or std.mem.eql(u8, base, "GNUmakefile")) return &langs.make;
     if (std.mem.eql(u8, base, "PKGBUILD") or std.mem.startsWith(u8, base, ".bash") or std.mem.eql(u8, base, ".profile") or std.mem.eql(u8, base, ".zshrc")) return &langs.sh;
     if (std.mem.eql(u8, base, "CMakeLists.txt")) return &langs.sh;
-    if (std.mem.lastIndexOfScalar(u8, base, '.')) |dot| if (dot > 0) {
+    if (std.mem.findScalarLast(u8, base, '.')) |dot| if (dot > 0) {
         var buf: [16]u8 = undefined;
         const ext_raw = base[dot + 1 ..];
         if (ext_raw.len <= buf.len) {
@@ -101,12 +101,12 @@ pub fn detect(name: []const u8, head: []const u8) ?*const Lang {
     };
     // A script's interpreter line.
     if (std.mem.startsWith(u8, head, "#!")) {
-        const line = head[0 .. std.mem.indexOfScalar(u8, head, '\n') orelse head.len];
-        if (std.mem.indexOf(u8, line, "python") != null) return &langs.python;
-        if (std.mem.indexOf(u8, line, "lua") != null) return &langs.lua;
-        if (std.mem.indexOf(u8, line, "node") != null) return &langs.js;
-        if (std.mem.indexOf(u8, line, "ruby") != null) return &langs.ruby;
-        if (std.mem.indexOf(u8, line, "sh") != null) return &langs.sh;
+        const line = head[0 .. std.mem.findScalar(u8, head, '\n') orelse head.len];
+        if (std.mem.find(u8, line, "python") != null) return &langs.python;
+        if (std.mem.find(u8, line, "lua") != null) return &langs.lua;
+        if (std.mem.find(u8, line, "node") != null) return &langs.js;
+        if (std.mem.find(u8, line, "ruby") != null) return &langs.ruby;
+        if (std.mem.find(u8, line, "sh") != null) return &langs.sh;
     }
     return null;
 }
@@ -147,12 +147,12 @@ fn code(gpa: Allocator, out: *std.ArrayList(Span), lang: *const Lang, text: []co
             var j = i;
             while (j < text.len and (text[j] == ' ' or text[j] == '\t')) j += 1;
             if (j < text.len and text[j] == '[') {
-                const e = std.mem.indexOfScalarPos(u8, text, j, '\n') orelse text.len;
+                const e = std.mem.findScalarPos(u8, text, j, '\n') orelse text.len;
                 try add(gpa, out, j, e, .heading);
                 i = e;
                 continue;
             }
-            const eq = std.mem.indexOfAnyPos(u8, text, j, "=\n") orelse text.len;
+            const eq = std.mem.findAnyPos(u8, text, j, "=\n") orelse text.len;
             if (eq < text.len and text[eq] == '=' and !isComment(lang, text[j..])) {
                 try add(gpa, out, j, eq, .keyword);
                 i = eq;
@@ -163,20 +163,20 @@ fn code(gpa: Allocator, out: *std.ArrayList(Span), lang: *const Lang, text: []co
         if (ch != ' ' and ch != '\t') line_start = false;
         // Comments.
         if (lineComment(lang, text[i..])) {
-            const e = std.mem.indexOfScalarPos(u8, text, i, '\n') orelse text.len;
+            const e = std.mem.findScalarPos(u8, text, i, '\n') orelse text.len;
             try add(gpa, out, i, e, .comment);
             i = e;
             continue;
         }
         if (lang.block_comment) |bc| if (std.mem.startsWith(u8, text[i..], bc[0])) {
-            const e = if (std.mem.indexOfPos(u8, text, i + bc[0].len, bc[1])) |x| x + bc[1].len else text.len;
+            const e = if (std.mem.findPos(u8, text, i + bc[0].len, bc[1])) |x| x + bc[1].len else text.len;
             try add(gpa, out, i, e, .comment);
             i = e;
             continue;
         };
         // Strings, to the closing quote on the same line (or the next
         // lines for backquotes and Python's triple quotes).
-        if (std.mem.indexOfScalar(u8, lang.quotes, ch) != null) {
+        if (std.mem.findScalar(u8, lang.quotes, ch) != null) {
             // An apostrophe inside a word is not a quote (Rust lifetimes,
             // English in comments of languages without char literals).
             if (ch == '\'' and i > 0 and isIdent(text[i - 1])) {
@@ -293,13 +293,13 @@ fn markdown(gpa: Allocator, out: *std.ArrayList(Span), text: []const u8) !void {
         }
         while (i < line.len) {
             if (line[i] == '`') {
-                const e = std.mem.indexOfScalarPos(u8, line, i + 1, '`') orelse break;
+                const e = std.mem.findScalarPos(u8, line, i + 1, '`') orelse break;
                 try add(gpa, out, start + i, start + e + 1, .string);
                 i = e + 1;
                 continue;
             }
             if (line[i] == '[') {
-                if (std.mem.indexOfPos(u8, line, i, "](")) |mid| if (std.mem.indexOfScalarPos(u8, line, mid, ')')) |e| {
+                if (std.mem.findPos(u8, line, i, "](")) |mid| if (std.mem.findScalarPos(u8, line, mid, ')')) |e| {
                     try add(gpa, out, start + i, start + mid + 1, .type);
                     try add(gpa, out, start + mid + 1, start + e + 1, .comment);
                     i = e + 1;
@@ -331,7 +331,7 @@ fn diff(gpa: Allocator, out: *std.ArrayList(Span), text: []const u8) !void {
 const testing = std.testing;
 
 fn classAt(spans: []const Span, text: []const u8, word: []const u8) ?Class {
-    const at = std.mem.indexOf(u8, text, word) orelse return null;
+    const at = std.mem.find(u8, text, word) orelse return null;
     for (spans) |s| if (s.start <= at and at < s.end) return s.class;
     return null;
 }

@@ -79,8 +79,8 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
         const mp = row.drive.mount_point;
         if (mp.len != 0) list.appendSlice(a, &.{
             .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
-            .{ .label = "Open in a new tab", .command = std.fmt.allocPrint(a, "tab-new {s}", .{mp}) catch return },
-            .{ .label = "Open terminal here", .command = std.fmt.allocPrint(a, "terminal {s}", .{mp}) catch return, .icon = "utilities-terminal-symbolic" },
+            .{ .label = "Open in a new tab", .command = a.print("tab-new {s}", .{mp}) catch return },
+            .{ .label = "Open terminal here", .command = a.print("terminal {s}", .{mp}) catch return, .icon = "utilities-terminal-symbolic" },
         }) catch return else list.append(a, .{ .label = "Mount", .command = "enter", .icon = "folder-open-symbolic" }) catch return;
         if (row.drive.can_unmount or row.drive.can_eject) list.append(a, sep) catch return;
         if (row.drive.can_unmount) list.append(a, .{ .label = "Unmount", .command = "unmount" }) catch return;
@@ -98,8 +98,8 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
             if (dir) {
                 list.appendSlice(a, &.{
                     .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
-                    .{ .label = "Open in a new tab", .command = std.fmt.allocPrint(a, "tab-new {s}", .{paths[0]}) catch return },
-                    .{ .label = "Open terminal here", .command = std.fmt.allocPrint(a, "terminal {s}", .{paths[0]}) catch return, .icon = "utilities-terminal-symbolic" },
+                    .{ .label = "Open in a new tab", .command = a.print("tab-new {s}", .{paths[0]}) catch return },
+                    .{ .label = "Open terminal here", .command = a.print("terminal {s}", .{paths[0]}) catch return, .icon = "utilities-terminal-symbolic" },
                     .{ .label = "Open with…", .command = "open-with" },
                 }) catch return;
             } else list.appendSlice(a, &.{

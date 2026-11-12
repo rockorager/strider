@@ -285,20 +285,20 @@ pub const Op = struct {
     pub fn title(op: *const Op, buf: []u8) []const u8 {
         var nbuf: [300]u8 = undefined;
         const what = if (op.sources.len == 1)
-            std.fmt.bufPrint(&nbuf, "“{s}”", .{model.basename(op.sources[0])}) catch "1 item"
+            std.mem.print(&nbuf, "“{s}”", .{model.basename(op.sources[0])}) catch "1 item"
         else
-            std.fmt.bufPrint(&nbuf, "{d} items", .{op.sources.len}) catch "items";
+            std.mem.print(&nbuf, "{d} items", .{op.sources.len}) catch "items";
         const dest = model.basename(trimSlash(op.dest));
         return (switch (op.kind) {
-            .copy => std.fmt.bufPrint(buf, "Copying {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
-            .move => std.fmt.bufPrint(buf, "Moving {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
-            .link => std.fmt.bufPrint(buf, "Linking {s} in {s}", .{ what, if (dest.len == 0) "/" else dest }),
-            .move_back => std.fmt.bufPrint(buf, "Moving {s} back", .{what}),
-            .trash => std.fmt.bufPrint(buf, "Moving {s} to the trash", .{what}),
-            .delete => std.fmt.bufPrint(buf, "Deleting {s}", .{what}),
-            .restore => std.fmt.bufPrint(buf, "Restoring {s}", .{what}),
-            .chmod => std.fmt.bufPrint(buf, "Changing the permissions of {s}", .{what}),
-            .chown => std.fmt.bufPrint(buf, "Changing the owner of {s}", .{what}),
+            .copy => std.mem.print(buf, "Copying {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .move => std.mem.print(buf, "Moving {s} to {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .link => std.mem.print(buf, "Linking {s} in {s}", .{ what, if (dest.len == 0) "/" else dest }),
+            .move_back => std.mem.print(buf, "Moving {s} back", .{what}),
+            .trash => std.mem.print(buf, "Moving {s} to the trash", .{what}),
+            .delete => std.mem.print(buf, "Deleting {s}", .{what}),
+            .restore => std.mem.print(buf, "Restoring {s}", .{what}),
+            .chmod => std.mem.print(buf, "Changing the permissions of {s}", .{what}),
+            .chown => std.mem.print(buf, "Changing the owner of {s}", .{what}),
         }) catch "";
     }
 
@@ -307,15 +307,15 @@ pub const Op = struct {
     pub fn summary(op: *const Op, buf: []u8) struct { []const u8, bool } {
         if (op.result) |err| {
             if (err == error.Canceled) return .{ "Canceled", false };
-            return .{ std.fmt.bufPrint(buf, "Could not {s} “{s}”: {s}", .{ verb(op.kind), model.basename(op.errPath()), describe(err) }) catch "The operation failed", true };
+            return .{ std.mem.print(buf, "Could not {s} “{s}”: {s}", .{ verb(op.kind), model.basename(op.errPath()), describe(err) }) catch "The operation failed", true };
         }
         if (op.kind == .chmod or op.kind == .chown) {
             const n = op.done_items.load(.monotonic);
             const what = if (op.kind == .chmod) "permissions" else "owner";
             const msg = if (n == 1)
-                std.fmt.bufPrint(buf, "Changed the {s} of “{s}”", .{ what, model.basename(op.sources[0]) })
+                std.mem.print(buf, "Changed the {s} of “{s}”", .{ what, model.basename(op.sources[0]) })
             else
-                std.fmt.bufPrint(buf, "Changed the {s} of {d} items", .{ what, n });
+                std.mem.print(buf, "Changed the {s} of {d} items", .{ what, n });
             return .{ msg catch "Changed", false };
         }
         const n = op.done.items.len;
@@ -324,12 +324,12 @@ pub const Op = struct {
         const single = n == 1 or (op.kind == .delete and op.sources.len == 1);
         const cnt = if (op.kind == .delete) op.sources.len else n;
         const msg = (switch (op.kind) {
-            .copy => if (single) std.fmt.bufPrint(buf, "Copied “{s}”", .{what}) else std.fmt.bufPrint(buf, "Copied {d} items", .{cnt}),
-            .move, .move_back => if (single) std.fmt.bufPrint(buf, "Moved “{s}”", .{what}) else std.fmt.bufPrint(buf, "Moved {d} items", .{cnt}),
-            .link => if (single) std.fmt.bufPrint(buf, "Linked “{s}”", .{what}) else std.fmt.bufPrint(buf, "Linked {d} items", .{cnt}),
-            .trash => if (single) std.fmt.bufPrint(buf, "“{s}” moved to the trash", .{what}) else std.fmt.bufPrint(buf, "{d} items moved to the trash", .{cnt}),
-            .delete => if (single) std.fmt.bufPrint(buf, "“{s}” deleted", .{what}) else std.fmt.bufPrint(buf, "{d} items deleted", .{cnt}),
-            .restore => if (single) std.fmt.bufPrint(buf, "“{s}” restored", .{what}) else std.fmt.bufPrint(buf, "{d} items restored", .{cnt}),
+            .copy => if (single) std.mem.print(buf, "Copied “{s}”", .{what}) else std.mem.print(buf, "Copied {d} items", .{cnt}),
+            .move, .move_back => if (single) std.mem.print(buf, "Moved “{s}”", .{what}) else std.mem.print(buf, "Moved {d} items", .{cnt}),
+            .link => if (single) std.mem.print(buf, "Linked “{s}”", .{what}) else std.mem.print(buf, "Linked {d} items", .{cnt}),
+            .trash => if (single) std.mem.print(buf, "“{s}” moved to the trash", .{what}) else std.mem.print(buf, "{d} items moved to the trash", .{cnt}),
+            .delete => if (single) std.mem.print(buf, "“{s}” deleted", .{what}) else std.mem.print(buf, "{d} items deleted", .{cnt}),
+            .restore => if (single) std.mem.print(buf, "“{s}” restored", .{what}) else std.mem.print(buf, "{d} items restored", .{cnt}),
             .chmod, .chown => unreachable,
         }) catch "";
         return .{ msg, false };
@@ -366,7 +366,7 @@ pub const Op = struct {
         while (it.next()) |nm| {
             if (op.cancel.load(.acquire)) return;
             var buf: [linux.PATH_MAX]u8 = undefined;
-            const child = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ path, nm }, 0) catch continue;
+            const child = std.mem.printSentinel(&buf, "{s}/{s}", .{ path, nm }, 0) catch continue;
             op.scanTree(child, bytes);
         }
     }
@@ -381,7 +381,7 @@ pub const Op = struct {
                 const same_dir = std.mem.eql(u8, model.parent(src), op.dest);
                 if (op.kind == .move and same_dir) return; // nothing to do
                 var buf: [linux.PATH_MAX]u8 = undefined;
-                const target = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ trimSlash(op.dest), model.basename(src) }, 0) catch return op.fail(src, error.NameTooLong);
+                const target = std.mem.printSentinel(&buf, "{s}/{s}", .{ trimSlash(op.dest), model.basename(src) }, 0) catch return op.fail(src, error.NameTooLong);
                 const placed = try op.place(src, target, same_dir);
                 if (placed) |t| {
                     try op.created.appendSlice(op.gpa, model.basename(t));
@@ -428,7 +428,7 @@ pub const Op = struct {
         defer it.close();
         while (it.next()) |nm| {
             var buf: [linux.PATH_MAX]u8 = undefined;
-            const child = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ path, nm }, 0) catch return op.fail(path, error.NameTooLong);
+            const child = std.mem.printSentinel(&buf, "{s}/{s}", .{ path, nm }, 0) catch return op.fail(path, error.NameTooLong);
             op.setCurrent(child);
             try op.attrTree(child, false);
         }
@@ -499,8 +499,8 @@ pub const Op = struct {
             try op.checkCancel();
             var cs: [linux.PATH_MAX]u8 = undefined;
             var ct: [linux.PATH_MAX]u8 = undefined;
-            const child_src = std.fmt.bufPrint(&cs, "{s}/{s}", .{ src, nm }) catch return op.fail(src, error.NameTooLong);
-            const child_dst = std.fmt.bufPrintSentinel(&ct, "{s}/{s}", .{ dst, nm }, 0) catch return op.fail(dst, error.NameTooLong);
+            const child_src = std.mem.print(&cs, "{s}/{s}", .{ src, nm }) catch return op.fail(src, error.NameTooLong);
+            const child_dst = std.mem.printSentinel(&ct, "{s}/{s}", .{ dst, nm }, 0) catch return op.fail(dst, error.NameTooLong);
             op.setCurrent(child_src);
             if (exists(child_dst)) {
                 const r = try op.resolveConflict(child_src, child_dst);
@@ -612,8 +612,8 @@ pub const Op = struct {
                 while (it.next()) |nm| {
                     var cs: [linux.PATH_MAX]u8 = undefined;
                     var ct: [linux.PATH_MAX]u8 = undefined;
-                    const child_src = std.fmt.bufPrint(&cs, "{s}/{s}", .{ src, nm }) catch return op.fail(src, error.NameTooLong);
-                    const child_target = std.fmt.bufPrintSentinel(&ct, "{s}/{s}", .{ target, nm }, 0) catch return op.fail(src, error.NameTooLong);
+                    const child_src = std.mem.print(&cs, "{s}/{s}", .{ src, nm }) catch return op.fail(src, error.NameTooLong);
+                    const child_target = std.mem.printSentinel(&ct, "{s}/{s}", .{ target, nm }, 0) catch return op.fail(src, error.NameTooLong);
                     try op.copyTree(child_src, child_target, false);
                 }
                 _ = linux.fchmodat(linux.AT.FDCWD, target, mode);
@@ -720,7 +720,7 @@ pub const Op = struct {
         var it = DirIter.open(z) catch |err| return op.fail(path, err);
         while (it.next()) |nm| {
             var cbuf: [linux.PATH_MAX]u8 = undefined;
-            const child = std.fmt.bufPrint(&cbuf, "{s}/{s}", .{ path, nm }) catch {
+            const child = std.mem.print(&cbuf, "{s}/{s}", .{ path, nm }) catch {
                 it.close();
                 return op.fail(path, error.NameTooLong);
             };
@@ -752,10 +752,10 @@ pub const Op = struct {
         var topbuf: [linux.PATH_MAX]u8 = undefined;
         const where = trashDirFor(&tdbuf, &topbuf, op.home_trash, src) catch |err| return op.fail(src, err);
         var dbuf: [linux.PATH_MAX]u8 = undefined;
-        const files = std.fmt.bufPrintSentinel(&dbuf, "{s}/files", .{where.dir}, 0) catch return op.fail(src, error.NameTooLong);
+        const files = std.mem.printSentinel(&dbuf, "{s}/files", .{where.dir}, 0) catch return op.fail(src, error.NameTooLong);
         try mkdirs(files);
         var ibuf: [linux.PATH_MAX]u8 = undefined;
-        const info_dir = std.fmt.bufPrintSentinel(&ibuf, "{s}/info", .{where.dir}, 0) catch return op.fail(src, error.NameTooLong);
+        const info_dir = std.mem.printSentinel(&ibuf, "{s}/info", .{where.dir}, 0) catch return op.fail(src, error.NameTooLong);
         try mkdirs(info_dir);
 
         // Claim a name by creating its info file exclusively, so that two
@@ -769,10 +769,10 @@ pub const Op = struct {
         var fd: i32 = -1;
         while (k < 10000) : (k += 1) {
             target = (if (k == 1)
-                std.fmt.bufPrintSentinel(&tbuf, "{s}/{s}", .{ files, nm }, 0)
+                std.mem.printSentinel(&tbuf, "{s}/{s}", .{ files, nm }, 0)
             else
                 numbered(&tbuf, files, nm, k)) catch return op.fail(src, error.NameTooLong);
-            info_path = std.fmt.bufPrintSentinel(&info_buf, "{s}/{s}.trashinfo", .{ info_dir, model.basename(target) }, 0) catch return op.fail(src, error.NameTooLong);
+            info_path = std.mem.printSentinel(&info_buf, "{s}/{s}.trashinfo", .{ info_dir, model.basename(target) }, 0) catch return op.fail(src, error.NameTooLong);
             const rc = linux.openat(linux.AT.FDCWD, info_path, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .CLOEXEC = true }, 0o600);
             switch (linux.errno(rc)) {
                 .SUCCESS => {
@@ -865,21 +865,21 @@ pub fn trashDirFor(buf: *[linux.PATH_MAX]u8, top_buf: *[linux.PATH_MAX]u8, home_
     const uid = linux.getuid();
     // $topdir/.Trash must be a sticky directory, not a link.
     var admin_buf: [linux.PATH_MAX]u8 = undefined;
-    const admin = std.fmt.bufPrintSentinel(&admin_buf, "{s}/.Trash", .{trimSlash(top)}, 0) catch return error.NameTooLong;
+    const admin = std.mem.printSentinel(&admin_buf, "{s}/.Trash", .{trimSlash(top)}, 0) catch return error.NameTooLong;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, admin, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true, .MODE = true }, &st)) == .SUCCESS and
         st.mode & linux.S.IFMT == linux.S.IFDIR and st.mode & linux.S.ISVTX != 0)
     {
-        const d = std.fmt.bufPrint(buf, "{s}/.Trash/{d}", .{ trimSlash(top), uid }) catch return error.NameTooLong;
+        const d = std.mem.print(buf, "{s}/.Trash/{d}", .{ trimSlash(top), uid }) catch return error.NameTooLong;
         return .{ .dir = d, .top = top_copy };
     }
-    const d = std.fmt.bufPrint(buf, "{s}/.Trash-{d}", .{ trimSlash(top), uid }) catch return error.NameTooLong;
+    const d = std.mem.print(buf, "{s}/.Trash-{d}", .{ trimSlash(top), uid }) catch return error.NameTooLong;
     return .{ .dir = d, .top = top_copy };
 }
 
 fn deviceOf(path: []const u8) ?u64 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) != .SUCCESS) return null;
     return (@as(u64, st.dev_major) << 32) | st.dev_minor;
@@ -890,12 +890,12 @@ pub fn infoPathOf(buf: *[linux.PATH_MAX]u8, trashed: []const u8) ?[:0]u8 {
     const files_dir = model.parent(trashed);
     if (!std.mem.eql(u8, model.basename(files_dir), "files")) return null;
     const trash_dir = model.parent(files_dir);
-    return std.fmt.bufPrintSentinel(buf, "{s}/info/{s}.trashinfo", .{ trimSlash(trash_dir), model.basename(trashed) }, 0) catch null;
+    return std.mem.printSentinel(buf, "{s}/info/{s}.trashinfo", .{ trimSlash(trash_dir), model.basename(trashed) }, 0) catch null;
 }
 
 fn appendEscaped(gpa: Allocator, out: *std.ArrayList(u8), path: []const u8) !void {
     for (path) |b| {
-        if (std.ascii.isAlphanumeric(b) or std.mem.indexOfScalar(u8, "-._~/", b) != null) {
+        if (std.ascii.isAlphanumeric(b) or std.mem.findScalar(u8, "-._~/", b) != null) {
             try out.append(gpa, b);
         } else {
             const hex = "0123456789ABCDEF";
@@ -915,7 +915,7 @@ fn localIsoNow(buf: []u8) []const u8 {
     var now = S.time(null);
     var t: tm = undefined;
     if (S.localtime_r(&now, &t) == null) return "";
-    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}", .{
+    return std.mem.print(buf, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}", .{
         @as(u32, @intCast(t.year + 1900)), @as(u32, @intCast(t.mon + 1)), @as(u32, @intCast(t.mday)), @as(u32, @intCast(t.hour)), @as(u32, @intCast(t.min)), @as(u32, @intCast(t.sec)),
     }) catch "";
 }
@@ -929,7 +929,7 @@ fn fillConflict(c: *Conflict, src: []const u8, dst: []const u8) void {
     c.dst_len = nd;
     for ([_]struct { []const u8, *bool, *u64, *i64 }{ .{ src, &c.src_dir, &c.src_size, &c.src_mtime }, .{ dst, &c.dst_dir, &c.dst_size, &c.dst_mtime } }) |x| {
         var zb: [linux.PATH_MAX]u8 = undefined;
-        const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{x[0]}, 0) catch continue;
+        const z = std.mem.printSentinel(&zb, "{s}", .{x[0]}, 0) catch continue;
         const e = model.statEntry(linux.AT.FDCWD, z, model.basename(x[0]));
         x[1].* = e.kind == .dir;
         x[2].* = e.size;
@@ -941,7 +941,7 @@ fn fillConflict(c: *Conflict, src: []const u8, dst: []const u8) void {
 pub fn makeDir(dir: []const u8, nm: []const u8) Error!void {
     if (!model.validName(nm)) return error.InvalidName;
     var buf: [linux.PATH_MAX]u8 = undefined;
-    const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
+    const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
     switch (linux.errno(linux.mkdirat(linux.AT.FDCWD, p, 0o755))) {
         .SUCCESS => {},
         else => |e| return mapErrno(e),
@@ -952,7 +952,7 @@ pub fn makeDir(dir: []const u8, nm: []const u8) Error!void {
 pub fn makeFile(dir: []const u8, nm: []const u8) Error!void {
     if (!model.validName(nm)) return error.InvalidName;
     var buf: [linux.PATH_MAX]u8 = undefined;
-    const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
+    const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
     const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .CLOEXEC = true }, 0o644);
     switch (linux.errno(rc)) {
         .SUCCESS => _ = linux.close(@intCast(rc)),
@@ -981,8 +981,8 @@ pub fn rename(dir: []const u8, old: []const u8, new: []const u8) Error!void {
     if (std.mem.eql(u8, old, new)) return;
     var a: [linux.PATH_MAX]u8 = undefined;
     var b: [linux.PATH_MAX]u8 = undefined;
-    const pa = std.fmt.bufPrint(&a, "{s}/{s}", .{ trimSlash(dir), old }) catch return error.NameTooLong;
-    const pb = std.fmt.bufPrint(&b, "{s}/{s}", .{ trimSlash(dir), new }) catch return error.NameTooLong;
+    const pa = std.mem.print(&a, "{s}/{s}", .{ trimSlash(dir), old }) catch return error.NameTooLong;
+    const pb = std.mem.print(&b, "{s}/{s}", .{ trimSlash(dir), new }) catch return error.NameTooLong;
     return renamePath(pa, pb);
 }
 
@@ -1074,9 +1074,9 @@ fn fileUmask() u32 {
     if (linux.errno(fd) == .SUCCESS) {
         defer _ = linux.close(@intCast(fd));
         const n = linux.read(@intCast(fd), &buf, buf.len);
-        if (linux.errno(n) == .SUCCESS) if (std.mem.indexOf(u8, buf[0..n], "Umask:\t")) |at| {
+        if (linux.errno(n) == .SUCCESS) if (std.mem.find(u8, buf[0..n], "Umask:\t")) |at| {
             const rest = buf[at + 7 .. n];
-            const end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+            const end = std.mem.findScalar(u8, rest, '\n') orelse rest.len;
             m = std.fmt.parseInt(u32, rest[0..end], 8) catch m;
         };
     }
@@ -1099,7 +1099,7 @@ pub fn trimSlash(dir: []const u8) []const u8 {
 }
 
 fn zpath(buf: *[linux.PATH_MAX]u8, p: []const u8) error{NameTooLong}![:0]u8 {
-    return std.fmt.bufPrintSentinel(buf, "{s}", .{p}, 0) catch error.NameTooLong;
+    return std.mem.printSentinel(buf, "{s}", .{p}, 0) catch error.NameTooLong;
 }
 
 pub fn exists(p: [:0]const u8) bool {
@@ -1114,7 +1114,7 @@ fn isDirPath(p: [:0]const u8) bool {
 }
 
 fn numbered(buf: *[linux.PATH_MAX]u8, dir: []const u8, nm: []const u8, k: u32) error{NoSpaceLeft}![:0]u8 {
-    const dot = std.mem.lastIndexOfScalar(u8, nm, '.');
+    const dot = std.mem.findScalarLast(u8, nm, '.');
     const stem, const ext = if (dot) |d| (if (d == 0) .{ nm, "" } else .{ nm[0..d], nm[d..] }) else .{ nm, "" };
     // ".tar.gz" stays whole.
     var s = stem;
@@ -1123,13 +1123,13 @@ fn numbered(buf: *[linux.PATH_MAX]u8, dir: []const u8, nm: []const u8, k: u32) e
         s = stem[0 .. stem.len - 4];
         e = nm[s.len..];
     }
-    return std.fmt.bufPrintSentinel(buf, "{s}/{s} ({d}){s}", .{ trimSlash(dir), s, k, e }, 0);
+    return std.mem.printSentinel(buf, "{s}/{s} ({d}){s}", .{ trimSlash(dir), s, k, e }, 0);
 }
 
 /// `dir/name`, or with " (2)", " (3)", ... before the extension if that
 /// exists.
 pub fn freeNameIn(buf: *[linux.PATH_MAX]u8, dir: []const u8, nm: []const u8) Error![:0]u8 {
-    const first = std.fmt.bufPrintSentinel(buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
+    const first = std.mem.printSentinel(buf, "{s}/{s}", .{ trimSlash(dir), nm }, 0) catch return error.NameTooLong;
     if (!exists(first)) return first;
     var k: u32 = 2;
     while (k < 10000) : (k += 1) {
@@ -1148,7 +1148,7 @@ fn mkdirs(p: [:0]const u8) Error!void {
     var buf: [linux.PATH_MAX]u8 = undefined;
     const up = model.parent(p);
     if (up.len == p.len) return error.FileNotFound;
-    try mkdirs(std.fmt.bufPrintSentinel(&buf, "{s}", .{up}, 0) catch return error.NameTooLong);
+    try mkdirs(std.mem.printSentinel(&buf, "{s}", .{up}, 0) catch return error.NameTooLong);
     switch (linux.errno(linux.mkdirat(linux.AT.FDCWD, p, 0o700))) {
         .SUCCESS, .EXIST => {},
         else => |e| return mapErrno(e),
@@ -1235,20 +1235,20 @@ const Tmp = struct {
         extern "c" fn system(cmd: [*:0]const u8) c_int;
     };
     fn make(t: *Tmp) !void {
-        t.path = try std.fmt.bufPrintSentinel(&t.buf, "/tmp/siv-files-ops-XXXXXX", .{}, 0);
+        t.path = try std.mem.printSentinel(&t.buf, "/tmp/siv-files-ops-XXXXXX", .{}, 0);
         _ = S.mkdtemp(t.path.ptr) orelse return error.Unexpected;
     }
     fn sh(t: *Tmp, comptime fmt: []const u8) !void {
         var cmd: [1024]u8 = undefined;
-        const z = try std.fmt.bufPrintSentinel(&cmd, "cd {s} && " ++ fmt, .{t.path}, 0);
+        const z = try std.mem.printSentinel(&cmd, "cd {s} && " ++ fmt, .{t.path}, 0);
         if (S.system(z.ptr) != 0) return error.Unexpected;
     }
     fn has(t: *Tmp, rel: []const u8) bool {
         var b: [256]u8 = undefined;
-        return exists(std.fmt.bufPrintSentinel(&b, "{s}/{s}", .{ t.path, rel }, 0) catch return false);
+        return exists(std.mem.printSentinel(&b, "{s}/{s}", .{ t.path, rel }, 0) catch return false);
     }
     fn p(t: *Tmp, buf: []u8, rel: []const u8) []const u8 {
-        return std.fmt.bufPrint(buf, "{s}/{s}", .{ t.path, rel }) catch unreachable;
+        return std.mem.print(buf, "{s}/{s}", .{ t.path, rel }) catch unreachable;
     }
     fn done(t: *Tmp) void {
         t.sh("cd / && rm -rf \"$OLDPWD\"") catch {};
@@ -1370,7 +1370,7 @@ test "free names keep compound extensions" {
 test "modes as chmod(1) takes them" {
     const T = struct {
         fn check(spec: []const u8, old: u32, dir: bool, want: ?u32) !void {
-            try std.testing.expectEqual(want, applyMode(spec, old, dir, 0o022));
+            try testing.expectEqual(want, applyMode(spec, old, dir, 0o022));
         }
     };
     try T.check("755", 0o644, false, 0o755);

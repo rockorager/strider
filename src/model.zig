@@ -8,6 +8,7 @@
 //! folder's listing, "sub/dir/name" in recursive search results.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const mime = @import("mime.zig");
@@ -83,7 +84,7 @@ pub const Builder = struct {
         var e = e_in;
         e.name_off = @intCast(b.names.items.len);
         e.name_len = @intCast(rel.len);
-        e.base_off = if (std.mem.lastIndexOfScalar(u8, rel, '/')) |i| @intCast(@min(i + 1, std.math.maxInt(u16))) else 0;
+        e.base_off = if (std.mem.findScalarLast(u8, rel, '/')) |i| @intCast(@min(i + 1, std.math.maxInt(u16))) else 0;
         try b.names.appendSlice(b.gpa, rel);
         try b.entries.append(b.gpa, e);
     }
@@ -109,7 +110,7 @@ const max_sniffs = 512;
 /// kind. Blocking: runs on a worker thread.
 pub fn read(gpa: Allocator, path: []const u8, db: ?*mime.Db) ReadError!Listing {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const zpath = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return error.FileNotFound;
+    const zpath = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return error.FileNotFound;
     const fd = try openDir(zpath);
     defer _ = linux.close(fd);
 
@@ -156,7 +157,7 @@ pub fn openDir(zpath: [:0]const u8) ReadError!i32 {
 /// Reads the comment (type name) of every type in `entries` into the
 /// database's cache, so that the UI thread finds them there.
 pub fn warmComments(db: *mime.Db, entries: []const Entry) void {
-    var seen: std.StaticBitSet(1 << 16) = .empty;
+    var seen: std.bit_set.Static(1 << 16) = .empty;
     for (entries) |e| {
         if (seen.isSet(e.mime)) continue;
         seen.set(e.mime);
@@ -203,7 +204,7 @@ fn readHead(dirfd: i32, zname: [*:0]const u8, buf: []u8) []const u8 {
 /// The MIME type of one file by path (properties, opening).
 pub fn typeOfPath(db: *mime.Db, path: []const u8) mime.Id {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return mime.unknown;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return mime.unknown;
     const e = statEntry(linux.AT.FDCWD, z, basename(path));
     var sniffs: usize = 0;
     return classify(db, linux.AT.FDCWD, z, basename(path), e, &sniffs);
@@ -243,7 +244,7 @@ pub fn statEntry(dirfd: i32, zname: [*:0]const u8, nm: []const u8) Entry {
 
 /// Whether siv decodes the file for a thumbnail.
 pub fn thumbnailable(nm: []const u8) bool {
-    const dot = std.mem.lastIndexOfScalar(u8, nm, '.') orelse return false;
+    const dot = std.mem.findScalarLast(u8, nm, '.') orelse return false;
     var ext_buf: [8]u8 = undefined;
     const ext_raw = nm[dot + 1 ..];
     if (ext_raw.len > ext_buf.len) return false;
@@ -266,7 +267,7 @@ pub const Sort = struct {
 /// Fills `order` with every entry's index, sorted. `db` names types for
 /// sorting by type (comments must be cached: see warmComments).
 pub fn sort(l: *const Listing, order: []u32, s: Sort, db: ?*mime.Db) void {
-    std.debug.assert(order.len == l.entries.len);
+    assert(order.len == l.entries.len);
     for (order, 0..) |*o, i| o.* = @intCast(i);
     sortIndices(l, order, s, db);
 }
@@ -311,7 +312,7 @@ const Ctx = struct {
 /// The extension of a name without its dot, "" for none (and for names
 /// that only start with a dot).
 pub fn extension(nm: []const u8) []const u8 {
-    const dot = std.mem.lastIndexOfScalar(u8, nm, '.') orelse return "";
+    const dot = std.mem.findScalarLast(u8, nm, '.') orelse return "";
     return if (dot == 0) "" else nm[dot + 1 ..];
 }
 
@@ -407,7 +408,7 @@ pub fn matches(nm: []const u8, query: []const u8) bool {
         const exact = for (word) |ch| {
             if (std.ascii.isUpper(ch)) break true;
         } else false;
-        const found = if (exact) std.mem.indexOf(u8, nm, word) != null else std.ascii.findIgnoreCase(nm, word) != null;
+        const found = if (exact) std.mem.find(u8, nm, word) != null else std.ascii.findIgnoreCase(nm, word) != null;
         if (!found) return false;
     }
     return true;
@@ -417,25 +418,25 @@ pub fn matches(nm: []const u8, query: []const u8) bool {
 
 /// "1.2 MB" (decimal units, as GNOME and the SI do), "512 bytes".
 pub fn formatSize(buf: []u8, size: u64) []const u8 {
-    if (size < 1000) return std.fmt.bufPrint(buf, "{d} {s}", .{ size, if (size == 1) "byte" else "bytes" }) catch buf[0..0];
+    if (size < 1000) return std.mem.print(buf, "{d} {s}", .{ size, if (size == 1) "byte" else "bytes" }) catch buf[0..0];
     const units = [_][]const u8{ "kB", "MB", "GB", "TB", "PB" };
     var v: f64 = @floatFromInt(size);
     var u: usize = 0;
     v /= 1000;
     while (v >= 1000 and u + 1 < units.len) : (u += 1) v /= 1000;
-    return std.fmt.bufPrint(buf, "{d:.1} {s}", .{ v, units[u] }) catch buf[0..0];
+    return std.mem.print(buf, "{d:.1} {s}", .{ v, units[u] }) catch buf[0..0];
 }
 
 /// "2026-10-13 14:05" in UTC offset `tz_offset_s` (local time comes from
 /// the caller, which reads it from libc once).
 pub fn formatTime(buf: []u8, mtime_ns: i64, tz_offset_s: i64) []const u8 {
     const secs = @divFloor(mtime_ns, std.time.ns_per_s) + tz_offset_s;
-    if (secs < 0) return std.fmt.bufPrint(buf, "—", .{}) catch buf[0..0];
+    if (secs < 0) return std.mem.print(buf, "—", .{}) catch buf[0..0];
     const es: std.time.epoch.EpochSeconds = .{ .secs = @intCast(secs) };
     const day = es.getEpochDay().calculateYearDay();
     const md = day.calculateMonthDay();
     const ds = es.getDaySeconds();
-    return std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}", .{
+    return std.mem.print(buf, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}", .{
         day.year, md.month.numeric(), md.day_index + 1, ds.getHoursIntoDay(), ds.getMinutesIntoHour(),
     }) catch buf[0..0];
 }
@@ -452,20 +453,20 @@ pub fn formatMode(buf: *[9]u8, mode: u32) []const u8 {
 /// `dir` joined with `name`.
 pub fn join(buf: []u8, dir: []const u8, nm: []const u8) ?[]u8 {
     const sep: []const u8 = if (dir.len > 0 and dir[dir.len - 1] == '/') "" else "/";
-    return std.fmt.bufPrint(buf, "{s}{s}{s}", .{ dir, sep, nm }) catch null;
+    return std.mem.print(buf, "{s}{s}{s}", .{ dir, sep, nm }) catch null;
 }
 
 /// The parent of an absolute path; "/" is its own parent.
 pub fn parent(path: []const u8) []const u8 {
     if (path.len <= 1) return "/";
-    const i = std.mem.lastIndexOfScalar(u8, path, '/') orelse return "/";
+    const i = std.mem.findScalarLast(u8, path, '/') orelse return "/";
     return if (i == 0) "/" else path[0..i];
 }
 
 /// The last component; "/" for the root.
 pub fn basename(path: []const u8) []const u8 {
     if (path.len <= 1) return "/";
-    const i = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;
+    const i = std.mem.findScalarLast(u8, path, '/') orelse return path;
     return path[i + 1 ..];
 }
 
@@ -480,7 +481,7 @@ pub fn isWithin(path: []const u8, dir: []const u8) bool {
 pub fn validName(nm: []const u8) bool {
     if (nm.len == 0 or nm.len > 255) return false;
     if (std.mem.eql(u8, nm, ".") or std.mem.eql(u8, nm, "..")) return false;
-    return std.mem.indexOfAny(u8, nm, "/\x00") == null;
+    return std.mem.findAny(u8, nm, "/\x00") == null;
 }
 
 /// The Drives folder's path. No folder on disk normalizes to it (it

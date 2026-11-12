@@ -166,30 +166,30 @@ pub fn load(gpa: Allocator, dirs: Dirs) !*Db {
     // Applications: earlier directories win for the same id.
     for (dirs.data) |d| {
         var pbuf: [linux.PATH_MAX]u8 = undefined;
-        const apps_dir = std.fmt.bufPrint(&pbuf, "{s}/applications", .{d}) catch continue;
+        const apps_dir = std.mem.print(&pbuf, "{s}/applications", .{d}) catch continue;
         scanApps(db, gpa, apps_dir, "") catch {};
     }
     // mimeapps.list, most important first: config dirs (desktop-specific
     // before generic), then data dirs' applications/.
-    if (dirs.config.len > 0) db.user_list = try std.fmt.allocPrint(db.a(), "{s}/mimeapps.list", .{dirs.config[0]});
+    if (dirs.config.len > 0) db.user_list = try db.a().print("{s}/mimeapps.list", .{dirs.config[0]});
     for (dirs.config) |d| {
         for (dirs.desktops) |desk| {
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            readMimeApps(db, gpa, std.fmt.bufPrint(&pbuf, "{s}/{s}-mimeapps.list", .{ d, desk }) catch continue) catch {};
+            readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/{s}-mimeapps.list", .{ d, desk }) catch continue) catch {};
         }
         var pbuf: [linux.PATH_MAX]u8 = undefined;
-        readMimeApps(db, gpa, std.fmt.bufPrint(&pbuf, "{s}/mimeapps.list", .{d}) catch continue) catch {};
+        readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/mimeapps.list", .{d}) catch continue) catch {};
     }
     for (dirs.data) |d| {
         var pbuf: [linux.PATH_MAX]u8 = undefined;
-        readMimeApps(db, gpa, std.fmt.bufPrint(&pbuf, "{s}/applications/mimeapps.list", .{d}) catch continue) catch {};
+        readMimeApps(db, gpa, std.mem.print(&pbuf, "{s}/applications/mimeapps.list", .{d}) catch continue) catch {};
     }
     return db;
 }
 
 fn scanApps(db: *Db, gpa: Allocator, dir: []const u8, prefix: []const u8) !void {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = try std.fmt.bufPrintSentinel(&zbuf, "{s}", .{dir}, 0);
+    const z = try std.mem.printSentinel(&zbuf, "{s}", .{dir}, 0);
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return;
     const fd: i32 = @intCast(rc);
@@ -206,17 +206,17 @@ fn scanApps(db: *Db, gpa: Allocator, dir: []const u8, prefix: []const u8) !void 
             const nm = std.mem.span(raw);
             if (nm[0] == '.') continue;
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            const path = std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ dir, nm }) catch continue;
+            const path = std.mem.print(&pbuf, "{s}/{s}", .{ dir, nm }) catch continue;
             if (d.type == linux.DT.DIR) {
                 // Subdirectories prefix the id: kde/x.desktop is kde-x.desktop.
                 var idp: [256]u8 = undefined;
-                const p = std.fmt.bufPrint(&idp, "{s}{s}-", .{ prefix, nm }) catch continue;
+                const p = std.mem.print(&idp, "{s}{s}-", .{ prefix, nm }) catch continue;
                 scanApps(db, gpa, path, p) catch {};
                 continue;
             }
             if (!std.mem.endsWith(u8, nm, ".desktop")) continue;
             var idb: [256]u8 = undefined;
-            const id = std.fmt.bufPrint(&idb, "{s}{s}", .{ prefix, nm }) catch continue;
+            const id = std.mem.print(&idb, "{s}{s}", .{ prefix, nm }) catch continue;
             if (db.by_id.contains(id)) continue;
             const data = readAll(gpa, path) orelse continue;
             defer gpa.free(data);
@@ -258,7 +258,7 @@ pub fn parseEntry(arena: Allocator, data: []const u8) !?App {
             continue;
         }
         if (!in_entry) continue;
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, line, '=') orelse continue;
         const key = std.mem.trim(u8, line[0..eq], " ");
         const value = std.mem.trim(u8, line[eq + 1 ..], " ");
         if (std.mem.eql(u8, key, "Type")) {
@@ -323,7 +323,7 @@ fn readMimeApps(db: *Db, gpa: Allocator, path: []const u8) !void {
             section = if (std.mem.eql(u8, line, "[Default Applications]")) .defaults else if (std.mem.eql(u8, line, "[Added Associations]")) .added else if (std.mem.eql(u8, line, "[Removed Associations]")) .removed else .none;
             continue;
         }
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const eq = std.mem.findScalar(u8, line, '=') orelse continue;
         const map = switch (section) {
             .none => continue,
             .defaults => &db.defaults,
@@ -339,7 +339,7 @@ fn readMimeApps(db: *Db, gpa: Allocator, path: []const u8) !void {
 
 fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return null;
     const fd: i32 = @intCast(rc);
@@ -360,9 +360,9 @@ fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
 
 fn writeAll(path: []const u8, data: []const u8) !void {
     var tbuf: [linux.PATH_MAX]u8 = undefined;
-    const tmp = try std.fmt.bufPrintSentinel(&tbuf, "{s}.tmp", .{path}, 0);
+    const tmp = try std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = try std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0);
+    const z = try std.mem.printSentinel(&zbuf, "{s}", .{path}, 0);
     const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
     if (linux.errno(rc) != .SUCCESS) return error.AccessDenied;
     const fd: i32 = @intCast(rc);
@@ -391,8 +391,8 @@ pub fn commandLines(arena: Allocator, app: *const App, paths: []const []const u8
     var takes_list = false;
     var takes_one = false;
     for (args) |arg| {
-        if (std.mem.indexOf(u8, arg, "%F") != null or std.mem.indexOf(u8, arg, "%U") != null) takes_list = true;
-        if (std.mem.indexOf(u8, arg, "%f") != null or std.mem.indexOf(u8, arg, "%u") != null) takes_one = true;
+        if (std.mem.find(u8, arg, "%F") != null or std.mem.find(u8, arg, "%U") != null) takes_list = true;
+        if (std.mem.find(u8, arg, "%f") != null or std.mem.find(u8, arg, "%u") != null) takes_one = true;
     }
     var out: std.ArrayList([]const []const u8) = .empty;
     if (takes_list or paths.len == 0 or !takes_one) {
@@ -448,7 +448,7 @@ fn terminal(arena: Allocator, out: *std.ArrayList([]const u8)) !void {
             }
             // "foot -e" or the like already ends in its flag.
             if (has_args) return;
-            const base = if (std.mem.lastIndexOfScalar(u8, prog, '/')) |i| prog[i + 1 ..] else prog;
+            const base = if (std.mem.findScalarLast(u8, prog, '/')) |i| prog[i + 1 ..] else prog;
             for (known_terminals) |k| if (std.mem.eql(u8, k[0], base)) {
                 for (k[1..]) |x| try out.append(arena, x);
                 return;
@@ -496,7 +496,7 @@ pub fn onPath(prog: []const u8) bool {
     var it = std.mem.tokenizeScalar(u8, path, ':');
     while (it.next()) |dir| {
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ dir, prog }, 0) catch continue;
+        const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ dir, prog }, 0) catch continue;
         if (linux.errno(linux.faccessat(linux.AT.FDCWD, p, linux.X_OK, 0)) == .SUCCESS) return true;
     }
     return false;
@@ -515,7 +515,7 @@ pub fn splitExec(arena: Allocator, exec: []const u8) ![]const []const u8 {
         if (in_quotes) {
             if (ch == '"') {
                 in_quotes = false;
-            } else if (ch == '\\' and i + 1 < exec.len and std.mem.indexOfScalar(u8, "\"`$\\", exec[i + 1]) != null) {
+            } else if (ch == '\\' and i + 1 < exec.len and std.mem.findScalar(u8, "\"`$\\", exec[i + 1]) != null) {
                 i += 1;
                 try cur.append(arena, exec[i]);
             } else try cur.append(arena, ch);
@@ -618,8 +618,8 @@ pub fn spawn(gpa: Allocator, argv: []const []const u8, cwd: []const u8, token: [
         try env.append(arena, e);
     }
     if (token.len != 0) {
-        try env.append(arena, try std.fmt.allocPrintSentinel(arena, "XDG_ACTIVATION_TOKEN={s}", .{token}, 0));
-        try env.append(arena, try std.fmt.allocPrintSentinel(arena, "DESKTOP_STARTUP_ID={s}", .{token}, 0));
+        try env.append(arena, try arena.printSentinel("XDG_ACTIVATION_TOKEN={s}", .{token}, 0));
+        try env.append(arena, try arena.printSentinel("DESKTOP_STARTUP_ID={s}", .{token}, 0));
     }
     const cenv = try arena.allocSentinel(?[*:0]const u8, env.items.len, null);
     @memcpy(cenv[0..env.items.len], env.items);

@@ -10,6 +10,7 @@
 //! comment cache changes afterwards, under a mutex.
 
 const std = @import("std");
+const Io = std.Io;
 const builtin = @import("builtin");
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
@@ -139,7 +140,7 @@ pub const Db = struct {
         if (db.literal_ci.get(lower)) |h| return hitsMatch(h);
         // The longest extension that is a glob: from the first dot on.
         var i: usize = 0;
-        while (std.mem.indexOfScalarPos(u8, file_name, i, '.')) |dot| : (i = dot + 1) {
+        while (std.mem.findScalarPos(u8, file_name, i, '.')) |dot| : (i = dot + 1) {
             if (dot + 1 >= file_name.len) break;
             if (db.ext_cs.get(file_name[dot + 1 ..])) |h| return hitsMatch(h);
             if (db.ext_ci.get(lower[dot + 1 ..])) |h| return hitsMatch(h);
@@ -243,7 +244,7 @@ pub const Db = struct {
     /// type's own icon, its generic icon, then the media type's generic.
     pub fn iconNames(db: *const Db, id: Id, buf: []u8) []const u8 {
         const nm = db.name(id);
-        var w: std.Io.Writer = .fixed(buf);
+        var w: Io.Writer = .fixed(buf);
         if (id == directory) return "folder";
         if (db.icon.get(id)) |ic| w.print("{s}\n", .{ic}) catch {};
         for (nm) |ch| w.writeByte(if (ch == '/') '-' else ch) catch {};
@@ -251,7 +252,7 @@ pub const Db = struct {
         if (db.generic_icon.get(id)) |g| {
             w.print("{s}\n", .{g}) catch {};
         } else {
-            const slash = std.mem.indexOfScalar(u8, nm, '/') orelse nm.len;
+            const slash = std.mem.findScalar(u8, nm, '/') orelse nm.len;
             const media = nm[0..slash];
             const generic: []const u8 = if (std.mem.eql(u8, media, "image")) "image-x-generic" else if (std.mem.eql(u8, media, "audio")) "audio-x-generic" else if (std.mem.eql(u8, media, "video")) "video-x-generic" else if (std.mem.eql(u8, media, "text")) "text-x-generic" else if (std.mem.eql(u8, media, "font")) "font-x-generic" else if (id == executable) "application-x-executable" else "application-x-generic";
             w.print("{s}\n", .{generic}) catch {};
@@ -290,12 +291,12 @@ pub const Db = struct {
         const nm = db.name(id);
         for (db.dirs.items) |dir| {
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            const p = std.fmt.bufPrint(&pbuf, "{s}/mime/{s}.xml", .{ dir, nm }) catch continue;
+            const p = std.mem.print(&pbuf, "{s}/mime/{s}.xml", .{ dir, nm }) catch continue;
             var buf: [16384]u8 = undefined;
             const xml = readFile(p, &buf) orelse continue;
-            if (std.mem.indexOf(u8, xml, "<comment>")) |start| {
+            if (std.mem.find(u8, xml, "<comment>")) |start| {
                 const s = start + "<comment>".len;
-                const e = std.mem.indexOfPos(u8, xml, s, "</comment>") orelse continue;
+                const e = std.mem.findPos(u8, xml, s, "</comment>") orelse continue;
                 return try unescapeXml(db.a(), xml[s..e]);
             }
         }
@@ -419,7 +420,7 @@ fn markContested(db: *Db) !void {
 /// ["~"word-size] ["+"range]"\n".
 fn loadMagic(db: *Db, dir: []const u8, wanted: *const std.DynamicBitSetUnmanaged) !void {
     var pbuf: [linux.PATH_MAX]u8 = undefined;
-    const p = try std.fmt.bufPrint(&pbuf, "{s}/mime/magic", .{dir});
+    const p = try std.mem.print(&pbuf, "{s}/mime/magic", .{dir});
     const data = readAll(db.gpa, p) orelse return;
     defer db.gpa.free(data);
     const header = "MIME-Magic\x00\n";
@@ -429,11 +430,11 @@ fn loadMagic(db: *Db, dir: []const u8, wanted: *const std.DynamicBitSetUnmanaged
     defer flat.deinit(db.gpa);
     while (r.pos < data.len) {
         if (data[r.pos] != '[') return; // malformed: stop
-        const close = std.mem.indexOfScalarPos(u8, data, r.pos, ']') orelse return;
+        const close = std.mem.findScalarPos(u8, data, r.pos, ']') orelse return;
         const head = data[r.pos + 1 .. close];
         r.pos = close + 1;
         if (r.pos < data.len and data[r.pos] == '\n') r.pos += 1;
-        const colon = std.mem.indexOfScalar(u8, head, ':') orelse return;
+        const colon = std.mem.findScalar(u8, head, ':') orelse return;
         const priority = std.fmt.parseInt(u8, head[0..colon], 10) catch 50;
         flat.clearRetainingCapacity();
         while (r.pos < data.len and data[r.pos] != '[') {
@@ -487,7 +488,7 @@ const MagicReader = struct {
                 '+' => m.range = @max(1, r.number() orelse 1),
                 // An extension this reader does not know: skip the line.
                 else => {
-                    const nl = std.mem.indexOfScalarPos(u8, r.data, r.pos, '\n') orelse r.data.len;
+                    const nl = std.mem.findScalarPos(u8, r.data, r.pos, '\n') orelse r.data.len;
                     r.pos = @min(r.data.len, nl + 1);
                     break;
                 },
@@ -559,7 +560,7 @@ fn matchletHits(m: Matchlet, head: []const u8) bool {
 /// Whether the bytes read as text: UTF-8 (a sequence cut off at the end
 /// is fine), no NUL, and few control characters.
 pub fn looksLikeText(head: []const u8) bool {
-    if (std.mem.indexOfScalar(u8, head, 0) != null) return false;
+    if (std.mem.findScalar(u8, head, 0) != null) return false;
     var bad: usize = 0;
     for (head) |b| bad += @intFromBool(b < 0x09 or (b > 0x0d and b < 0x20 and b != 0x1b) or b == 0x7f);
     if (bad * 20 > head.len) return false;
@@ -577,7 +578,7 @@ pub fn looksLikeText(head: []const u8) bool {
 
 fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return null;
     const fd: i32 = @intCast(rc);
@@ -597,7 +598,7 @@ fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
 
 fn readFile(path: []const u8, buf: []u8) ?[]u8 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return null;
     const fd: i32 = @intCast(rc);
@@ -613,7 +614,7 @@ fn readFile(path: []const u8, buf: []u8) ?[]u8 {
 
 fn eachLine(gpa: Allocator, dir: []const u8, file: []const u8, ctx: anytype, comptime f: fn (@TypeOf(ctx), []const u8) anyerror!void) !void {
     var pbuf: [linux.PATH_MAX]u8 = undefined;
-    const p = try std.fmt.bufPrint(&pbuf, "{s}/mime/{s}", .{ dir, file });
+    const p = try std.mem.print(&pbuf, "{s}/mime/{s}", .{ dir, file });
     const data = readAll(gpa, p) orelse return;
     defer gpa.free(data);
     var it = std.mem.splitScalar(u8, data, '\n');
@@ -642,10 +643,10 @@ fn globLine(db: *Db, line: []const u8) !void {
     const t = it.next() orelse return;
     const glob = it.next() orelse return;
     const flags = it.next() orelse "";
-    const cs = std.mem.indexOf(u8, flags, "cs") != null;
+    const cs = std.mem.find(u8, flags, "cs") != null;
     const id = try db.intern(t);
     const hit: Hit = .{ .id = id, .weight = weight };
-    const special = std.mem.indexOfAny(u8, glob, "*?[") != null;
+    const special = std.mem.findAny(u8, glob, "*?[") != null;
     if (!special) {
         if (cs) try putHit(db, &db.literal, glob, hit) else {
             var lb: [256]u8 = undefined;
@@ -654,7 +655,7 @@ fn globLine(db: *Db, line: []const u8) !void {
         }
         return;
     }
-    if (std.mem.startsWith(u8, glob, "*.") and std.mem.indexOfAny(u8, glob[2..], "*?[") == null) {
+    if (std.mem.startsWith(u8, glob, "*.") and std.mem.findAny(u8, glob[2..], "*?[") == null) {
         const ext = glob[2..];
         if (cs) try putHit(db, &db.ext_cs, ext, hit) else {
             var lb: [256]u8 = undefined;
@@ -670,7 +671,7 @@ fn globLine(db: *Db, line: []const u8) !void {
 }
 
 fn aliasLine(db: *Db, line: []const u8) !void {
-    const sp = std.mem.indexOfScalar(u8, line, ' ') orelse return;
+    const sp = std.mem.findScalar(u8, line, ' ') orelse return;
     const canonical = try db.intern(line[sp + 1 ..]);
     const gop = try db.aliases.getOrPut(db.a(), line[0..sp]);
     if (!gop.found_existing) gop.key_ptr.* = try db.a().dupe(u8, line[0..sp]);
@@ -678,7 +679,7 @@ fn aliasLine(db: *Db, line: []const u8) !void {
 }
 
 fn subclassLine(db: *Db, line: []const u8) !void {
-    const sp = std.mem.indexOfScalar(u8, line, ' ') orelse return;
+    const sp = std.mem.findScalar(u8, line, ' ') orelse return;
     const child = try db.intern(line[0..sp]);
     const parent = try db.intern(line[sp + 1 ..]);
     const gop = try db.parents.getOrPut(db.a(), child);
@@ -693,7 +694,7 @@ fn subclassLine(db: *Db, line: []const u8) !void {
 const IconCtx = struct { db: *Db, map: *std.AutoHashMapUnmanaged(Id, []const u8) };
 
 fn iconLine(ctx: IconCtx, line: []const u8) !void {
-    const colon = std.mem.indexOfScalar(u8, line, ':') orelse return;
+    const colon = std.mem.findScalar(u8, line, ':') orelse return;
     const id = try ctx.db.intern(line[0..colon]);
     try ctx.map.put(ctx.db.a(), id, try ctx.db.a().dupe(u8, line[colon + 1 ..]));
 }
@@ -813,13 +814,13 @@ pub fn sniff(db: *Db, head: []const u8, mode: u32) Id {
         return db.lookup(m[1]) orelse (db.intern(m[1]) catch octet_stream);
     };
     if (std.mem.startsWith(u8, head, "#!")) {
-        const nl = std.mem.indexOfScalar(u8, head, '\n') orelse head.len;
+        const nl = std.mem.findScalar(u8, head, '\n') orelse head.len;
         const line = head[0..nl];
-        if (std.mem.indexOf(u8, line, "python") != null) return db.lookup("text/x-python") orelse shellscript;
-        if (std.mem.indexOf(u8, line, "perl") != null) return db.lookup("application/x-perl") orelse shellscript;
+        if (std.mem.find(u8, line, "python") != null) return db.lookup("text/x-python") orelse shellscript;
+        if (std.mem.find(u8, line, "perl") != null) return db.lookup("application/x-perl") orelse shellscript;
         return shellscript;
     }
-    if (std.mem.indexOfScalar(u8, head, 0) != null) return octet_stream;
+    if (std.mem.findScalar(u8, head, 0) != null) return octet_stream;
     // Mostly printable: text.
     var bad: usize = 0;
     for (head) |b| if (b < 0x09 or (b > 0x0d and b < 0x20 and b != 0x1b)) {
@@ -846,15 +847,15 @@ test "database" {
         extern "c" fn mkdtemp(template: [*:0]u8) ?[*:0]u8;
         extern "c" fn system(cmd: [*:0]const u8) c_int;
     };
-    const tmpl = try std.fmt.bufPrintSentinel(&tmp_buf, "/tmp/siv-files-mime-XXXXXX", .{}, 0);
+    const tmpl = try std.mem.printSentinel(&tmp_buf, "/tmp/siv-files-mime-XXXXXX", .{}, 0);
     _ = S.mkdtemp(tmpl.ptr) orelse return error.Unexpected;
     var cmd_buf: [2048]u8 = undefined;
-    const cmd = try std.fmt.bufPrintSentinel(&cmd_buf,
+    const cmd = try std.mem.printSentinel(&cmd_buf,
         \\mkdir -p {0s}/mime/text && printf '50:text/x-csrc:*.c\n50:application/x-compressed-tar:*.tar.gz\n50:application/gzip:*.gz\n50:text/x-makefile:makefile\n50:text/x-c++src:*.C:cs\n10:application/x-sharedlib:*.so.[0-9]*\n' > {0s}/mime/globs2 && printf 'text/x-csrc text/plain\n' > {0s}/mime/subclasses && printf 'application/x-gzip application/gzip\n' > {0s}/mime/aliases && printf '<mime-type><comment>C source code</comment><comment xml:lang="de">C-Quelltext</comment></mime-type>' > {0s}/mime/text/x-csrc.xml
     , .{tmpl}, 0);
     try testing.expectEqual(@as(c_int, 0), S.system(cmd.ptr));
     defer {
-        const rm = std.fmt.bufPrintSentinel(&cmd_buf, "rm -rf {s}", .{tmpl}, 0) catch unreachable;
+        const rm = std.mem.printSentinel(&cmd_buf, "rm -rf {s}", .{tmpl}, 0) catch unreachable;
         _ = S.system(rm.ptr);
     }
     const db = try load(gpa, &.{tmpl});
@@ -888,21 +889,21 @@ test "names several types claim are settled by content" {
         extern "c" fn system(cmd: [*:0]const u8) c_int;
         fn write(dir: []const u8, file: []const u8, bytes: []const u8) !void {
             var pb: [256]u8 = undefined;
-            const p = try std.fmt.bufPrintSentinel(&pb, "{s}/mime/{s}", .{ dir, file }, 0);
+            const p = try std.mem.printSentinel(&pb, "{s}/mime/{s}", .{ dir, file }, 0);
             const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
             if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
             defer _ = linux.close(@intCast(rc));
             if (linux.write(@intCast(rc), bytes.ptr, bytes.len) != bytes.len) return error.Unexpected;
         }
     };
-    const tmpl = try std.fmt.bufPrintSentinel(&tmp_buf, "/tmp/siv-files-mime-XXXXXX", .{}, 0);
+    const tmpl = try std.mem.printSentinel(&tmp_buf, "/tmp/siv-files-mime-XXXXXX", .{}, 0);
     _ = S.mkdtemp(tmpl.ptr) orelse return error.Unexpected;
     var cmd_buf: [256]u8 = undefined;
     defer {
-        const rm = std.fmt.bufPrintSentinel(&cmd_buf, "rm -rf {s}", .{tmpl}, 0) catch unreachable;
+        const rm = std.mem.printSentinel(&cmd_buf, "rm -rf {s}", .{tmpl}, 0) catch unreachable;
         _ = S.system(rm.ptr);
     }
-    const mk = try std.fmt.bufPrintSentinel(&cmd_buf, "mkdir -p {s}/mime", .{tmpl}, 0);
+    const mk = try std.mem.printSentinel(&cmd_buf, "mkdir -p {s}/mime", .{tmpl}, 0);
     try testing.expectEqual(@as(c_int, 0), S.system(mk.ptr));
     // As in shared-mime-info 2.5, plus two made-up types for word sizes
     // and masks, and two text types that only a glob tells apart.

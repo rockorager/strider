@@ -9,6 +9,8 @@
 //! cursor in its folder.
 
 const std = @import("std");
+const print = std.debug.print;
+const Io = std.Io;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -79,7 +81,7 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--config")) {
             i += 1;
             if (i >= args.len) {
-                std.debug.print("strider: --config needs a file\n", .{});
+                print("strider: --config needs a file\n", .{});
                 return 2;
             }
             config_override = args[i];
@@ -88,13 +90,13 @@ pub fn main(init: std.process.Init) !u8 {
         } else if (std.mem.eql(u8, a, "--service") or std.mem.eql(u8, a, "--gapplication-service")) {
             service = true;
         } else if (std.mem.eql(u8, a, "--version")) {
-            std.debug.print("strider " ++ @import("build_options").version ++ "\n", .{});
+            print("strider " ++ @import("build_options").version ++ "\n", .{});
             return 0;
         } else if (std.mem.eql(u8, a, "--help") or std.mem.eql(u8, a, "-h")) {
-            std.debug.print("{s}", .{usage});
+            print("{s}", .{usage});
             return 0;
         } else if (std.mem.startsWith(u8, a, "--")) {
-            std.debug.print("strider: unknown option {s}\n{s}", .{ a, usage });
+            print("strider: unknown option {s}\n{s}", .{ a, usage });
             return 2;
         } else {
             try paths.append(arena, a);
@@ -103,25 +105,25 @@ pub fn main(init: std.process.Init) !u8 {
 
     const home = env("HOME") orelse "/";
     var data_dirs: std.ArrayList([]const u8) = .empty;
-    try data_dirs.append(arena, env("XDG_DATA_HOME") orelse try std.fmt.allocPrint(arena, "{s}/.local/share", .{home}));
+    try data_dirs.append(arena, env("XDG_DATA_HOME") orelse try arena.print("{s}/.local/share", .{home}));
     var it = std.mem.tokenizeScalar(u8, env("XDG_DATA_DIRS") orelse "/usr/local/share:/usr/share", ':');
     while (it.next()) |d| try data_dirs.append(arena, d);
     var config_dirs: std.ArrayList([]const u8) = .empty;
-    const config_home = env("XDG_CONFIG_HOME") orelse try std.fmt.allocPrint(arena, "{s}/.config", .{home});
+    const config_home = env("XDG_CONFIG_HOME") orelse try arena.print("{s}/.config", .{home});
     try config_dirs.append(arena, config_home);
     it = std.mem.tokenizeScalar(u8, env("XDG_CONFIG_DIRS") orelse "/etc/xdg", ':');
     while (it.next()) |d| try config_dirs.append(arena, d);
     var desktops: std.ArrayList([]const u8) = .empty;
     it = std.mem.tokenizeScalar(u8, env("XDG_CURRENT_DESKTOP") orelse "", ':');
     while (it.next()) |d| try desktops.append(arena, try std.ascii.allocLowerString(arena, d));
-    const state_home = env("XDG_STATE_HOME") orelse try std.fmt.allocPrint(arena, "{s}/.local/state", .{home});
+    const state_home = env("XDG_STATE_HOME") orelse try arena.print("{s}/.local/state", .{home});
 
     // URIs for the command line's paths, resolved against the working
     // directory.
     var uris: std.ArrayList(siv.Uri) = .empty;
     for (paths.items) |p| {
         var list: std.ArrayList(u8) = .empty;
-        if (std.mem.indexOf(u8, p, "://") != null) {
+        if (std.mem.find(u8, p, "://") != null) {
             try list.appendSlice(arena, p);
         } else {
             const z = try arena.dupeSentinel(u8, p, 0);
@@ -135,14 +137,14 @@ pub fn main(init: std.process.Init) !u8 {
     var sapp: siv.App = .null;
     var r = c.siv_app_create(&.{ .flags = flags, .name = "Strider", .name_len = 7, .app_id = App.app_id, .app_id_len = App.app_id.len }, &sapp);
     if (r != .ok) {
-        std.debug.print("strider: cannot start: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        print("strider: cannot start: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     defer _ = c.siv_app_destroy(sapp);
     if (scheme != .follow) _ = c.siv_app_set_theme(sapp, &.{ .scheme = scheme });
 
     var icon_buf: [4096]u8 = undefined;
-    const config_file = if (clean) null else config_override orelse try std.fmt.allocPrint(arena, "{s}/" ++ App.program ++ "/init.lua", .{config_home});
+    const config_file = if (clean) null else config_override orelse try arena.print("{s}/" ++ App.program ++ "/init.lua", .{config_home});
     const app = App.create(sapp, .{
         .gpa = gpa,
         .home = home,
@@ -156,9 +158,9 @@ pub fn main(init: std.process.Init) !u8 {
         .tz_offset_s = localOffset(),
         .icon_dir = iconDir(&icon_buf),
         .config_file = config_file,
-        .state_dir = try std.fmt.allocPrint(arena, "{s}/" ++ App.program, .{state_home}),
+        .state_dir = try arena.print("{s}/" ++ App.program, .{state_home}),
     }) catch |err| {
-        std.debug.print("strider: cannot start: {s}\n", .{@errorName(err)});
+        print("strider: cannot start: {s}\n", .{@errorName(err)});
         return 1;
     };
     defer app.destroy();
@@ -178,14 +180,14 @@ pub fn main(init: std.process.Init) !u8 {
         .idle_timeout_ms = if (service) 30_000 else 0,
     });
     if (r != .ok) {
-        std.debug.print("strider: cannot launch: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        print("strider: cannot launch: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     // The application's services on the session bus.
     app.startServices();
     r = c.siv_app_run(sapp);
     if (r != .ok) {
-        std.debug.print("strider: {s}\n", .{std.mem.span(c.siv_result_name(r))});
+        print("strider: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
     }
     return 0;
@@ -245,9 +247,9 @@ fn iconDir(buf: []u8) ?[]const u8 {
     var exe: [4096]u8 = undefined;
     const n = linux.readlink("/proc/self/exe", &exe, exe.len);
     if (linux.errno(n) != .SUCCESS) return null;
-    const bin = std.fs.path.dirname(exe[0..n]) orelse return null;
-    const prefix = std.fs.path.dirname(bin) orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/share/" ++ App.program ++ "/icons", .{prefix}) catch null;
+    const bin = Io.Dir.path.dirname(exe[0..n]) orelse return null;
+    const prefix = Io.Dir.path.dirname(bin) orelse return null;
+    return std.mem.print(buf, "{s}/share/" ++ App.program ++ "/icons", .{prefix}) catch null;
 }
 
 /// The local time zone's offset from UTC now, in seconds, from libc.

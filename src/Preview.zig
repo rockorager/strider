@@ -14,6 +14,7 @@
 //! hung file system cannot take the workers that read folders.
 
 const std = @import("std");
+const Io = std.Io;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
@@ -310,7 +311,7 @@ fn applyCaption(p: *Preview, txn: Txn, d: *Dir, e: model.Entry) void {
     var sbuf: [32]u8 = undefined;
     var tbuf: [32]u8 = undefined;
     const tz = if (p.win.app.opts.reproducible) 0 else p.win.app.tz_offset_s;
-    const cap = std.fmt.bufPrint(&buf, "{s}  ·  {s}  ·  {s}", .{ d.listing.?.base(e), model.formatSize(&sbuf, e.size), model.formatTime(&tbuf, e.mtime, tz) }) catch "";
+    const cap = std.mem.print(&buf, "{s}  ·  {s}  ·  {s}", .{ d.listing.?.base(e), model.formatSize(&sbuf, e.size), model.formatTime(&tbuf, e.mtime, tz) }) catch "";
     _ = c.siv_set_text(txn, p.caption, cap.ptr, cap.len);
 }
 
@@ -373,7 +374,7 @@ fn showDrive(p: *Preview, txn: Txn, row: *const places.DriveRows.Row) void {
     var sbuf: [32]u8 = undefined;
     var buf: [128]u8 = undefined;
     const note = "Not mounted. Opening it mounts it.";
-    const body = if (row.drive.size != 0) std.fmt.bufPrint(&buf, "Size\t{s}\n\n" ++ note, .{model.formatSize(&sbuf, row.drive.size)}) catch note else note;
+    const body = if (row.drive.size != 0) std.mem.print(&buf, "Size\t{s}\n\n" ++ note, .{model.formatSize(&sbuf, row.drive.size)}) catch note else note;
     p.setInfoText(txn, row.drive.label, body);
     p.applyModeTxn(txn, .info);
     p.applied = .info;
@@ -514,7 +515,7 @@ const Job = struct {
             .link => {
                 var zb: [linux.PATH_MAX]u8 = undefined;
                 var lbuf: [linux.PATH_MAX]u8 = undefined;
-                const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{j.path}, 0) catch return;
+                const z = std.mem.printSentinel(&zb, "{s}", .{j.path}, 0) catch return;
                 const n = linux.readlinkat(linux.AT.FDCWD, z, &lbuf, lbuf.len);
                 if (linux.errno(n) == .SUCCESS) j.text.appendSlice(j.gpa, lbuf[0..n]) catch {};
             },
@@ -523,7 +524,7 @@ const Job = struct {
 
     fn readText(j: *Job) void {
         var zb: [linux.PATH_MAX]u8 = undefined;
-        const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{j.path}, 0) catch return;
+        const z = std.mem.printSentinel(&zb, "{s}", .{j.path}, 0) catch return;
         const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true, .NOCTTY = true }, 0);
         if (linux.errno(rc) != .SUCCESS) {
             j.failed = "This file could not be read";
@@ -541,14 +542,14 @@ const Job = struct {
         }
         j.text.shrinkRetainingCapacity(got);
         const head = j.text.items[0..@min(got, 8192)];
-        if (std.mem.indexOfScalar(u8, head, 0) != null or !std.unicode.utf8ValidateSlice(trimPartial(head))) {
+        if (std.mem.findScalar(u8, head, 0) != null or !std.unicode.utf8ValidateSlice(trimPartial(head))) {
             j.text_kind = .binary;
             j.hexDump(j.text.items[0..@min(got, hex_bytes)]) catch {};
             return;
         }
         // Cut at the last whole line or character.
         if (got == want and j.size > want) {
-            if (std.mem.lastIndexOfScalar(u8, j.text.items, '\n')) |nl| j.text.shrinkRetainingCapacity(nl + 1);
+            if (std.mem.findScalarLast(u8, j.text.items, '\n')) |nl| j.text.shrinkRetainingCapacity(nl + 1);
         }
         const valid = trimPartial(j.text.items);
         j.text.shrinkRetainingCapacity(valid.len);
@@ -580,9 +581,9 @@ const Job = struct {
         var spans: std.ArrayList(highlight.Span) = .empty;
         var start: usize = 0;
         for (l.entries) |e| {
-            const line_len = std.mem.indexOfScalarPos(u8, j.text.items, start, '\n') orelse break;
+            const line_len = std.mem.findScalarPos(u8, j.text.items, start, '\n') orelse break;
             if (e.dir) spans.append(j.gpa, .{ .start = @intCast(start), .end = @intCast(start + e.name.len + 1), .class = .keyword }) catch {};
-            const two = std.mem.indexOfPos(u8, j.text.items[0..line_len], start, "  ");
+            const two = std.mem.findPos(u8, j.text.items[0..line_len], start, "  ");
             if (two) |t| spans.append(j.gpa, .{ .start = @intCast(t + 2), .end = @intCast(line_len), .class = .comment }) catch {};
             start = line_len + 1;
         }
@@ -636,15 +637,15 @@ const Job = struct {
         h.update(std.mem.asBytes(&w));
         const key = h.final();
         var obuf: [linux.PATH_MAX]u8 = undefined;
-        const prefix = std.fmt.bufPrint(&obuf, "{s}/{x:0>16}", .{ j.cache_dir, key }) catch return;
+        const prefix = std.mem.print(&obuf, "{s}/{x:0>16}", .{ j.cache_dir, key }) catch return;
         var pngbuf: [linux.PATH_MAX]u8 = undefined;
-        const png = std.fmt.bufPrintSentinel(&pngbuf, "{s}.png", .{prefix}, 0) catch return;
+        const png = std.mem.printSentinel(&pngbuf, "{s}.png", .{prefix}, 0) catch return;
         if (!nonEmpty(png)) {
             mkdirs(j.cache_dir);
             var wbuf: [16]u8 = undefined;
-            const ws = std.fmt.bufPrint(&wbuf, "{d}", .{w}) catch return;
+            const ws = std.mem.print(&wbuf, "{d}", .{w}) catch return;
             var sbuf: [48]u8 = undefined;
-            const scale = std.fmt.bufPrint(&sbuf, "scale={d}:-2", .{w}) catch return;
+            const scale = std.mem.print(&sbuf, "scale={d}:-2", .{w}) catch return;
             const pdf = r == .pdftoppm or r == .mutool;
             const argv: []const []const u8 = switch (r) {
                 .pdftoppm => &.{ "pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to-x", ws, "-scale-to-y", "-1", j.path, prefix },
@@ -677,7 +678,7 @@ const Job = struct {
         const views = j.gpa.alloc([]const u8, argv.len) catch return;
         defer j.gpa.free(views);
         for (argv, 0..) |a, i| views[i] = a;
-        var r = proc.run(j.gpa, views, .{ .max_output = j.max_bytes, .kill_after = j.max_bytes * 4, .cwd = std.fs.path.dirname(j.path), .cancel = &j.cancelled, .timeout_ms = program_timeout_ms }) catch {
+        var r = proc.run(j.gpa, views, .{ .max_output = j.max_bytes, .kill_after = j.max_bytes * 4, .cwd = Io.Dir.path.dirname(j.path), .cancel = &j.cancelled, .timeout_ms = program_timeout_ms }) catch {
             j.failed = "The previewer could not run";
             return;
         };
@@ -703,7 +704,7 @@ const Job = struct {
                 var out: std.ArrayList(u8) = .empty;
                 defer out.deinit(j.gpa);
                 // Before a note (a blank line), if there is one.
-                const split = std.mem.indexOf(u8, body, "\n\n") orelse body.len;
+                const split = std.mem.find(u8, body, "\n\n") orelse body.len;
                 out.print(j.gpa, "{s}\nLinks to\t{s}{s}", .{ body[0..split], j.text.items, body[split..] }) catch {};
                 _ = c.siv_set_text(txn, p.info_body, out.items.ptr, out.items.len);
             }
@@ -881,7 +882,7 @@ fn mkdirs(dir: []const u8) void {
     var i: usize = 1;
     while (i <= dir.len) : (i += 1) {
         if (i == dir.len or dir[i] == '/') {
-            const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{dir[0..i]}, 0) catch return;
+            const z = std.mem.printSentinel(&buf, "{s}", .{dir[0..i]}, 0) catch return;
             _ = linux.mkdirat(linux.AT.FDCWD, z, 0o755);
         }
     }

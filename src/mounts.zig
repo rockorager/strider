@@ -4,6 +4,7 @@
 //! real file system's mount point, for finding per-device trash folders.
 
 const std = @import("std");
+const testing = std.testing;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 
@@ -111,12 +112,12 @@ fn readAll(a: Allocator, path: [:0]const u8) ?[]u8 {
 }
 
 test "mountinfo lines" {
-    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const m = try parseLine(arena.allocator(), "36 35 98:0 / /run/media/me/My\\040Disk rw,nosuid shared:1 - vfat /dev/sdb1 rw");
-    try std.testing.expectEqualStrings("/run/media/me/My Disk", m.mount_point);
-    try std.testing.expectEqualStrings("vfat", m.fstype);
-    try std.testing.expect(isUserDrive(m));
+    try testing.expectEqualStrings("/run/media/me/My Disk", m.mount_point);
+    try testing.expectEqualStrings("vfat", m.fstype);
+    try testing.expect(isUserDrive(m));
     const p = try parseLine(arena.allocator(), "22 1 0:21 / /proc rw - proc proc rw");
-    try std.testing.expect(!isReal(p));
+    try testing.expect(!isReal(p));
 }

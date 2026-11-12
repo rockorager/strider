@@ -106,7 +106,7 @@ lua: ?*Lua = null,
 config_error: ?[]u8 = null,
 
 /// Bookmarks: a path per key character.
-bookmarks: std.AutoArrayHashMapUnmanaged(u32, []u8) = .empty,
+bookmarks: std.array_hash_map.Auto(u32, []u8) = .empty,
 /// Command lines entered, oldest first.
 history: std.ArrayList([]u8) = .empty,
 /// Column widths the user chose by dragging a handle or with < and >:
@@ -219,10 +219,10 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     self.cache.trash_dir = self.places.trash_dir;
     self.keymap.release = Lua.releaseRef;
     self.keymap.release_ctx = self;
-    const cache_root = if (opts.cache_home) |ch| try gpa.dupe(u8, ch) else try std.fmt.allocPrint(gpa, "{s}/.cache", .{opts.home});
+    const cache_root = if (opts.cache_home) |ch| try gpa.dupe(u8, ch) else try gpa.print("{s}/.cache", .{opts.home});
     defer gpa.free(cache_root);
-    self.thumbnail_cache = try std.fmt.allocPrint(gpa, "{s}/thumbnails", .{cache_root});
-    self.preview_cache = try std.fmt.allocPrint(gpa, "{s}/" ++ program ++ "/previews", .{cache_root});
+    self.thumbnail_cache = try gpa.print("{s}/thumbnails", .{cache_root});
+    self.preview_cache = try gpa.print("{s}/" ++ program ++ "/previews", .{cache_root});
     if (opts.icon_dir) |dir| try siv.check(c.siv_app_add_icon_path(sapp, dir.ptr, dir.len));
     for (Config.default_bindings) |b| self.keymap.map(b[0], b[1], .{ .command = b[2] }, b[3]) catch {};
     self.loadBookmarks();
@@ -522,7 +522,7 @@ pub fn openPaths(self: *App, win: *Window, paths: []const []const u8, with: ?*co
     if (self.waitForApps(win, paths, false)) return;
     const db = self.apps_db orelse return self.openWithPortal(win, paths);
     const types = self.loadMimeDb() orelse return self.openWithPortal(win, paths);
-    var groups: std.AutoArrayHashMapUnmanaged(*const apps.App, std.ArrayList([]const u8)) = .empty;
+    var groups: std.array_hash_map.Auto(*const apps.App, std.ArrayList([]const u8)) = .empty;
     defer {
         for (groups.values()) |*v| v.deinit(self.gpa);
         groups.deinit(self.gpa);
@@ -574,7 +574,7 @@ const Launch = struct {
         for (l.lines) |argv| apps.spawn(l.app.gpa, argv, l.cwd, token) catch {
             if (l.app.lastWindow()) |w| {
                 var buf: [256]u8 = undefined;
-                w.notify(std.fmt.bufPrint(&buf, "Could not start {s}", .{l.name}) catch "Could not start the application", true);
+                w.notify(std.mem.print(&buf, "Could not start {s}", .{l.name}) catch "Could not start the application", true);
             }
         };
     }
@@ -752,8 +752,8 @@ pub fn logMessage(self: *App, text: []const u8, is_error: bool) void {
     if (text.len == 0) return;
     const copy = self.gpa.dupe(u8, text) catch return;
     if (self.messages.items.len >= max_messages) self.gpa.free(self.messages.orderedRemove(0).text);
-    var ts: std.os.linux.timespec = undefined;
-    _ = std.os.linux.clock_gettime(.REALTIME, &ts);
+    var ts: linux.timespec = undefined;
+    _ = linux.clock_gettime(.REALTIME, &ts);
     self.messages.append(self.gpa, .{ .time = ts.sec, .is_error = is_error, .text = copy }) catch self.gpa.free(copy);
 }
 
@@ -761,7 +761,7 @@ pub fn logMessage(self: *App, text: []const u8, is_error: bool) void {
 
 fn statePath(self: *App, buf: []u8, name: []const u8) ?[]const u8 {
     const dir = self.opts.state_dir orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/{s}", .{ dir, name }) catch null;
+    return std.mem.print(buf, "{s}/{s}", .{ dir, name }) catch null;
 }
 
 fn loadWidths(self: *App) void {
@@ -788,10 +788,10 @@ pub fn setWidths(self: *App, w: ?[2]f32) void {
     const path = self.statePath(&pbuf, "columns") orelse return;
     if (w) |x| {
         var buf: [64]u8 = undefined;
-        writeAll(self.opts.state_dir.?, path, std.fmt.bufPrint(&buf, "{d:.4} {d:.4}\n", .{ x[0], x[1] }) catch return);
+        writeAll(self.opts.state_dir.?, path, std.mem.print(&buf, "{d:.4} {d:.4}\n", .{ x[0], x[1] }) catch return);
     } else {
         var zb: [linux.PATH_MAX]u8 = undefined;
-        const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
+        const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return;
         _ = linux.unlinkat(linux.AT.FDCWD, z, 0);
     }
 }
@@ -817,7 +817,7 @@ pub fn rememberChooserSize(self: *App, size: [2]u32) void {
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const path = self.statePath(&pbuf, "chooser") orelse return;
     var buf: [32]u8 = undefined;
-    writeAll(self.opts.state_dir.?, path, std.fmt.bufPrint(&buf, "{d} {d}\n", .{ size[0], size[1] }) catch return);
+    writeAll(self.opts.state_dir.?, path, std.mem.print(&buf, "{d} {d}\n", .{ size[0], size[1] }) catch return);
 }
 
 /// `:set chooser_size`: the option wins again.
@@ -826,7 +826,7 @@ pub fn forgetChooserSize(self: *App) void {
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const path = self.statePath(&pbuf, "chooser") orelse return;
     var zb: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{path}, 0) catch return;
+    const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return;
     _ = linux.unlinkat(linux.AT.FDCWD, z, 0);
 }
 
@@ -847,7 +847,7 @@ fn loadBookmarks(self: *App) void {
         const ok = if (k) |x| line.len > x.len + 1 and line[x.len] == ':' and line[x.len + 1] == '/' else false;
         if (!ok) {
             var mb: [160]u8 = undefined;
-            self.logMessage(std.fmt.bufPrint(&mb, "Skipped line {d} of the bookmarks file: not a key, a colon, and an absolute path", .{n}) catch "Skipped a line of the bookmarks file", true);
+            self.logMessage(std.mem.print(&mb, "Skipped line {d} of the bookmarks file: not a key, a colon, and an absolute path", .{n}) catch "Skipped a line of the bookmarks file", true);
             continue;
         }
         const key = k.?.cp;
@@ -869,7 +869,7 @@ fn saveBookmarks(self: *App) void {
     var it = self.bookmarks.iterator();
     while (it.next()) |kv| {
         // A line per bookmark: a path with a line break would not read back.
-        if (std.mem.indexOfScalar(u8, kv.value_ptr.*, '\n') != null) continue;
+        if (std.mem.findScalar(u8, kv.value_ptr.*, '\n') != null) continue;
         var kb: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(std.math.cast(u21, kv.key_ptr.*) orelse continue, &kb) catch continue;
         out.appendSlice(self.gpa, kb[0..n]) catch return;
@@ -910,7 +910,7 @@ fn loadHistory(self: *App) void {
 }
 
 pub fn addHistory(self: *App, line: []const u8) void {
-    if (line.len == 0 or std.mem.indexOfScalar(u8, line, '\n') != null) return;
+    if (line.len == 0 or std.mem.findScalar(u8, line, '\n') != null) return;
     // The latest copy only.
     var i: usize = 0;
     while (i < self.history.items.len) {
@@ -933,7 +933,7 @@ pub fn addHistory(self: *App, line: []const u8) void {
 
 fn readAll(gpa: Allocator, path: []const u8) ?[]u8 {
     var buf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return null;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return null;
     const fd: i32 = @intCast(rc);
@@ -960,12 +960,12 @@ fn writeAll(dir: []const u8, path: []const u8, data: []const u8) void {
     var i: usize = 1;
     while (i <= dir.len) : (i += 1) {
         if (i == dir.len or dir[i] == '/') {
-            const z = std.fmt.bufPrintSentinel(&dbuf, "{s}", .{dir[0..i]}, 0) catch return;
+            const z = std.mem.printSentinel(&dbuf, "{s}", .{dir[0..i]}, 0) catch return;
             _ = linux.mkdirat(linux.AT.FDCWD, z, 0o700);
         }
     }
     var tbuf: [linux.PATH_MAX]u8 = undefined;
-    const tmp = std.fmt.bufPrintSentinel(&tbuf, "{s}.tmp", .{path}, 0) catch return;
+    const tmp = std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0) catch return;
     const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
     if (linux.errno(rc) != .SUCCESS) return;
     const fd: i32 = @intCast(rc);
@@ -977,7 +977,7 @@ fn writeAll(dir: []const u8, path: []const u8, data: []const u8) void {
     }
     _ = linux.close(fd);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&pbuf, "{s}", .{path}, 0) catch return;
+    const z = std.mem.printSentinel(&pbuf, "{s}", .{path}, 0) catch return;
     _ = linux.renameat(linux.AT.FDCWD, tmp, linux.AT.FDCWD, z);
 }
 
@@ -1177,14 +1177,14 @@ pub fn renameOne(self: *App, win: *Window, old_path: []const u8, new_name: []con
     }
     if (std.mem.eql(u8, old_path, new_path)) return true;
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{new_path}, 0) catch return false;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{new_path}, 0) catch return false;
     if (fsops.exists(z)) {
         win.notify("A file with that name already exists", true);
         return false;
     }
     fsops.renamePath(old_path, new_path) catch |err| {
         var mbuf: [512]u8 = undefined;
-        win.notify(std.fmt.bufPrint(&mbuf, "Could not rename “{s}”: {s}", .{ model.basename(old_path), fsops.describe(err) }) catch "Could not rename", true);
+        win.notify(std.mem.print(&mbuf, "Could not rename “{s}”: {s}", .{ model.basename(old_path), fsops.describe(err) }) catch "Could not rename", true);
         return false;
     };
     self.undo.pushRenames(&.{.{ old_path, new_path }});
@@ -1208,7 +1208,7 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
     for (pairs, 0..) |p, i| {
         if (std.mem.eql(u8, p[0], p[1])) continue;
         var tb: [linux.PATH_MAX]u8 = undefined;
-        const tmp = std.fmt.bufPrint(&tb, "{s}/." ++ program ++ "-rename-{d}-{d}", .{ model.parent(p[0]), linux.getpid(), i }) catch continue;
+        const tmp = std.mem.print(&tb, "{s}/." ++ program ++ "-rename-{d}-{d}", .{ model.parent(p[0]), linux.getpid(), i }) catch continue;
         fsops.renamePath(p[0], tmp) catch {
             failed += 1;
             continue;
@@ -1220,7 +1220,7 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
     }
     for (staged.items, 0..) |s, k| {
         var zbuf: [linux.PATH_MAX]u8 = undefined;
-        const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{s[1]}, 0) catch continue;
+        const z = std.mem.printSentinel(&zbuf, "{s}", .{s[1]}, 0) catch continue;
         const taken = fsops.exists(z);
         if (taken) {
             fsops.renamePath(s[0], done.items[k][0]) catch {};
@@ -1242,9 +1242,9 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
     for (pairs) |p| self.cache.invalidate(model.parent(p[0]));
     var buf: [128]u8 = undefined;
     if (failed != 0) {
-        win.notify(std.fmt.bufPrint(&buf, "{d} items could not be renamed", .{failed}) catch "Some items could not be renamed", true);
+        win.notify(std.mem.print(&buf, "{d} items could not be renamed", .{failed}) catch "Some items could not be renamed", true);
     } else if (effective.items.len != 0) {
-        win.notify(std.fmt.bufPrint(&buf, "Renamed {d} items", .{effective.items.len}) catch "Renamed", false);
+        win.notify(std.mem.print(&buf, "Renamed {d} items", .{effective.items.len}) catch "Renamed", false);
     }
     return effective.items.len;
 }
@@ -1269,7 +1269,7 @@ pub fn undoLast(self: *App, win: *Window) void {
         .created => {
             fsops.removeEmpty(step.pairs[0].from) catch |err| {
                 var buf: [256]u8 = undefined;
-                win.notify(std.fmt.bufPrint(&buf, "Could not undo: {s}", .{fsops.describe(err)}) catch "Could not undo", true);
+                win.notify(std.mem.print(&buf, "Could not undo: {s}", .{fsops.describe(err)}) catch "Could not undo", true);
                 return;
             };
             self.cache.invalidate(model.parent(step.pairs[0].from));
@@ -1334,12 +1334,12 @@ pub fn emptyTrash(self: *App, win: *Window) void {
     defer freePathList(self.gpa, &items);
     for (dirs) |dir| for ([_][]const u8{ "files", "info" }) |sub| {
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const d = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ dir, sub }, 0) catch continue;
+        const d = std.mem.printSentinel(&buf, "{s}/{s}", .{ dir, sub }, 0) catch continue;
         var it = fsops.DirIter.open(d) catch continue;
         defer it.close();
         while (it.next()) |nm| {
             var pb: [linux.PATH_MAX]u8 = undefined;
-            const p = std.fmt.bufPrint(&pb, "{s}/{s}", .{ d, nm }) catch continue;
+            const p = std.mem.print(&pb, "{s}/{s}", .{ d, nm }) catch continue;
             items.append(self.gpa, self.gpa.dupe(u8, p) catch continue) catch {};
         }
     };

@@ -53,9 +53,9 @@ pub fn trashDirs(gpa: Allocator, home_trash: []const u8, mount_points: []const [
     for (mount_points) |mp| {
         const top = if (std.mem.eql(u8, mp, "/")) "" else mp;
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const a = std.fmt.bufPrint(&buf, "{s}/.Trash/{d}", .{ top, uid }) catch continue;
+        const a = std.mem.print(&buf, "{s}/.Trash/{d}", .{ top, uid }) catch continue;
         if (isDir(a)) try out.append(gpa, try gpa.dupe(u8, a));
-        const b = std.fmt.bufPrint(&buf, "{s}/.Trash-{d}", .{ top, uid }) catch continue;
+        const b = std.mem.print(&buf, "{s}/.Trash-{d}", .{ top, uid }) catch continue;
         if (isDir(b)) try out.append(gpa, try gpa.dupe(u8, b));
     }
     return out.toOwnedSlice(gpa);
@@ -88,7 +88,7 @@ pub fn list(gpa: Allocator, home_trash: []const u8, mount_points: []const []cons
     var sniffs: usize = 0;
     for (dirs) |dir| {
         var fbuf: [linux.PATH_MAX]u8 = undefined;
-        const files = std.fmt.bufPrintSentinel(&fbuf, "{s}/files", .{dir}, 0) catch continue;
+        const files = std.mem.printSentinel(&fbuf, "{s}/files", .{dir}, 0) catch continue;
         const fd = model.openDir(files) catch continue;
         defer _ = linux.close(fd);
         const top = topOf(dir);
@@ -108,12 +108,12 @@ pub fn list(gpa: Allocator, home_trash: []const u8, mount_points: []const []cons
                 e.hidden = false;
                 if (db) |m| e.mime = model.classify(m, fd, raw, nm, e, &sniffs);
                 var rel_buf: [linux.PATH_MAX]u8 = undefined;
-                const rel = std.fmt.bufPrint(&rel_buf, "{s}/{s}", .{ files[1..], nm }) catch continue;
+                const rel = std.mem.print(&rel_buf, "{s}/{s}", .{ files[1..], nm }) catch continue;
                 try b.add(rel, e);
                 // Its info file.
                 var item: Info.Item = .{};
                 var ibuf: [linux.PATH_MAX]u8 = undefined;
-                const info_path = std.fmt.bufPrint(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, nm }) catch "";
+                const info_path = std.mem.print(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, nm }) catch "";
                 var contents: [8192]u8 = undefined;
                 if (readSmall(info_path, &contents)) |body| {
                     const parsed = parseInfo(body);
@@ -218,15 +218,15 @@ pub fn originalPath(buf: []u8, trashed: []const u8) ?[]const u8 {
     const files_dir = model.parent(trashed);
     const dir = model.parent(files_dir);
     var ibuf: [linux.PATH_MAX]u8 = undefined;
-    const info_path = std.fmt.bufPrint(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, model.basename(trashed) }) catch return null;
+    const info_path = std.mem.print(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, model.basename(trashed) }) catch return null;
     var contents: [8192]u8 = undefined;
     const body = readSmall(info_path, &contents) orelse return null;
     const parsed = parseInfo(body);
     var pbuf: [linux.PATH_MAX]u8 = undefined;
     const p = decodePath(&pbuf, parsed.path) orelse return null;
-    if (p.len > 0 and p[0] == '/') return std.fmt.bufPrint(buf, "{s}", .{p}) catch null;
+    if (p.len > 0 and p[0] == '/') return std.mem.print(buf, "{s}", .{p}) catch null;
     const top = topOf(dir);
-    return std.fmt.bufPrint(buf, "{s}/{s}", .{ top, p }) catch null;
+    return std.mem.print(buf, "{s}/{s}", .{ top, p }) catch null;
 }
 
 /// Sorts a trash listing's indices by deletion date (modified) or
@@ -253,7 +253,7 @@ pub fn sortIndices(l: *const model.Listing, info: *const Info, order: []u32, s: 
 
 fn isDir(path: []const u8) bool {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return false;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return false;
     var st: linux.Statx = undefined;
     if (linux.errno(linux.statx(linux.AT.FDCWD, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) != .SUCCESS) return false;
     return st.mode & linux.S.IFMT == linux.S.IFDIR;
@@ -261,7 +261,7 @@ fn isDir(path: []const u8) bool {
 
 pub fn readSmall(path: []const u8, buf: []u8) ?[]const u8 {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
+    const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return null;
     const fd: i32 = @intCast(rc);

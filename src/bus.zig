@@ -3,6 +3,7 @@
 //! callers send.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const siv = @import("siv");
 const c = siv.c;
 
@@ -76,7 +77,7 @@ pub fn skip(r: Reader) void {
 
 /// A string, object path, or signature, copied with `a`; null if the next
 /// value is something else.
-pub fn readString(r: Reader, a: std.mem.Allocator) ?[]u8 {
+pub fn readString(r: Reader, a: Allocator) ?[]u8 {
     var buf: [256]u8 = undefined;
     var len: usize = 0;
     if (c.siv_dbus_reader_read_string(r, &buf, buf.len, &len) != .ok) return null;
@@ -94,7 +95,7 @@ pub fn readInt(r: Reader) ?i64 {
 
 /// An `ay` holding a NUL-terminated path (UDisks2's device and mount
 /// point arrays), without the NUL.
-pub fn readBytePath(r: Reader, a: std.mem.Allocator) ?[]u8 {
+pub fn readBytePath(r: Reader, a: Allocator) ?[]u8 {
     if (next(r) != 'a' or !enter(r)) return null;
     defer exit(r);
     var out: std.ArrayList(u8) = .empty;
@@ -108,7 +109,7 @@ pub fn readBytePath(r: Reader, a: std.mem.Allocator) ?[]u8 {
 
 /// An `as` of file URIs as paths, copied with `a`; other URIs are left
 /// out.
-pub fn readFileUris(r: Reader, a: std.mem.Allocator) [][]const u8 {
+pub fn readFileUris(r: Reader, a: Allocator) [][]const u8 {
     var out: std.ArrayList([]const u8) = .empty;
     if (next(r) != 'a' or !enter(r)) return out.items;
     defer exit(r);

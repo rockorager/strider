@@ -4,13 +4,14 @@
 //! tells a paste whether to move.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 /// Appends `path` as a file:// URI, percent-encoding every byte that is
 /// not unreserved or a slash.
-pub fn appendFileUri(out: *std.ArrayList(u8), gpa: std.mem.Allocator, path: []const u8) !void {
+pub fn appendFileUri(out: *std.ArrayList(u8), gpa: Allocator, path: []const u8) !void {
     try out.appendSlice(gpa, "file://");
     for (path) |b| {
-        const plain = std.ascii.isAlphanumeric(b) or std.mem.indexOfScalar(u8, "-._~/", b) != null;
+        const plain = std.ascii.isAlphanumeric(b) or std.mem.findScalar(u8, "-._~/", b) != null;
         if (plain) {
             try out.append(gpa, b);
         } else {
@@ -52,7 +53,7 @@ pub const Lines = struct {
 
     pub fn next(it: *Lines) ?[]const u8 {
         while (it.rest.len != 0) {
-            const end = std.mem.indexOfScalar(u8, it.rest, '\n') orelse it.rest.len;
+            const end = std.mem.findScalar(u8, it.rest, '\n') orelse it.rest.len;
             var line = it.rest[0..end];
             it.rest = if (end < it.rest.len) it.rest[end + 1 ..] else it.rest[it.rest.len..];
             if (line.len != 0 and line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
@@ -66,7 +67,7 @@ pub const Lines = struct {
 
 /// Splits x-special/gnome-copied-files into its action and URI lines.
 pub fn gnomeCopied(data: []const u8) struct { cut: bool, uris: []const u8 } {
-    const end = std.mem.indexOfScalar(u8, data, '\n') orelse data.len;
+    const end = std.mem.findScalar(u8, data, '\n') orelse data.len;
     const first = std.mem.trim(u8, data[0..end], " \r\t");
     if (std.mem.eql(u8, first, "cut") or std.mem.eql(u8, first, "copy"))
         return .{ .cut = std.mem.eql(u8, first, "cut"), .uris = if (end < data.len) data[end + 1 ..] else "" };

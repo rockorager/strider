@@ -2,6 +2,9 @@
 //! Encoding uses the Paeth-free "up" filter per row and zlib from std.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const testing = std.testing;
 const flate = std.compress.flate;
 
 pub const Image = struct {
@@ -10,14 +13,14 @@ pub const Image = struct {
     /// RGBA bytes, 4 per pixel, rows packed.
     pixels: []u8,
 
-    pub fn deinit(img: Image, gpa: std.mem.Allocator) void {
+    pub fn deinit(img: Image, gpa: Allocator) void {
         gpa.free(img.pixels);
     }
 };
 
 const signature = "\x89PNG\r\n\x1a\n";
 
-pub fn encode(gpa: std.mem.Allocator, width: u32, height: u32, rgba: []const u8) ![]u8 {
+pub fn encode(gpa: Allocator, width: u32, height: u32, rgba: []const u8) ![]u8 {
     // Filtered scanlines: filter byte 2 (up) then the row difference.
     const stride = @as(usize, width) * 4;
     const raw = try gpa.alloc(u8, (stride + 1) * height);
@@ -29,7 +32,7 @@ pub fn encode(gpa: std.mem.Allocator, width: u32, height: u32, rgba: []const u8)
         for (row, 0..) |v, i| out[1 + i] = v -% (if (y > 0) rgba[(y - 1) * stride + i] else 0);
     }
 
-    var z: std.Io.Writer.Allocating = try .initCapacity(gpa, 1 << 16);
+    var z: Io.Writer.Allocating = try .initCapacity(gpa, 1 << 16);
     defer z.deinit();
     {
         const window = try gpa.alloc(u8, flate.max_window_len);
@@ -39,7 +42,7 @@ pub fn encode(gpa: std.mem.Allocator, width: u32, height: u32, rgba: []const u8)
         try c.finish();
     }
 
-    var out: std.Io.Writer.Allocating = .init(gpa);
+    var out: Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
     const w = &out.writer;
     try w.writeAll(signature);
@@ -53,7 +56,7 @@ pub fn encode(gpa: std.mem.Allocator, width: u32, height: u32, rgba: []const u8)
     return out.toOwnedSlice();
 }
 
-fn chunk(w: *std.Io.Writer, kind: *const [4]u8, data: []const u8) !void {
+fn chunk(w: *Io.Writer, kind: *const [4]u8, data: []const u8) !void {
     try w.writeInt(u32, @intCast(data.len), .big);
     try w.writeAll(kind);
     try w.writeAll(data);
@@ -63,7 +66,7 @@ fn chunk(w: *std.Io.Writer, kind: *const [4]u8, data: []const u8) !void {
     try w.writeInt(u32, crc.final(), .big);
 }
 
-pub fn decode(gpa: std.mem.Allocator, bytes: []const u8) !Image {
+pub fn decode(gpa: Allocator, bytes: []const u8) !Image {
     if (!std.mem.startsWith(u8, bytes, signature)) return error.BadPng;
     var pos: usize = signature.len;
     var width: u32 = 0;
@@ -84,7 +87,7 @@ pub fn decode(gpa: std.mem.Allocator, bytes: []const u8) !Image {
             try idat.appendSlice(gpa, data);
         } else if (std.mem.eql(u8, kind, "IEND")) break;
     }
-    var in: std.Io.Reader = .fixed(idat.items);
+    var in: Io.Reader = .fixed(idat.items);
     var d = flate.Decompress.init(&in, .zlib, &.{});
     const raw = try d.reader.allocRemaining(gpa, .unlimited);
     defer gpa.free(raw);
@@ -125,12 +128,12 @@ fn paeth(a: u8, b: u8, c: u8) u8 {
 }
 
 test "png round trip" {
-    const gpa = std.testing.allocator;
+    const gpa = testing.allocator;
     var px: [5 * 3 * 4]u8 = undefined;
     for (&px, 0..) |*v, i| v.* = @truncate(i * 37);
     const bytes = try encode(gpa, 5, 3, &px);
     defer gpa.free(bytes);
     const img = try decode(gpa, bytes);
     defer img.deinit(gpa);
-    try std.testing.expectEqualSlices(u8, &px, img.pixels);
+    try testing.expectEqualSlices(u8, &px, img.pixels);
 }

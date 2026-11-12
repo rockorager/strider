@@ -8,6 +8,7 @@
 //! Plain Zig without siv, so the tests reach every part.
 
 const std = @import("std");
+const print = std.debug.print;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 
@@ -105,7 +106,7 @@ fn scoreWord(text: []const u8, word: []const u8, exact: bool, pos: *std.ArrayLis
             }
         }
     }
-    const base_at = if (std.mem.lastIndexOfScalar(u8, text[0 .. text.len - @intFromBool(text.len > 0 and text[text.len - 1] == '/')], '/')) |s| s + 1 else 0;
+    const base_at = if (std.mem.findScalarLast(u8, text[0 .. text.len - @intFromBool(text.len > 0 and text[text.len - 1] == '/')], '/')) |s| s + 1 else 0;
     var total: i32 = 0;
     var prev: ?usize = null;
     var w: usize = 0;
@@ -194,7 +195,7 @@ pub const Walk = struct {
         outer: while (head < queue.items.len) : (head += 1) {
             const rel = queue.items[head];
             var pb: [linux.PATH_MAX]u8 = undefined;
-            const abs = std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ w.root, rel }, 0) catch continue;
+            const abs = std.mem.printSentinel(&pb, "{s}/{s}", .{ w.root, rel }, 0) catch continue;
             const rc = linux.openat(linux.AT.FDCWD, abs, .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true }, 0);
             if (linux.errno(rc) != .SUCCESS) continue;
             const fd: i32 = @intCast(rc);
@@ -215,12 +216,12 @@ pub const Walk = struct {
                     if (d.type == linux.DT.UNKNOWN) {
                         var st: linux.Statx = undefined;
                         var zb: [256]u8 = undefined;
-                        const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{name}, 0) catch continue;
+                        const z = std.mem.printSentinel(&zb, "{s}", .{name}, 0) catch continue;
                         if (linux.errno(linux.statx(fd, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS)
                             dir = st.mode & linux.S.IFMT == linux.S.IFDIR;
                     }
                     var rb: [linux.PATH_MAX]u8 = undefined;
-                    const child = std.fmt.bufPrint(&rb, "{s}{s}{s}", .{ rel, name, if (dir) "/" else "" }) catch continue;
+                    const child = std.mem.print(&rb, "{s}{s}{s}", .{ rel, name, if (dir) "/" else "" }) catch continue;
                     if (dir) queue.append(arena, arena.dupe(u8, child) catch continue) catch continue;
                     if (batch == null) {
                         batch = w.gpa.create(Paths) catch break :outer;
@@ -269,7 +270,7 @@ test "word starts, runs, and the base name rank first" {
             const sa = score(a, q, null, null).?;
             const sb = score(b, q, null, null).?;
             if (sa <= sb) {
-                std.debug.print("{s} ({d}) should beat {s} ({d}) for {s}\n", .{ a, sa, b, sb, q });
+                print("{s} ({d}) should beat {s} ({d}) for {s}\n", .{ a, sa, b, sb, q });
                 return error.TestExpectedBetter;
             }
         }
@@ -320,13 +321,13 @@ test "filter ranks, breaks ties by length, and narrows a previous result" {
 test "walks breadth first, skipping .git and hidden entries, in batches" {
     const gpa = testing.allocator;
     var tmp_buf: [256]u8 = undefined;
-    const root = try std.fmt.bufPrint(&tmp_buf, "/tmp/strider-fuzzy-{d}", .{linux.getpid()});
+    const root = try std.mem.print(&tmp_buf, "/tmp/strider-fuzzy-{d}", .{linux.getpid()});
     var cmd: [512]u8 = undefined;
     const S = struct {
         extern "c" fn system(c: [*:0]const u8) c_int;
     };
-    _ = S.system((try std.fmt.bufPrintSentinel(&cmd, "rm -rf {s} && mkdir -p {s}/a/b {s}/.git/objects {s}/.hidden && touch {s}/top {s}/a/mid {s}/a/b/deep {s}/.git/HEAD {s}/.hidden/x {s}/.dotfile", .{ root, root, root, root, root, root, root, root, root, root }, 0)).ptr);
-    defer _ = S.system((std.fmt.bufPrintSentinel(&cmd, "rm -rf {s}", .{root}, 0) catch unreachable).ptr);
+    _ = S.system((try std.mem.printSentinel(&cmd, "rm -rf {s} && mkdir -p {s}/a/b {s}/.git/objects {s}/.hidden && touch {s}/top {s}/a/mid {s}/a/b/deep {s}/.git/HEAD {s}/.hidden/x {s}/.dotfile", .{ root, root, root, root, root, root, root, root, root, root }, 0)).ptr);
+    defer _ = S.system((std.mem.printSentinel(&cmd, "rm -rf {s}", .{root}, 0) catch unreachable).ptr);
     const Sink = struct {
         all: Paths = .{},
         batches: usize = 0,

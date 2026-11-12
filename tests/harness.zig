@@ -6,6 +6,8 @@
 //! To accept new captures: SIV_UPDATE_GOLDEN=1 zig build test
 
 const std = @import("std");
+const Io = std.Io;
+const print = std.debug.print;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -38,9 +40,9 @@ pub const Fixture = struct {
     /// Makes /tmp/strider-test/NAME afresh: a fixed path, so that
     /// captures showing it are the same on every run.
     pub fn create(f: *Fixture, name: []const u8, items: []const Item) !void {
-        const p = try std.fmt.bufPrintSentinel(&f.buf, "/tmp/strider-test/{s}", .{name}, 0);
+        const p = try std.mem.printSentinel(&f.buf, "/tmp/strider-test/{s}", .{name}, 0);
         var cmd: [512]u8 = undefined;
-        const z = try std.fmt.bufPrintSentinel(&cmd, "rm -rf '{s}' && mkdir -p '{s}'", .{ p, p }, 0);
+        const z = try std.mem.printSentinel(&cmd, "rm -rf '{s}' && mkdir -p '{s}'", .{ p, p }, 0);
         if (system(z.ptr) != 0) return error.Unexpected;
         f.path = p;
         for (items) |it| try f.add(it);
@@ -48,7 +50,7 @@ pub const Fixture = struct {
 
     pub fn add(f: *Fixture, it: Item) !void {
         var buf: [512]u8 = undefined;
-        const p = try std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, it.name }, 0);
+        const p = try std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, it.name }, 0);
         if (it.dir) {
             if (linux.errno(linux.mkdirat(linux.AT.FDCWD, p, 0o755)) != .SUCCESS) return error.Unexpected;
         } else {
@@ -70,14 +72,14 @@ pub const Fixture = struct {
 
     pub fn touch(f: *Fixture, name: []const u8, mtime: i64) !void {
         var buf: [512]u8 = undefined;
-        const p = try std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, name }, 0);
+        const p = try std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, name }, 0);
         const ts = [2]linux.timespec{ .{ .sec = mtime, .nsec = 0 }, .{ .sec = mtime, .nsec = 0 } };
         _ = linux.utimensat(linux.AT.FDCWD, p, &ts, 0);
     }
 
     pub fn writeFile(f: *Fixture, rel: []const u8, data: []const u8) !void {
         var buf: [512]u8 = undefined;
-        const p = try std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0);
+        const p = try std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0);
         const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         const fd: i32 = @intCast(rc);
@@ -86,12 +88,12 @@ pub const Fixture = struct {
     }
 
     pub fn sub(f: *const Fixture, buf: []u8, rel: []const u8) []const u8 {
-        return std.fmt.bufPrint(buf, "{s}/{s}", .{ f.path, rel }) catch unreachable;
+        return std.mem.print(buf, "{s}/{s}", .{ f.path, rel }) catch unreachable;
     }
 
     pub fn exists(f: *const Fixture, name: []const u8) bool {
         var buf: [512]u8 = undefined;
-        const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, name }, 0) catch return false;
+        const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, name }, 0) catch return false;
         var st: linux.Statx = undefined;
         return linux.errno(linux.statx(linux.AT.FDCWD, p, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS;
     }
@@ -99,7 +101,7 @@ pub const Fixture = struct {
     pub fn remove(f: *Fixture) void {
         if (f.path.len == 0) return;
         var buf: [256]u8 = undefined;
-        const cmd = std.fmt.bufPrintSentinel(&buf, "rm -rf '{s}'", .{f.path}, 0) catch return;
+        const cmd = std.mem.printSentinel(&buf, "rm -rf '{s}'", .{f.path}, 0) catch return;
         _ = system(cmd.ptr);
     }
 };
@@ -141,17 +143,17 @@ pub const Harness = struct {
         for (fonts) |font| try siv.check(c.siv_app_add_font(h.sapp, "Droid", 5, font.ptr, font.len));
         try siv.check(c.siv_app_set_default_font(h.sapp, "Droid", 5));
         try siv.check(c.siv_app_set_theme(h.sapp, &.{ .scheme = s.scheme, .contrast = s.contrast }));
-        const home = std.fs.path.dirname(s.path) orelse s.path;
-        const config = try std.fmt.bufPrint(&h.config_buf, "{s}/.config", .{home});
+        const home = Io.Dir.path.dirname(s.path) orelse s.path;
+        const config = try std.mem.print(&h.config_buf, "{s}/.config", .{home});
         h.config_dirs[0] = config;
-        const data_home = try std.fmt.bufPrint(&h.data_home_buf, "{s}/.local/share", .{home});
+        const data_home = try std.mem.print(&h.data_home_buf, "{s}/.local/share", .{home});
         h.data_dirs[0] = data_home;
         h.app = try App.create(h.sapp, .{
             .gpa = testing.allocator,
             .home = home,
             .config_home = config,
             .data_home = data_home,
-            .cache_home = try std.fmt.bufPrint(&h.cache_buf, "{s}/.cache", .{home}),
+            .cache_home = try std.mem.print(&h.cache_buf, "{s}/.cache", .{home}),
             .data_dirs = &h.data_dirs,
             .config_dirs = &h.config_dirs,
             .watch = s.watch,
@@ -165,7 +167,7 @@ pub const Harness = struct {
             .log_errors = false,
             .window_width = s.width,
             .window_height = s.height,
-            .state_dir = if (s.state) try std.fmt.bufPrint(&h.state_buf, "{s}/.local/state/strider", .{home}) else null,
+            .state_dir = if (s.state) try std.mem.print(&h.state_buf, "{s}/.local/state/strider", .{home}) else null,
         });
         const app = h.app.?;
         if (s.which_key_now) app.options.which_key_delay = 0;
@@ -260,7 +262,7 @@ pub const Harness = struct {
     /// tree.
     pub fn expect(h: *Harness, role: siv.Role, name: []const u8) !siv.TestNode {
         return h.find(h.window(), .{ .role = role, .name = name.ptr, .name_len = name.len }) orelse {
-            std.debug.print("no {s} named “{s}”; the window reads:\n", .{ @tagName(role), name });
+            print("no {s} named “{s}”; the window reads:\n", .{ @tagName(role), name });
             h.dump(h.window());
             return error.NotFound;
         };
@@ -275,7 +277,7 @@ pub const Harness = struct {
         const buf = testing.allocator.alloc(u8, 1 << 20) catch return;
         defer testing.allocator.free(buf);
         var len: usize = 0;
-        if (c.siv_test_dump(w, buf.ptr, buf.len, &len) == .ok) std.debug.print("{s}\n", .{buf[0..@min(len, buf.len)]});
+        if (c.siv_test_dump(w, buf.ptr, buf.len, &len) == .ok) print("{s}\n", .{buf[0..@min(len, buf.len)]});
     }
 
     pub fn click(h: *Harness, w: siv.Window, n: siv.TestNode, button: siv.PointerButton) !void {
@@ -329,10 +331,10 @@ pub const Harness = struct {
             };
         }
         var pbuf: [256]u8 = undefined;
-        const path = try std.fmt.bufPrint(&pbuf, "{s}/{s}.png", .{ golden_dir, name });
+        const path = try std.mem.print(&pbuf, "{s}/{s}.png", .{ golden_dir, name });
         const update = getenv("SIV_UPDATE_GOLDEN") != null;
         const io = testing.io;
-        const cwd = std.Io.Dir.cwd();
+        const cwd = Io.Dir.cwd();
         if (!update) blk: {
             const data = cwd.readFileAlloc(io, path, gpa, .limited(64 << 20)) catch |err| {
                 if (err == error.FileNotFound) break :blk; // new: write it
@@ -347,15 +349,15 @@ pub const Harness = struct {
                     if (@abs(@as(i32, x) - @as(i32, y)) > 3) bad += 1;
                 }
                 if (bad <= pixels.len / 2000) return;
-                std.debug.print("{s}: {d} channels differ\n", .{ name, bad });
-            } else std.debug.print("{s}: {d}×{d}, golden {d}×{d}\n", .{ name, width, height, img.width, img.height });
+                print("{s}: {d} channels differ\n", .{ name, bad });
+            } else print("{s}: {d}×{d}, golden {d}×{d}\n", .{ name, width, height, img.width, img.height });
             cwd.createDirPath(io, failure_dir) catch {};
             var fbuf: [256]u8 = undefined;
-            const fpath = try std.fmt.bufPrint(&fbuf, "{s}/{s}.png", .{ failure_dir, name });
+            const fpath = try std.mem.print(&fbuf, "{s}/{s}.png", .{ failure_dir, name });
             const enc = try png.encode(gpa, width, height, pixels);
             defer gpa.free(enc);
             try cwd.writeFile(io, .{ .sub_path = fpath, .data = enc });
-            std.debug.print("wrote {s}; SIV_UPDATE_GOLDEN=1 accepts it\n", .{fpath});
+            print("wrote {s}; SIV_UPDATE_GOLDEN=1 accepts it\n", .{fpath});
             return error.GoldenMismatch;
         }
         cwd.createDirPath(io, golden_dir) catch {};

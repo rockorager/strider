@@ -5,6 +5,7 @@
 //! on a worker thread.
 
 const std = @import("std");
+const Io = std.Io;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const proc = @import("proc.zig");
@@ -57,7 +58,7 @@ pub fn list(gpa: Allocator, path: []const u8, kind: Kind, limit: usize) !Listing
 
 fn openFile(path: []const u8) !i32 {
     var buf: [linux.PATH_MAX]u8 = undefined;
-    const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{path}, 0) catch return error.NameTooLong;
+    const z = std.mem.printSentinel(&buf, "{s}", .{path}, 0) catch return error.NameTooLong;
     const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (linux.errno(rc) != .SUCCESS) return error.Unavailable;
     return @intCast(rc);
@@ -138,7 +139,7 @@ fn listTarFile(a: Allocator, path: []const u8, out: *std.ArrayList(Entry), limit
     const got = pread(fd, data, 0);
     if (got < len) return error.InvalidArchive;
     if (size > max_tar_read) truncated.* = true;
-    var input: std.Io.Reader = .fixed(data);
+    var input: Io.Reader = .fixed(data);
     if (gz) {
         const window = try a.alloc(u8, std.compress.flate.max_window_len);
         var dec: std.compress.flate.Decompress = .init(&input, .gzip, window);
@@ -165,7 +166,7 @@ fn octal(field: []const u8) u64 {
     return v;
 }
 
-fn walkTar(a: Allocator, r: *std.Io.Reader, out: *std.ArrayList(Entry), limit: usize, truncated: *bool) !void {
+fn walkTar(a: Allocator, r: *Io.Reader, out: *std.ArrayList(Entry), limit: usize, truncated: *bool) !void {
     var hdr: [512]u8 = undefined;
     var long_name: ?[]u8 = null;
     while (true) {
@@ -190,7 +191,7 @@ fn walkTar(a: Allocator, r: *std.Io.Reader, out: *std.ArrayList(Entry), limit: u
                 long_name = std.mem.sliceTo(body[0..got], 0);
             } else if (typeflag == 'x') {
                 var it = std.mem.splitScalar(u8, body[0..got], '\n');
-                while (it.next()) |rec| if (std.mem.indexOf(u8, rec, " path=")) |k| {
+                while (it.next()) |rec| if (std.mem.find(u8, rec, " path=")) |k| {
                     long_name = @constCast(rec[k + 6 ..]);
                 };
             }
@@ -203,7 +204,7 @@ fn walkTar(a: Allocator, r: *std.Io.Reader, out: *std.ArrayList(Entry), limit: u
         } else {
             const base = std.mem.sliceTo(hdr[0..100], 0);
             const prefix = if (std.mem.eql(u8, hdr[257..262], "ustar")) std.mem.sliceTo(hdr[345..500], 0) else "";
-            name = if (prefix.len != 0) try std.fmt.allocPrint(a, "{s}/{s}", .{ prefix, base }) else try a.dupe(u8, base);
+            name = if (prefix.len != 0) try a.print("{s}/{s}", .{ prefix, base }) else try a.dupe(u8, base);
         }
         const dir = typeflag == '5' or (name.len > 0 and name[name.len - 1] == '/');
         if (name.len > 1 and name[name.len - 1] == '/') name = name[0 .. name.len - 1];

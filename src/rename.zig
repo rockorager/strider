@@ -47,7 +47,7 @@ pub fn newName(gpa: Allocator, spec: Spec, name: []const u8, index: usize) ![]u8
                     while (j < t.len and t[j] == '#') j += 1;
                     if (j < t.len and t[j] == ']') {
                         var nb: [32]u8 = undefined;
-                        const digits = std.fmt.bufPrint(&nb, "{d}", .{index + 1}) catch "";
+                        const digits = std.mem.print(&nb, "{d}", .{index + 1}) catch "";
                         const width = j - i - 1;
                         if (digits.len < width) try out.appendNTimes(gpa, '0', width - digits.len);
                         try out.appendSlice(gpa, digits);
@@ -68,7 +68,7 @@ pub fn newName(gpa: Allocator, spec: Spec, name: []const u8, index: usize) ![]u8
 }
 
 fn stemLength(nm: []const u8) usize {
-    const dot = std.mem.lastIndexOfScalar(u8, nm, '.') orelse return nm.len;
+    const dot = std.mem.findScalarLast(u8, nm, '.') orelse return nm.len;
     if (dot == 0) return nm.len;
     if (std.mem.endsWith(u8, nm[0..dot], ".tar")) return dot - 4;
     return dot;
@@ -90,7 +90,7 @@ pub fn check(gpa: Allocator, paths: []const []const u8, new_names: []const []con
         // Another file (not in the batch) has the name already.
         if (olds.contains(n)) continue;
         var buf: [linux.PATH_MAX]u8 = undefined;
-        const target = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ model.parent(p), n }, 0) catch continue;
+        const target = std.mem.printSentinel(&buf, "{s}/{s}", .{ model.parent(p), n }, 0) catch continue;
         var st: linux.Statx = undefined;
         if (linux.errno(linux.statx(linux.AT.FDCWD, target, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS) return "A new name is taken by another file";
     }

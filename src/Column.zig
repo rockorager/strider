@@ -94,7 +94,7 @@ fn onColumnDrop(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv
     const d = col.dir orelse return .pass;
     if (d.isTrash() or d.isDrives()) return .pass;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    const path = std.fmt.bufPrint(&pb, "{s}", .{d.path}) catch return .pass;
+    const path = std.mem.print(&pb, "{s}", .{d.path}) catch return .pass;
     return col.win.dnd.onDrop(ev, .{ .column = col }, path);
 }
 
@@ -292,7 +292,7 @@ fn bindRow(ud: ?*anyopaque, txn: Txn, row: Node, item: u64, _: u32, _: u32, _: b
     const drive = d.driveAt(i);
     if (show_info) {
         if (drive) |r| {
-            info = if (r.drive.mount_point.len == 0) "not mounted" else if (r.total != 0) std.fmt.bufPrint(&sbuf, "{s} free", .{compactSize(&sbuf2, r.free)}) catch "" else "";
+            info = if (r.drive.mount_point.len == 0) "not mounted" else if (r.total != 0) std.mem.print(&sbuf, "{s} free", .{compactSize(&sbuf2, r.free)}) catch "" else "";
         } else if (d.trash_info) |*ti| {
             const t = ti.get(d.visible.items[i]);
             info = model.basename(model.parent(t.original));
@@ -314,14 +314,14 @@ const bar_width: f32 = 48;
 
 /// "1.2K", "34M", "512": the short sizes file managers' columns use.
 pub fn compactSize(buf: []u8, size: u64) []const u8 {
-    if (size < 1024) return std.fmt.bufPrint(buf, "{d} B", .{size}) catch "";
+    if (size < 1024) return std.mem.print(buf, "{d} B", .{size}) catch "";
     const units = [_][]const u8{ "K", "M", "G", "T", "P" };
     var v: f64 = @floatFromInt(size);
     var u: usize = 0;
     v /= 1024;
     while (v >= 1024 and u + 1 < units.len) : (u += 1) v /= 1024;
-    if (v < 10) return std.fmt.bufPrint(buf, "{d:.1} {s}", .{ v, units[u] }) catch "";
-    return std.fmt.bufPrint(buf, "{d:.0} {s}", .{ v, units[u] }) catch "";
+    if (v < 10) return std.mem.print(buf, "{d:.1} {s}", .{ v, units[u] }) catch "";
+    return std.mem.print(buf, "{d:.0} {s}", .{ v, units[u] }) catch "";
 }
 
 pub fn iconFor(win: *Window, e: model.Entry, buf: []u8) []const u8 {

@@ -10,6 +10,7 @@
 //! line.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -130,9 +131,9 @@ fn dismiss(d: *Dialogs) void {
 pub fn confirmDelete(d: *Dialogs, paths: []const []const u8) void {
     var tb: [512]u8 = undefined;
     const title = if (paths.len == 1)
-        std.fmt.bufPrint(&tb, "Delete “{s}” permanently?", .{model.basename(paths[0])}) catch "Delete permanently?"
+        std.mem.print(&tb, "Delete “{s}” permanently?", .{model.basename(paths[0])}) catch "Delete permanently?"
     else
-        std.fmt.bufPrint(&tb, "Delete {d} items permanently?", .{paths.len}) catch "Delete permanently?";
+        std.mem.print(&tb, "Delete {d} items permanently?", .{paths.len}) catch "Delete permanently?";
     const txn = d.begin(.delete, title, "They will not go to the trash, and this cannot be undone; folders go with everything in them.") orelse return;
     for (paths) |p| d.paths.append(d.win.gpa, d.win.gpa.dupe(u8, p) catch continue) catch {};
     if (paths.len > 1) {
@@ -162,10 +163,10 @@ pub fn confirmOverwrite(d: *Dialogs, names: []const []const u8, folder: []const 
     var xb: [512]u8 = undefined;
     var pb: [linux.PATH_MAX]u8 = undefined;
     const title = if (names.len == 1)
-        std.fmt.bufPrint(&tb, "Replace “{s}”?", .{names[0]}) catch "Replace it?"
+        std.mem.print(&tb, "Replace “{s}”?", .{names[0]}) catch "Replace it?"
     else
-        std.fmt.bufPrint(&tb, "Replace {d} files?", .{names.len}) catch "Replace them?";
-    const text = std.fmt.bufPrint(&xb, "{s} exist{s} in {s}; saving replaces what {s} hold{s}.", .{ if (names.len == 1) "It" else "They", if (names.len == 1) "s" else "", d.win.shortPathIn(&pb, folder), if (names.len == 1) "it" else "they", if (names.len == 1) "s" else "" }) catch "";
+        std.mem.print(&tb, "Replace {d} files?", .{names.len}) catch "Replace them?";
+    const text = std.mem.print(&xb, "{s} exist{s} in {s}; saving replaces what {s} hold{s}.", .{ if (names.len == 1) "It" else "They", if (names.len == 1) "s" else "", d.win.shortPathIn(&pb, folder), if (names.len == 1) "it" else "they", if (names.len == 1) "s" else "" }) catch "";
     const txn = d.begin(.overwrite, title, text) orelse return;
     if (names.len > 1) {
         var list: std.ArrayList(u8) = .empty;
@@ -188,16 +189,16 @@ pub fn askConflict(d: *Dialogs, e: *App.OpEntry) void {
     var tb: [512]u8 = undefined;
     var xb: [512]u8 = undefined;
     var pb: [linux.PATH_MAX]u8 = undefined;
-    const title = std.fmt.bufPrint(&tb, "“{s}” already exists", .{model.basename(cf.dstPath())}) catch "It already exists";
-    const text = std.fmt.bufPrint(&xb, "{s} {d} items into {s}", .{ fsops.doing(e.op.kind), e.op.sources.len, d.win.shortPathIn(&pb, model.parent(cf.dstPath())) }) catch "";
+    const title = std.mem.print(&tb, "“{s}” already exists", .{model.basename(cf.dstPath())}) catch "It already exists";
+    const text = std.mem.print(&xb, "{s} {d} items into {s}", .{ fsops.doing(e.op.kind), e.op.sources.len, d.win.shortPathIn(&pb, model.parent(cf.dstPath())) }) catch "";
     const txn = d.begin(.conflict, title, text) orelse return e.answer(.cancel, false);
     d.entry = e;
     const tz = if (d.win.app.opts.reproducible) 0 else d.win.app.tz_offset_s;
     var sb: [32]u8 = undefined;
     var mb: [32]u8 = undefined;
     var lb: [256]u8 = undefined;
-    _ = line(txn, d.content(), std.fmt.bufPrint(&lb, "There now\t{s}, modified {s}", .{ if (cf.dst_dir) "a folder" else model.formatSize(&sb, cf.dst_size), model.formatTime(&mb, cf.dst_mtime, tz) }) catch "", .card_fg);
-    _ = line(txn, d.content(), std.fmt.bufPrint(&lb, "Coming in\t{s}, modified {s}", .{ if (cf.src_dir) "a folder" else model.formatSize(&sb, cf.src_size), model.formatTime(&mb, cf.src_mtime, tz) }) catch "", .card_fg);
+    _ = line(txn, d.content(), std.mem.print(&lb, "There now\t{s}, modified {s}", .{ if (cf.dst_dir) "a folder" else model.formatSize(&sb, cf.dst_size), model.formatTime(&mb, cf.dst_mtime, tz) }) catch "", .card_fg);
+    _ = line(txn, d.content(), std.mem.print(&lb, "Coming in\t{s}, modified {s}", .{ if (cf.src_dir) "a folder" else model.formatSize(&sb, cf.src_size), model.formatTime(&mb, cf.src_mtime, tz) }) catch "", .card_fg);
     d.all = c.siv_check_box(txn, d.content(), &.{ .label = "Do the same for every conflict", .label_len = 30, .mnemonic = 'a' });
     d.button(txn, "Cancel", 'c', .default, .cancel);
     d.button(txn, "Skip", 's', .default, .skip);
@@ -213,7 +214,7 @@ pub fn askConflict(d: *Dialogs, e: *App.OpEntry) void {
 /// the file system).
 const Facts = struct {
     win: *Window,
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
     paths: [][]u8,
     mode: u32 = 0,
     uid: u32 = 0,
@@ -228,7 +229,7 @@ const Facts = struct {
         const f: *Facts = @ptrCast(@alignCast(ud.?));
         for (f.paths, 0..) |p, i| {
             var zb: [linux.PATH_MAX]u8 = undefined;
-            const z = std.fmt.bufPrintSentinel(&zb, "{s}", .{p}, 0) catch continue;
+            const z = std.mem.printSentinel(&zb, "{s}", .{p}, 0) catch continue;
             var st: linux.Statx = undefined;
             if (linux.errno(linux.statx(linux.AT.FDCWD, z, 0, .{ .TYPE = true, .MODE = true, .UID = true, .GID = true, .SIZE = true, .MTIME = true }, &st)) != .SUCCESS) continue;
             if (i == 0) {
@@ -273,7 +274,7 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
     const gpa = d.win.gpa;
     var tb: [512]u8 = undefined;
     const one = f.paths.len == 1;
-    const title = if (one) model.basename(f.paths[0]) else std.fmt.bufPrint(&tb, "{d} items", .{f.paths.len}) catch "Properties";
+    const title = if (one) model.basename(f.paths[0]) else std.mem.print(&tb, "{d} items", .{f.paths.len}) catch "Properties";
     var title_copy: [512]u8 = undefined;
     @memcpy(title_copy[0..title.len], title);
     const txn = d.begin(.properties, title_copy[0..title.len], "") orelse return;
@@ -291,7 +292,7 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
 
     // The mode, typed as chmod takes it (octal or symbolic), and the same
     // as nine check boxes.
-    const mode_text = if (f.same_mode) std.fmt.bufPrint(&d.mode0, "{o:0>4}", .{f.mode}) catch "" else "";
+    const mode_text = if (f.same_mode) std.mem.print(&d.mode0, "{o:0>4}", .{f.mode}) catch "" else "";
     d.mode0_len = mode_text.len;
     const mrow = c.siv_flex(txn, d.content(), &.{ .axis = .row, .gap = 10, .align_items = .center });
     _ = line(txn, mrow, "Permissions", .card_fg);
@@ -311,7 +312,7 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
         for (what, 0..) |x, k| {
             const bit: u32 = @as(u32, 0o400) >> @intCast(r * 3 + k);
             var nb: [32]u8 = undefined;
-            _ = std.fmt.bufPrint(&nb, "{s} {s}", .{ w_, x }) catch "";
+            _ = std.mem.print(&nb, "{s} {s}", .{ w_, x }) catch "";
             const box = c.siv_check_box(txn, row, &.{ .label = x.ptr, .label_len = x.len, .checked = if (f.same_mode and f.mode & bit != 0) .on else .off });
             _ = c.siv_on(txn, box, .change, onBoxChange, null, d);
             d.boxes[r * 3 + k] = box;
@@ -343,9 +344,9 @@ fn showProperties(d: *Dialogs, f: *const Facts) void {
 fn ownerText(buf: []u8, uid: u32, gid: u32) []const u8 {
     var ub: [64]u8 = undefined;
     var gb: [64]u8 = undefined;
-    const u = if (std.c.getpwuid(uid)) |pw| (if (pw.name) |n| std.mem.span(n) else std.fmt.bufPrint(&ub, "{d}", .{uid}) catch "") else std.fmt.bufPrint(&ub, "{d}", .{uid}) catch "";
-    const g = if (getgrgid(gid)) |gr| (if (gr.name) |n| std.mem.span(n) else std.fmt.bufPrint(&gb, "{d}", .{gid}) catch "") else std.fmt.bufPrint(&gb, "{d}", .{gid}) catch "";
-    return std.fmt.bufPrint(buf, "{s}:{s}", .{ u, g }) catch "";
+    const u = if (std.c.getpwuid(uid)) |pw| (if (pw.name) |n| std.mem.span(n) else std.mem.print(&ub, "{d}", .{uid}) catch "") else std.mem.print(&ub, "{d}", .{uid}) catch "";
+    const g = if (getgrgid(gid)) |gr| (if (gr.name) |n| std.mem.span(n) else std.mem.print(&gb, "{d}", .{gid}) catch "") else std.mem.print(&gb, "{d}", .{gid}) catch "";
+    return std.mem.print(buf, "{s}:{s}", .{ u, g }) catch "";
 }
 
 const Group = extern struct { name: ?[*:0]u8, passwd: ?[*:0]u8, gid: u32, members: ?[*:null]?[*:0]u8 };
@@ -374,7 +375,7 @@ fn onBoxChange(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.E
         if (v >= 0.5) mode |= @as(u32, 0o400) >> @intCast(i);
     }
     var mb: [16]u8 = undefined;
-    const text = std.fmt.bufPrint(&mb, "{o:0>4}", .{mode}) catch return .handled;
+    const text = std.mem.print(&mb, "{o:0>4}", .{mode}) catch return .handled;
     const txn = d.win.begin() orelse return .handled;
     _ = c.siv_set_text(txn, d.mode_field, text.ptr, text.len);
     _ = ui.commit(txn);
@@ -398,7 +399,7 @@ fn applyProperties(d: *Dialogs) void {
     const recursive = checked(d.recursive);
     if (mode.len != 0 and !fsops.parseMode(mode)) {
         var buf: [128]u8 = undefined;
-        return win.notify(std.fmt.bufPrint(&buf, "Not a mode: {s} (755, u+x, go-w, a=rX)", .{mode}) catch "Not a mode", true);
+        return win.notify(std.mem.print(&buf, "Not a mode: {s} (755, u+x, go-w, a=rX)", .{mode}) catch "Not a mode", true);
     }
     const ids: ?commands.Owner = if (!std.mem.eql(u8, owner, d.owner0[0..d.owner0_len]) or recursive) commands.parseOwner(win, owner) orelse return else null;
     var paths: std.ArrayList([]const u8) = .empty;

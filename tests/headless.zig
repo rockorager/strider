@@ -2,6 +2,8 @@
 //! siv's public test API, with golden images of its main views.
 
 const std = @import("std");
+const Io = std.Io;
+const print = std.debug.print;
 const linux = std.os.linux;
 const siv = @import("siv");
 const c = siv.c;
@@ -226,7 +228,7 @@ test "zf filters the folder as you type, in smart case, apart from / search" {
 
 fn countIn(f: *const Fixture, rel: []const u8) usize {
     var buf: [512]u8 = undefined;
-    const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;
+    const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;
     var it = App.fsops.DirIter.open(p) catch return 0;
     defer it.close();
     var n: usize = 0;
@@ -236,9 +238,9 @@ fn countIn(f: *const Fixture, rel: []const u8) usize {
 
 fn modeOf(f: *const Fixture, rel: []const u8) u32 {
     var buf: [512]u8 = undefined;
-    const p = std.fmt.bufPrintSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;
-    var st: std.os.linux.Statx = undefined;
-    if (std.os.linux.statx(std.os.linux.AT.FDCWD, p, 0, .{ .MODE = true }, &st) != 0) return 0;
+    const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0) catch return 0;
+    var st: linux.Statx = undefined;
+    if (linux.statx(linux.AT.FDCWD, p, 0, .{ .MODE = true }, &st) != 0) return 0;
     return st.mode & 0o7777;
 }
 
@@ -277,9 +279,9 @@ test "chmod and chown on the targets, into folders with -R" {
     try testing.expect(h.win.?.message_error);
     try testing.expect(std.mem.startsWith(u8, h.win.?.message.items, "Not a mode: u+q"));
     // chown: to oneself works; to root needs root.
-    const uid = std.os.linux.getuid();
+    const uid = linux.getuid();
     var cmd: [64]u8 = undefined;
-    try h.typeText(try std.fmt.bufPrint(&cmd, ":chown {d}:{d}\n", .{ uid, std.os.linux.getgid() }));
+    try h.typeText(try std.mem.print(&cmd, ":chown {d}:{d}\n", .{ uid, linux.getgid() }));
     try h.waitFor(&h, opsDone);
     try testing.expectEqualStrings("Changed the owner of “assets”", h.win.?.message.items);
     try h.typeText(":chown nosuchuser\n");
@@ -560,14 +562,14 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
     // colon, invalid UTF-8, a truncated sequence, a relative path, and a
     // key of several bytes.
     var bb: [512]u8 = undefined;
-    try f.writeFile(".local/state/strider/bookmarks", try std.fmt.bufPrint(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}));
+    try f.writeFile(".local/state/strider/bookmarks", try std.mem.print(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}));
     var h: Harness = .{};
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .state = true });
     const app = h.app.?;
     try testing.expectEqualStrings("/tmp/x", app.bookmarks.get(':').?);
     var eb: [512]u8 = undefined;
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{s}/work/docs", .{f.path}), app.bookmarks.get('é').?);
+    try testing.expectEqualStrings(try std.mem.print(&eb, "{s}/work/docs", .{f.path}), app.bookmarks.get('é').?);
     try testing.expectEqual(@as(usize, 2), app.bookmarks.count());
     // Each malformed line is in :messages.
     var skipped: usize = 0;
@@ -582,7 +584,7 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
     try h.typeText("m:");
     var rb: [1024]u8 = undefined;
     const saved = try readFile(&f, ".local/state/strider/bookmarks", &rb);
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "::{0s}/work/docs\né:{0s}/work/docs\n", .{f.path}), saved);
+    try testing.expectEqualStrings(try std.mem.print(&eb, "::{0s}/work/docs\né:{0s}/work/docs\n", .{f.path}), saved);
     // A bookmark command's argument is one whole key; anything else is an
     // error, not a read past its end.
     App.commands.execute(h.win.?, "bookmark-set \xc3", null, true);
@@ -651,7 +653,7 @@ test "tabs, bookmarks, sorting, and hidden files" {
     try testing.expectEqual(@as(usize, 1), h.win.?.tabs.items.len);
     // Sorting: by size, largest first, folders still first.
     try h.typeText("sS");
-    try testing.expectEqual(App.model.SortKey.size, h.app.?.options.sort.key);
+    try testing.expectEqual(model.SortKey.size, h.app.?.options.sort.key);
     try h.typeText("gg3j");
     try testing.expectEqualStrings("report.pdf", h.hovered());
     try h.typeText("sn");
@@ -668,7 +670,7 @@ extern "c" fn system(cmd: [*:0]const u8) c_int;
 /// A minimal one-page PDF with a filled rectangle, offsets computed.
 fn writePdf(f: *Fixture, rel: []const u8) !void {
     var buf: [2048]u8 = undefined;
-    var w: std.Io.Writer = .fixed(&buf);
+    var w: Io.Writer = .fixed(&buf);
     var offs: [5]usize = undefined;
     try w.writeAll("%PDF-1.4\n");
     const objs = [_][]const u8{
@@ -710,7 +712,7 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     }
     // A tarball made by tar.
     var cmd: [512]u8 = undefined;
-    const z = try std.fmt.bufPrintSentinel(&cmd, "cd '{s}/work' && mkdir -p pkg/lib && printf 'hello' > pkg/lib/a.txt && printf 'x' > pkg/b.txt && tar --mtime=@1791900300 --owner=0 --group=0 --numeric-owner --sort=name -cf - pkg | gzip -n > backup.tar.gz && rm -rf pkg", .{f.path}, 0);
+    const z = try std.mem.printSentinel(&cmd, "cd '{s}/work' && mkdir -p pkg/lib && printf 'hello' > pkg/lib/a.txt && printf 'x' > pkg/b.txt && tar --mtime=@1791900300 --owner=0 --group=0 --numeric-owner --sort=name -cf - pkg | gzip -n > backup.tar.gz && rm -rf pkg", .{f.path}, 0);
     try testing.expectEqual(@as(c_int, 0), system(z.ptr));
     try writePdf(&f, "work/report.pdf");
     try f.writeFile("work/data.bin", "\x00\x01\x02binary\x00");
@@ -729,8 +731,8 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     {
         var tb: [256]u8 = undefined;
         const t = App.ui.getText(p.text, &tb);
-        try testing.expect(std.mem.indexOf(u8, t, "pkg/lib/a.txt  5 bytes\n") != null);
-        try testing.expect(std.mem.indexOf(u8, t, "pkg/b.txt  1 byte\n") != null);
+        try testing.expect(std.mem.find(u8, t, "pkg/lib/a.txt  5 bytes\n") != null);
+        try testing.expect(std.mem.find(u8, t, "pkg/b.txt  1 byte\n") != null);
     }
     try h.expectGolden(h.window(), "preview-archive");
     // Binary files: their start in hex.
@@ -756,7 +758,7 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
         try h.typeText("frep");
         if (p.applied != .image) {
             var tb: [256]u8 = undefined;
-            std.debug.print("pdf preview: {s}\n", .{App.ui.getText(p.info_body, &tb)});
+            print("pdf preview: {s}\n", .{App.ui.getText(p.info_body, &tb)});
         }
         try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
         try h.expectGolden(h.window(), "preview-pdf");
@@ -813,7 +815,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     try f.add(.{ .name = "work/slow", .dir = true });
     for ([_][]const u8{ "a", "b", "c", "d", "e", "f" }) |n| {
         var nb: [64]u8 = undefined;
-        try f.writeFile(try std.fmt.bufPrint(&nb, "work/slow/{s}.slow", .{n}), "x");
+        try f.writeFile(try std.mem.print(&nb, "work/slow/{s}.slow", .{n}), "x");
     }
     {
         const gpa = testing.allocator;
@@ -827,7 +829,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     // Stand-ins for the renderers: each copies frame.png where it was
     // told to write.
     var cmd: [1024]u8 = undefined;
-    const setup = try std.fmt.bufPrintSentinel(&cmd,
+    const setup = try std.mem.printSentinel(&cmd,
         \\cd '{s}' && mkdir -p bin && ln -s nowhere work/dangling &&
         \\printf '#!/bin/sh\n/bin/cp "{s}/frame.png" "$4"\n' > bin/mutool &&
         \\printf '#!/bin/sh\n/bin/cp "{s}/frame.png" "$4"\n' > bin/ffmpegthumbnailer &&
@@ -839,7 +841,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     defer testing.allocator.free(old_path);
     defer _ = setenv("PATH", old_path.ptr, 1);
     var bin_buf: [512]u8 = undefined;
-    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&bin_buf, "{s}/bin", .{f.path}, 0)).ptr, 1);
+    _ = setenv("PATH", (try std.mem.printSentinel(&bin_buf, "{s}/bin", .{f.path}, 0)).ptr, 1);
 
     var cbuf: [512]u8 = undefined;
     try f.writeFile("init.lua", "local strider = require('strider')\nstrider.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
@@ -855,10 +857,10 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     // install.
     try h.typeText("fclip1");
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
-    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "cd '{s}/bin' && /bin/rm mutool ffmpegthumbnailer && /bin/mv ffmpeg.off ffmpeg", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "cd '{s}/bin' && /bin/rm mutool ffmpegthumbnailer && /bin/mv ffmpeg.off ffmpeg", .{f.path}, 0)).ptr));
     try h.typeText("fclip2");
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
-    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "/bin/rm '{s}/bin/ffmpeg'", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "/bin/rm '{s}/bin/ffmpeg'", .{f.path}, 0)).ptr));
     try h.typeText("fclip3");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
     try testing.expect(std.mem.endsWith(u8, infoText(&h, &tb), "Install ffmpegthumbnailer or ffmpeg to preview videos"));
@@ -869,7 +871,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     // A link's details say where it goes (read in a job).
     try h.typeText("fdan");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
-    try testing.expect(std.mem.indexOf(u8, infoText(&h, &tb), "Links to\tnowhere") != null);
+    try testing.expect(std.mem.find(u8, infoText(&h, &tb), "Links to\tnowhere") != null);
     // Previewers that never finish: moving over six of them and on to a
     // folder kills each as the cursor leaves it, so settling (which waits
     // for every job) is quick and the keys never wait.
@@ -927,7 +929,7 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
     try h.typeText(":timer\n");
     try testing.expectEqualStrings("timer fired", h.win.?.message.items);
     try h.typeText(":boom\n");
-    try testing.expect(std.mem.indexOf(u8, h.win.?.message.items, "boom!") != null);
+    try testing.expect(std.mem.find(u8, h.win.?.message.items, "boom!") != null);
     try testing.expect(h.win.?.message_error);
     try h.typeText("fda");
     {
@@ -974,7 +976,7 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
     defer f.remove();
     // A stand-in zoxide: it logs what it is told and knows three folders.
     var cmd: [2048]u8 = undefined;
-    const setup = try std.fmt.bufPrintSentinel(&cmd,
+    const setup = try std.mem.printSentinel(&cmd,
         \\mkdir -p '{s}/bin' && cat > '{s}/bin/zoxide' <<'EOF'
         \\#!/bin/sh
         \\case "$1" in
@@ -990,7 +992,7 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
     defer testing.allocator.free(old_path);
     defer _ = setenv("PATH", old_path.ptr, 1);
     var pbuf: [1024]u8 = undefined;
-    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&pbuf, "{s}/bin:{s}", .{ f.path, old_path }, 0)).ptr, 1);
+    _ = setenv("PATH", (try std.mem.printSentinel(&pbuf, "{s}/bin:{s}", .{ f.path, old_path }, 0)).ptr, 1);
 
     var h: Harness = .{};
     defer h.deinit();
@@ -1029,8 +1031,8 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
     // zoxide heard of every folder visited.
     var lb: [4096]u8 = undefined;
     const log = try readFile(&f, "zoxide.log", &lb);
-    try testing.expect(std.mem.indexOf(u8, log, "/work/src\n") != null);
-    try testing.expect(std.mem.indexOf(u8, log, "/work/src/util\n") != null);
+    try testing.expect(std.mem.find(u8, log, "/work/src\n") != null);
+    try testing.expect(std.mem.find(u8, log, "/work/src/util\n") != null);
     // gz: zoxide's folders, filtered as you type.
     try h.typeText("gz");
     try testing.expectEqual(@as(usize, 3), w.picker.paths.len());
@@ -1045,11 +1047,11 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
 
 fn readFile(f: *const Fixture, rel: []const u8, buf: []u8) ![]const u8 {
     var pb: [512]u8 = undefined;
-    const p = try std.fmt.bufPrintSentinel(&pb, "{s}/{s}", .{ f.path, rel }, 0);
-    const rc = std.os.linux.openat(std.os.linux.AT.FDCWD, p, .{ .ACCMODE = .RDONLY }, 0);
-    if (std.os.linux.errno(rc) != .SUCCESS) return error.FileNotFound;
-    defer _ = std.os.linux.close(@intCast(rc));
-    const n = std.os.linux.read(@intCast(rc), buf.ptr, buf.len);
+    const p = try std.mem.printSentinel(&pb, "{s}/{s}", .{ f.path, rel }, 0);
+    const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .RDONLY }, 0);
+    if (linux.errno(rc) != .SUCCESS) return error.FileNotFound;
+    defer _ = linux.close(@intCast(rc));
+    const n = linux.read(@intCast(rc), buf.ptr, buf.len);
     return buf[0..n];
 }
 
@@ -1059,7 +1061,7 @@ test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
     defer f.remove();
     var cmd: [512]u8 = undefined;
     // 256 MiB: 64 of the copy's 4 MiB chunks, so a pause lands mid-copy.
-    try testing.expectEqual(@as(c_int, 0), system((try std.fmt.bufPrintSentinel(&cmd, "truncate -s 256M '{s}/work/big.bin'", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "truncate -s 256M '{s}/work/big.bin'", .{f.path}, 0)).ptr));
     var h: Harness = .{};
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
@@ -1476,7 +1478,7 @@ test "the mouse: clicks in each column, double clicks, and drops" {
     try h.typeText("k");
     // Files dropped from another application are copied here.
     var ubuf: [600]u8 = undefined;
-    const u = try std.fmt.bufPrint(&ubuf, "file://{s}/notes.txt\r\n", .{f.path});
+    const u = try std.mem.print(&ubuf, "file://{s}/notes.txt\r\n", .{f.path});
     const list = try h.expect(.list, "Files");
     try siv.check(c.siv_test_drop(h.window(), list.bounds.x + 100, list.bounds.y + 200, "text/uri-list", 13, u.ptr, u.len));
     try h.settle();
@@ -1488,7 +1490,7 @@ test "the mouse: clicks in each column, double clicks, and drops" {
 /// per line) once it has run, and removes it for the next launch.
 fn recorded(h: *Harness, f: *const Fixture, buf: []u8) ![]const u8 {
     var pb: [512]u8 = undefined;
-    const out = try std.fmt.bufPrintSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
+    const out = try std.mem.printSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
     const Ctx = struct {
         p: [*:0]const u8,
         fn ready(x: @This()) bool {
@@ -1523,13 +1525,13 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\ntext/plain=org.example.Nvim.desktop\n");
     try f.add(.{ .name = "work/shot.png", .size = 10 });
     var cmd: [512]u8 = undefined;
-    const ln = try std.fmt.bufPrintSentinel(&cmd, "ln -s src '{s}/work/linked'", .{f.path}, 0);
+    const ln = try std.mem.printSentinel(&cmd, "ln -s src '{s}/work/linked'", .{f.path}, 0);
     try testing.expectEqual(@as(c_int, 0), system(ln.ptr));
     const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
     var saved: [4096]u8 = undefined;
-    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    const saved_path = try std.mem.printSentinel(&saved, "{s}", .{old_path}, 0);
     var nb: [4096]u8 = undefined;
-    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    _ = setenv("PATH", (try std.mem.printSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
     defer _ = setenv("PATH", saved_path.ptr, 1);
     // A terminal this does not know: it gets "-e" before the command.
     _ = setenv("TERMINAL", "record-args", 1);
@@ -1541,14 +1543,14 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     var eb: [2048]u8 = undefined;
     // Text in nvim's terminal, in the file's folder.
     try h.typeText("fa-\n");
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n-e\nrecord-args\n{0s}/work/a-very-long-file-name-that-does-not-fit-in-its-column.txt\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work\n-e\nrecord-args\n{0s}/work/a-very-long-file-name-that-does-not-fit-in-its-column.txt\n", .{f.path}), try recorded(&h, &f, &rb));
     // Through a symlinked folder: the path as browsed.
     try h.typeText("flil");
     try h.typeText("fAp\n");
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work/src\n-e\nrecord-args\n{0s}/work/linked/App.zig\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work/src\n-e\nrecord-args\n{0s}/work/linked/App.zig\n", .{f.path}), try recorded(&h, &f, &rb));
     // Both images at once, with imv's %F.
     try h.typeText("hfph fsho \n");
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
 }
 
 test "terminals in folders: S, :terminal, o on a folder, and the menus, with a token" {
@@ -1562,9 +1564,9 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     try f.writeFile("bin/fake-term", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; printf 'token=%s\\n' \"$XDG_ACTIVATION_TOKEN\"; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
     const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
     var saved: [4096]u8 = undefined;
-    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    const saved_path = try std.mem.printSentinel(&saved, "{s}", .{old_path}, 0);
     var nb: [4096]u8 = undefined;
-    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    _ = setenv("PATH", (try std.mem.printSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
     defer _ = setenv("PATH", saved_path.ptr, 1);
     // $TERMINAL as many set it, with the flag it takes before a command,
     // which a terminal by itself leaves out.
@@ -1578,31 +1580,31 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     // S: in the folder shown, with a token so that it takes focus.
     try h.typeText("S");
     const out = try recorded(&h, &f, &rb);
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&eb, "{s}/work\n", .{f.path}), out[0 .. std.mem.indexOfScalar(u8, out, '\n').? + 1]);
-    try testing.expect(std.mem.indexOf(u8, out, "\ntoken=headless-token-") != null);
+    try testing.expectEqualStrings(try std.mem.print(&eb, "{s}/work\n", .{f.path}), out[0 .. std.mem.findScalar(u8, out, '\n').? + 1]);
+    try testing.expect(std.mem.find(u8, out, "\ntoken=headless-token-") != null);
     try testing.expect(std.mem.endsWith(u8, out, "\n--title\nx\n"));
     // :terminal with a folder, relative to this one.
     try h.typeText(":terminal docs\n");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/docs\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/docs\n", .{f.path})));
     // o on a folder: the terminal comes first, as 1.
     try h.typeText("fsr");
     try testing.expectEqualStrings("src", h.hovered());
     try h.typeText("o");
     try testing.expect(menuHas(&h, "Terminal"));
     try h.typeText("1");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/src\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/src\n", .{f.path})));
     try testing.expectEqualStrings("work", model.basename(h.dir().path));
     // The right-click menus: on a folder, in it; on empty space, here.
     try rightClick(&h, h.window(), try h.expect(.list_item, "docs"));
     try choose(&h, "Open terminal here");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work/docs\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/docs\n", .{f.path})));
     const files = try h.expect(.list, "Files");
     var below = files;
     below.bounds.y = files.bounds.y + files.bounds.height - 40;
     below.bounds.height = 20;
     try rightClick(&h, h.window(), below);
     try choose(&h, "Open terminal here");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.fmt.bufPrint(&eb, "{s}/work\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work\n", .{f.path})));
 }
 
 /// Moves the pointer to the middle of node `n`.
@@ -1849,9 +1851,9 @@ test "clicks on the empty space below the rows open nothing and go nowhere" {
     try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\n");
     const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
     var saved: [4096]u8 = undefined;
-    const saved_path = try std.fmt.bufPrintSentinel(&saved, "{s}", .{old_path}, 0);
+    const saved_path = try std.mem.printSentinel(&saved, "{s}", .{old_path}, 0);
     var nb: [4096]u8 = undefined;
-    _ = setenv("PATH", (try std.fmt.bufPrintSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
+    _ = setenv("PATH", (try std.mem.printSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
     defer _ = setenv("PATH", saved_path.ptr, 1);
     var h: Harness = .{};
     defer h.deinit();
@@ -1879,7 +1881,7 @@ test "clicks on the empty space below the rows open nothing and go nowhere" {
     try testing.expect(inCurrent(&h));
     // Nothing ran: give a launch time to show.
     var pb: [512]u8 = undefined;
-    const out = try std.fmt.bufPrintSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
+    const out = try std.mem.printSentinel(&pb, "{s}/bin/out", .{f.path}, 0);
     for (0..40) |_| try siv.check(c.siv_app_dispatch(h.sapp, 25));
     try testing.expect(linux.errno(linux.faccessat(linux.AT.FDCWD, out, linux.F_OK, 0)) != .SUCCESS);
     // The right button there still opens the folder's menu.

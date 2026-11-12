@@ -5,6 +5,7 @@
 //! from memory while a fresh read, if one is due, runs behind it.
 
 const std = @import("std");
+const testing = std.testing;
 const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const siv = @import("siv");
@@ -605,12 +606,12 @@ pub fn hasUpper(s: []const u8) bool {
 }
 
 pub fn contains(name: []const u8, query: []const u8, exact: bool) bool {
-    if (exact) return std.mem.indexOf(u8, name, query) != null;
+    if (exact) return std.mem.find(u8, name, query) != null;
     return std.ascii.findIgnoreCase(name, query) != null;
 }
 
 test "find with wrapping and smart case" {
-    try std.testing.expect(contains("README.md", "read", false));
-    try std.testing.expect(!contains("README.md", "Read", true));
-    try std.testing.expect(hasUpper("Read"));
+    try testing.expect(contains("README.md", "read", false));
+    try testing.expect(!contains("README.md", "Read", true));
+    try testing.expect(hasUpper("Read"));
 }

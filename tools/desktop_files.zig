@@ -6,6 +6,7 @@
 //!     desktop_files PREFIX OUT_DIR
 
 const std = @import("std");
+const Io = std.Io;
 
 const app_id = "dev.rockorager.Strider";
 
@@ -21,12 +22,12 @@ pub fn main(init: std.process.Init) !void {
     const cwd_len = std.os.linux.getcwd(&cwd_buf, cwd_buf.len);
     const cwd = if (std.os.linux.errno(cwd_len) == .SUCCESS) std.mem.sliceTo(&cwd_buf, 0) else "/";
     const trimmed = std.mem.trimEnd(u8, prefix, "/");
-    const abs = if (std.mem.startsWith(u8, trimmed, "/")) trimmed else try std.fmt.allocPrint(arena, "{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
-    const bin = try std.fmt.allocPrint(arena, "{s}/bin/strider", .{abs});
+    const abs = if (std.mem.startsWith(u8, trimmed, "/")) trimmed else try arena.print("{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
+    const bin = try arena.print("{s}/bin/strider", .{abs});
     const files = [_]struct { []const u8, []const u8 }{
         .{
             app_id ++ ".desktop",
-            try std.fmt.allocPrint(arena,
+            try arena.print(
                 \\[Desktop Entry]
                 \\Type=Application
                 \\Name=Strider
@@ -52,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
         // its name and icon (and for compositor rules to match).
         .{
             app_id ++ ".Chooser.desktop",
-            try std.fmt.allocPrint(arena,
+            try arena.print(
                 \\[Desktop Entry]
                 \\Type=Application
                 \\Name=Strider File Chooser
@@ -66,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .{
             app_id ++ ".service",
-            try std.fmt.allocPrint(arena,
+            try arena.print(
                 \\[D-BUS Service]
                 \\Name={s}
                 \\Exec={s} --service
@@ -75,7 +76,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .{
             "org.freedesktop.impl.portal.desktop.strider.service",
-            try std.fmt.allocPrint(arena,
+            try arena.print(
                 \\[D-BUS Service]
                 \\Name=org.freedesktop.impl.portal.desktop.strider
                 \\Exec={s} --service
@@ -84,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .{
             "org.freedesktop.FileManager1.service",
-            try std.fmt.allocPrint(arena,
+            try arena.print(
                 \\[D-BUS Service]
                 \\Name=org.freedesktop.FileManager1
                 \\Exec={s} --service
@@ -93,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
         },
     };
     const io = init.io;
-    var dir = try std.Io.Dir.cwd().openDir(io, out, .{});
+    var dir = try Io.Dir.cwd().openDir(io, out, .{});
     defer dir.close(io);
     for (files) |f| try dir.writeFile(io, .{ .sub_path = f[0], .data = f[1] });
 }

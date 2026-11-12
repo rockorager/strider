@@ -4,6 +4,7 @@
 //! the which-key popup lists.
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub const Mods = packed struct(u8) {
@@ -82,7 +83,7 @@ pub fn parse(spec: []const u8, out: []Key) ParseError!usize {
     var i: usize = 0;
     while (i < spec.len) {
         if (n == out.len) return error.TooLong;
-        if (spec[i] == '<') if (std.mem.indexOfScalarPos(u8, spec, i + 1, '>')) |close| {
+        if (spec[i] == '<') if (std.mem.findScalarPos(u8, spec, i + 1, '>')) |close| {
             if (close > i + 1) {
                 out[n] = try parseAngle(spec[i + 1 .. close]);
                 n += 1;
@@ -90,12 +91,10 @@ pub fn parse(spec: []const u8, out: []Key) ParseError!usize {
                 continue;
             }
         };
-        const len = std.unicode.utf8ByteSequenceLength(spec[i]) catch return error.InvalidKey;
-        if (i + len > spec.len) return error.InvalidKey;
-        const cp = std.unicode.utf8Decode(spec[i..][0..len]) catch return error.InvalidKey;
-        out[n] = .{ .code = cp };
+        const first = decodeFirst(spec[i..]) orelse return error.InvalidKey;
+        out[n] = .{ .code = first.cp };
         n += 1;
-        i += len;
+        i += first.len;
     }
     return n;
 }
@@ -127,9 +126,9 @@ fn parseAngle(inner: []const u8) ParseError!Key {
         }
     };
     if (code == 0) {
-        const len = std.unicode.utf8ByteSequenceLength(rest[0]) catch return error.InvalidKey;
-        if (len != rest.len) return error.InvalidKey;
-        code = std.unicode.utf8Decode(rest[0..len]) catch return error.InvalidKey;
+        const first = decodeFirst(rest) orelse return error.InvalidKey;
+        if (first.len != rest.len) return error.InvalidKey;
+        code = first.cp;
     }
     // A shifted character is the character: <S-a> is "A".
     if (mods.shift and code < 0xff00 and code != ' ') {
@@ -140,15 +139,14 @@ fn parseAngle(inner: []const u8) ParseError!Key {
 }
 
 /// The first codepoint of `s` and its length in bytes, or null when `s`
-/// is empty or does not start with whole, valid UTF-8. std.unicode's
-/// decoders take exactly one sequence (1 to 4 bytes, the length its first
-/// byte gives); anything else is undefined behavior in release builds.
+/// is empty or does not start with whole, valid UTF-8.
 pub fn decodeFirst(s: []const u8) ?struct { cp: u21, len: u3 } {
     if (s.len == 0) return null;
     const len = std.unicode.utf8ByteSequenceLength(s[0]) catch return null;
     if (len > s.len) return null;
-    const cp = std.unicode.utf8Decode(s[0..len]) catch return null;
-    return .{ .cp = cp, .len = len };
+    const view = std.unicode.Utf8View.init(s[0..len]) catch return null;
+    var it = view.iterator();
+    return .{ .cp = it.nextCodepoint().?, .len = len };
 }
 
 /// The key a key event names, or null for modifier keys alone.
@@ -159,10 +157,9 @@ pub fn fromEvent(keysym: u32, text: []const u8, ctrl: bool, alt: bool, super: bo
     if (keysym == 0) return null;
     const mods: Mods = .{ .ctrl = ctrl, .alt = alt, .super = super };
     if (!ctrl and !alt and !super and text.len > 0) {
-        const len = std.unicode.utf8ByteSequenceLength(text[0]) catch 0;
-        if (len == text.len) if (std.unicode.utf8Decode(text[0..len])) |cp| {
-            if (cp >= 0x20 and cp != 0x7f) return .{ .code = cp };
-        } else |_| {};
+        if (decodeFirst(text)) |first| {
+            if (first.len == text.len and first.cp >= 0x20 and first.cp != 0x7f) return .{ .code = first.cp };
+        }
     }
     var code = keysym;
     var m = mods;
@@ -184,12 +181,12 @@ pub fn fromEvent(keysym: u32, text: []const u8, ctrl: bool, alt: bool, super: bo
 
 /// Writes keys in vim notation.
 pub fn format(buf: []u8, keys: []const Key) []const u8 {
-    var w: std.Io.Writer = .fixed(buf);
+    var w: Io.Writer = .fixed(buf);
     for (keys) |k| writeKey(&w, k) catch break;
     return w.buffered();
 }
 
-fn writeKey(w: *std.Io.Writer, k: Key) !void {
+fn writeKey(w: *Io.Writer, k: Key) !void {
     const plain = @as(u8, @bitCast(k.mods)) == 0;
     const name = nameOf(k.code);
     if (plain and name == null and k.code < 0xff00 and k.code > 0x20) {
