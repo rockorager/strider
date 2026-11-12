@@ -7,7 +7,7 @@
 # bs compiles this exact release's std, and the C sources with it.
 zig = "0.17.1"
 # bs lints as it compiles, with ziglint's rules (.bs.zon).
-"github:baskingspot/bs" = "0.1.2"
+"github:baskingspot/bs" = "0.1.3"
 just = "1.59.0"
 shellcheck = "0.11.0"
 shfmt = "3.14.1"

@@ -37,20 +37,20 @@ url = "https://github.com/oxc-project/oxc/releases/download/oxfmt_v0.78.0/oxfmt-
 url_api = "https://api.github.com/repos/oxc-project/oxc/releases/assets/727291793"
 
 [[tools."github:baskingspot/bs"]]
-version = "0.1.2"
+version = "0.1.3"
 backend = "github:baskingspot/bs"
-specifiers = ["0.1.2"]
+specifiers = ["0.1.3"]
 
 [tools."github:baskingspot/bs"."platforms.linux-arm64"]
-checksum = "sha256:9aba7d5bc026a597fadbcde56ce2168309407f1fd36693ae945894702064eeeb"
-url = "https://github.com/baskingspot/bs/releases/download/v0.1.2/bs-v0.1.2-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/739726760"
+checksum = "sha256:fb054b6e42a1486d38e5a1020f7209a9c28feb286fab4de16e1c6753393d4cbf"
+url = "https://github.com/baskingspot/bs/releases/download/v0.1.3/bs-v0.1.3-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/740516626"
 provenance = "github-attestations"
 
 [tools."github:baskingspot/bs"."platforms.linux-x64"]
-checksum = "sha256:0fcf1c5e274981786808ada43704daeb7c4287edfe8d6fa0c99999ad86163493"
-url = "https://github.com/baskingspot/bs/releases/download/v0.1.2/bs-v0.1.2-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/739726767"
+checksum = "sha256:6b0a9e793cd2ef77c17c24c0746aa3b2edccb2c3bd84b252acf7a528bda01477"
+url = "https://github.com/baskingspot/bs/releases/download/v0.1.3/bs-v0.1.3-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/740516628"
 provenance = "github-attestations"
 
 [[tools.just]]
