@@ -38,8 +38,8 @@ const Crumb = struct { node: Node, path: []u8 };
 
 pub const Tab = struct {
     dir: *Dir,
-    history: std.ArrayList([]u8) = .empty,
-    history_pos: usize = 0,
+    history: std.ArrayList([]u8),
+    history_pos: usize,
 
     pub fn path(t: *const Tab) []const u8 {
         return t.dir.path;
@@ -80,24 +80,24 @@ pub const Await = enum { none, bookmark_set, bookmark_jump, bookmark_remove, con
 
 gpa: Allocator,
 app: *App,
-window: siv.Window = .null,
-closing: bool = false,
+window: siv.Window,
+closing: bool,
 
-root: Node = .null,
-header: Node = .null,
+root: Node,
+header: Node,
 /// The folder part of the header path: a text per segment, folders
 /// above the current one clickable (a breadcrumb).
-path_dir: Node = .null,
-path_name: Node = .null,
-crumbs: std.ArrayList(Crumb) = .empty,
+path_dir: Node,
+path_name: Node,
+crumbs: std.ArrayList(Crumb),
 /// The folder the crumbs show (rebuilt when it changes).
-crumbs_for: std.ArrayList(u8) = .empty,
-tabs_row: Node = .null,
+crumbs_for: std.ArrayList(u8),
+tabs_row: Node,
 /// Each tab's nodes, in tab order, so hovering restyles them in place.
-tab_nodes: std.ArrayList(TabNodes) = .empty,
+tab_nodes: std.ArrayList(TabNodes),
 /// The tab under the pointer, and the tab whose close button is.
-tab_hover: ?usize = null,
-tab_close_hover: ?usize = null,
+tab_hover: ?usize,
+tab_close_hover: ?usize,
 parent_col: Column,
 current: Column,
 preview: Preview,
@@ -110,81 +110,81 @@ dialogs: Dialogs,
 /// Drops into folders here: the target outlined, its timers.
 dnd: Dnd,
 /// The FileChooser portal request this window serves, if it is one.
-chooser: ?*Chooser = null,
+chooser: ?*Chooser,
 /// Whether it was made for one (the request goes before the window).
-is_chooser: bool = false,
+is_chooser: bool,
 /// The user resized it (after its first frame settled): a chooser's size
 /// is remembered for the next one.
-user_resized: bool = false,
-height: f32 = 0,
-parent_box: Node = .null,
-preview_box: Node = .null,
-current_box: Node = .null,
-status_mode: Node = .null,
-status_left: Node = .null,
-status_keys: Node = .null,
-status_right: Node = .null,
-cmd_row: Node = .null,
-cmd_label: Node = .null,
-cmd_editor: Node = .null,
+user_resized: bool,
+height: f32,
+parent_box: Node,
+preview_box: Node,
+current_box: Node,
+status_mode: Node,
+status_left: Node,
+status_keys: Node,
+status_right: Node,
+cmd_row: Node,
+cmd_label: Node,
+cmd_editor: Node,
 /// The masked editor that replaces cmd_editor for passphrases.
-pass_editor: Node = .null,
+pass_editor: Node,
 /// The volume a passphrase is for.
-unlock_block: std.ArrayList(u8) = .empty,
-unlock_label: std.ArrayList(u8) = .empty,
-unlock_new_tab: bool = false,
-whichkey: Node = .null,
+unlock_block: std.ArrayList(u8),
+unlock_label: std.ArrayList(u8),
+unlock_new_tab: bool,
+whichkey: Node,
 
-tabs: std.ArrayList(*Tab) = .empty,
-active: usize = 0,
+tabs: std.ArrayList(*Tab),
+active: usize,
 
-mode: keys.Mode = .normal,
-visual_anchor: u32 = 0,
-pending: [keys.max_keys]keys.Key = undefined,
-pending_len: usize = 0,
-count: ?u32 = null,
+mode: keys.Mode,
+visual_anchor: u32,
+pending: [keys.max_keys]keys.Key,
+pending_len: usize,
+count: ?u32,
 /// A visual-mode y or d that just ran: the next key may finish the
 /// two-key form (yy, dd, dT, dD) on the same files.
-visual_op: u32 = 0,
-await_key: Await = .none,
-conflict: ?*App.OpEntry = null,
+visual_op: u32,
+await_key: Await,
+conflict: ?*App.OpEntry,
 /// What a delete confirmation will delete.
-confirm_paths: std.ArrayList([]u8) = .empty,
-prompt: ?PromptKind = null,
+confirm_paths: std.ArrayList([]u8),
+prompt: ?PromptKind,
 /// The cursor when a search or find started, to go back on Escape.
-prompt_origin: u32 = 0,
+prompt_origin: u32,
 /// For renames: the path being renamed.
-prompt_target: std.ArrayList(u8) = .empty,
-history_pos: usize = 0,
-last_search: std.ArrayList(u8) = .empty,
-last_search_back: bool = false,
+prompt_target: std.ArrayList(u8),
+history_pos: usize,
+last_search: std.ArrayList(u8),
+last_search_back: bool,
 /// A message in the status line until the next key.
-message: std.ArrayList(u8) = .empty,
-message_error: bool = false,
+message: std.ArrayList(u8),
+message_error: bool,
 
-whichkey_timer: siv.Timer = .null,
+whichkey_timer: siv.Timer,
 /// The handles on the column boundaries (parent|current, current|preview),
 /// their lines, and a drag in progress.
-handles: [2]Handle = undefined,
-drag: ?Drag = null,
+handles: [2]Handle,
+drag: ?Drag,
 /// The tasks view (w): file operations running and done; open in mode
 /// tasks, with this row selected.
-tasks: Node = .null,
-task_cursor: usize = 0,
-last_input: u64 = 0,
+tasks: Node,
+task_cursor: usize,
+last_input: u64,
 /// cd's look at a path on a worker, and which cd is the newest.
-probing: ?*Probe = null,
-probe_gen: u64 = 0,
+probing: ?*Probe,
+probe_gen: u64,
 /// The window's logical width (0 before the first configure).
-width: f32 = 0,
+width: f32,
 /// What the parent column's names need, in logical pixels (0: unknown).
-parent_fit: f32 = 0,
+parent_fit: f32,
 /// For measurements: frames presented, the first, and the first with the
 /// current folder's rows.
-frames: u64 = 0,
-first_frame_ns: u64 = 0,
-rows_frame_ns: u64 = 0,
-rows_pending: bool = false,
+frames: u64,
+first_frame_ns: u64,
+rows_frame_ns: u64,
+rows_pending: bool,
 
 var input_clock: u64 = 0;
 
@@ -205,8 +205,20 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
     self.* = .{
         .gpa = gpa,
         .app = app,
-        .parent_col = .{ .win = undefined, .kind = .parent },
-        .current = .{ .win = undefined, .kind = .current },
+        .window = .null,
+        .closing = false,
+        .root = .null,
+        .header = .null,
+        .path_dir = .null,
+        .path_name = .null,
+        .crumbs = .empty,
+        .crumbs_for = .empty,
+        .tabs_row = .null,
+        .tab_nodes = .empty,
+        .tab_hover = null,
+        .tab_close_hover = null,
+        .parent_col = .init(self, .parent),
+        .current = .init(self, .current),
         .preview = undefined,
         .picker = undefined,
         .menu = undefined,
@@ -214,8 +226,58 @@ fn createWith(app: *App, path: []const u8, chooser: ?*Chooser) !*Window {
         .dnd = undefined,
         .chooser = chooser,
         .is_chooser = chooser != null,
+        .user_resized = false,
+        .height = 0,
+        .parent_box = .null,
+        .preview_box = .null,
+        .current_box = .null,
+        .status_mode = .null,
+        .status_left = .null,
+        .status_keys = .null,
+        .status_right = .null,
+        .cmd_row = .null,
+        .cmd_label = .null,
+        .cmd_editor = .null,
+        .pass_editor = .null,
+        .unlock_block = .empty,
+        .unlock_label = .empty,
+        .unlock_new_tab = false,
+        .whichkey = .null,
+        .tabs = .empty,
+        .active = 0,
+        .mode = .normal,
+        .visual_anchor = 0,
+        .pending = undefined,
+        .pending_len = 0,
+        .count = null,
+        .visual_op = 0,
+        .await_key = .none,
+        .conflict = null,
+        .confirm_paths = .empty,
+        .prompt = null,
+        .prompt_origin = 0,
+        .prompt_target = .empty,
+        .history_pos = 0,
+        .last_search = .empty,
+        .last_search_back = false,
+        .message = .empty,
+        .message_error = false,
+        .whichkey_timer = .null,
+        .handles = undefined,
+        .drag = null,
+        .tasks = .null,
+        .task_cursor = 0,
+        .last_input = 0,
+        .probing = null,
+        .probe_gen = 0,
+        .width = 0,
+        .parent_fit = 0,
+        .frames = 0,
+        .first_frame_ns = 0,
+        .rows_frame_ns = 0,
+        .rows_pending = false,
     };
-    self.dnd = .{ .win = self };
+    self.dnd = Dnd.init(self);
     self.parent_col.win = self;
     self.current.win = self;
     self.preview = Preview.init(self);
@@ -731,7 +793,7 @@ fn addTab(self: *Window, path_in: []const u8) ?*Tab {
     const d = self.app.cache.get(path, self.app.options.stale_ms) orelse return null;
     if (select) |s| d.selectName(s);
     const t = self.gpa.create(Tab) catch return null;
-    t.* = .{ .dir = d };
+    t.* = .{ .dir = d, .history = .empty, .history_pos = 0 };
     d.pins += 1;
     self.tabs.append(self.gpa, t) catch {
         freeTab(self.gpa, t);
@@ -2159,7 +2221,7 @@ pub fn confirmDelete(self: *Window, paths: []const []const u8) void {
         };
     }
     if (!self.app.options.confirm_delete) {
-        if (self.confirm_paths.items.len == paths.len) return self.answerAwait(.{ .code = 'y' });
+        if (self.confirm_paths.items.len == paths.len) return self.answerAwait(.char('y'));
         // Out of memory part way: nothing is deleted rather than only some.
         for (self.confirm_paths.items) |p| self.gpa.free(p);
         self.confirm_paths.clearRetainingCapacity();

@@ -7,7 +7,9 @@ const linux = std.os.linux;
 
 pub const Mutex = struct {
     /// 0 unlocked, 1 locked, 2 locked with waiters.
-    state: std.atomic.Value(u32) = .init(0),
+    state: std.atomic.Value(u32),
+
+    pub const unlocked: Mutex = .{ .state = .init(0) };
 
     pub fn lock(m: *Mutex) void {
         if (m.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) return;
@@ -25,7 +27,9 @@ pub const Mutex = struct {
 
 /// A value one thread waits for and another sets once.
 pub const Event = struct {
-    state: std.atomic.Value(u32) = .init(0),
+    state: std.atomic.Value(u32),
+
+    pub const unset: Event = .{ .state = .init(0) };
 
     pub fn wait(e: *Event) void {
         while (e.state.load(.acquire) == 0) {
@@ -44,10 +48,10 @@ pub const Event = struct {
 };
 
 test "mutex and event" {
-    var m: Mutex = .{};
+    var m: Mutex = .unlocked;
     m.lock();
     m.unlock();
-    var e: Event = .{};
+    var e: Event = .unset;
     e.set();
     e.wait();
 }

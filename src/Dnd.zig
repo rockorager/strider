@@ -71,9 +71,9 @@ pub const Source = struct {
     dir: []u8,
     dev: u64,
     /// The icon, redrawn when what a drop would do changes.
-    icon: siv.Image = .null,
-    icon_action: ?Action = null,
-    icon_width: f32 = 0,
+    icon: siv.Image,
+    icon_action: ?Action,
+    icon_width: f32,
 
     fn deinit(s: *Source, gpa: Allocator) void {
         App.freePaths(gpa, s.paths);
@@ -106,19 +106,37 @@ pub const Target = union(enum) {
 
 win: *Window,
 /// The target outlined, and the folder it stands for.
-over: ?Target = null,
-dest: std.ArrayList(u8) = .empty,
-dest_dev: u64 = 0,
-dest_ok: bool = false,
+over: ?Target,
+dest: std.ArrayList(u8),
+dest_dev: u64,
+dest_ok: bool,
 /// What the status line says while a drag rests on a target.
-hint: std.ArrayList(u8) = .empty,
-spring: siv.Timer = .null,
-spring_path: std.ArrayList(u8) = .empty,
-spring_tab: ?usize = null,
-scroll: siv.Timer = .null,
-scroll_col: ?*Column = null,
-scroll_index: i64 = 0,
-scroll_dir: i64 = 0,
+hint: std.ArrayList(u8),
+spring: siv.Timer,
+spring_path: std.ArrayList(u8),
+spring_tab: ?usize,
+scroll: siv.Timer,
+scroll_col: ?*Column,
+scroll_index: i64,
+scroll_dir: i64,
+
+pub fn init(win: *Window) Dnd {
+    return .{
+        .win = win,
+        .over = null,
+        .dest = .empty,
+        .dest_dev = 0,
+        .dest_ok = false,
+        .hint = .empty,
+        .spring = .null,
+        .spring_path = .empty,
+        .spring_tab = null,
+        .scroll = .null,
+        .scroll_col = null,
+        .scroll_index = 0,
+        .scroll_dir = 0,
+    };
+}
 
 pub fn deinit(d: *Dnd) void {
     const gpa = d.win.gpa;
@@ -158,7 +176,16 @@ pub fn start(win: *Window, node: Node) void {
         gpa.destroy(s);
         return App.freePaths(gpa, paths);
     };
-    s.* = .{ .win = win, .node = node, .paths = paths, .dir = dir, .dev = devOf(dir) orelse 0 };
+    s.* = .{
+        .win = win,
+        .node = node,
+        .paths = paths,
+        .dir = dir,
+        .dev = devOf(dir) orelse 0,
+        .icon = .null,
+        .icon_action = null,
+        .icon_width = 0,
+    };
     if (app.drag) |old| {
         old.deinit(gpa);
         gpa.destroy(old);

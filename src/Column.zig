@@ -22,19 +22,19 @@ pub const row_height: f32 = 26;
 
 win: *Window,
 kind: Kind,
-root: Node = .null,
-view: Node = .null,
+root: Node,
+view: Node,
 /// What shows instead of rows: "Empty", "Loading…", an error.
-message: Node = .null,
+message: Node,
 /// Over the column while a drop would go into its folder.
-drop_ring: Node = .null,
-dir: ?*Dir = null,
+drop_ring: Node,
+dir: ?*Dir,
 /// The count the view was last given.
-shown_count: u32 = 0,
+shown_count: u32,
 /// A press that may become a drag.
-drag_armed: bool = false,
-drag_x: f32 = 0,
-drag_y: f32 = 0,
+drag_armed: bool,
+drag_x: f32,
+drag_y: f32,
 
 /// Row parts, kept in node data on each row.
 const RowParts = extern struct {
@@ -51,6 +51,22 @@ const RowParts = extern struct {
     info: Node,
 };
 var row_key: u8 = 0;
+
+pub fn init(win: *Window, kind: Kind) Column {
+    return .{
+        .win = win,
+        .kind = kind,
+        .root = .null,
+        .view = .null,
+        .message = .null,
+        .drop_ring = .null,
+        .dir = null,
+        .shown_count = 0,
+        .drag_armed = false,
+        .drag_x = 0,
+        .drag_y = 0,
+    };
+}
 
 pub fn build(col: *Column, txn: Txn, parent: Node, label: []const u8) void {
     col.root = c.siv_stack(txn, parent, null);

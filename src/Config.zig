@@ -8,59 +8,86 @@ const keys = @import("keys.zig");
 
 pub const Options = struct {
     /// Show entries whose names start with a dot.
-    show_hidden: bool = false,
-    sort: model.Sort = .{},
+    show_hidden: bool,
+    sort: model.Sort,
     /// Widths of the parent, current, and preview columns, as shares
     /// (ranger's column_ratios).
-    ratio: [3]f32 = .{ 1, 3, 4 },
+    ratio: [3]f32,
     /// The parent column widens to show its longest name, up to a quarter
     /// of the window, taking the room from the preview.
-    fit_parent: bool = true,
+    fit_parent: bool,
     /// Logical pixels: a window narrower than this hides the parent
     /// column, and one narrower than two thirds of it the preview too.
-    narrow_width: u32 = 640,
+    narrow_width: u32,
     /// The size a file chooser window asks for, in logical pixels, until
     /// the user resizes one (that size is remembered).
-    chooser_size: [2]u32 = .{ 960, 640 },
+    chooser_size: [2]u32,
     /// Themed icons beside names.
-    icons: bool = true,
+    icons: bool,
     /// The preview column.
-    preview: bool = true,
+    preview: bool,
     /// Image previews (decoded at the size shown).
-    preview_images: bool = true,
+    preview_images: bool,
     /// How much of a text file a preview reads.
-    preview_max_bytes: u32 = 128 * 1024,
+    preview_max_bytes: u32,
     /// Image files larger than this show their details instead.
-    preview_max_image_bytes: u32 = 64 * 1024 * 1024,
+    preview_max_image_bytes: u32,
     /// Syntax coloring in text previews.
-    syntax: bool = true,
+    syntax: bool,
     /// Milliseconds before the which-key popup shows after a prefix; 0
     /// shows it at once.
-    which_key_delay: u32 = 300,
+    which_key_delay: u32,
     /// Rows kept visible above and below the cursor.
-    scroll_off: u32 = 3,
+    scroll_off: u32,
     /// Searches wrap around the end.
-    wrap_scan: bool = true,
+    wrap_scan: bool,
     /// f: close the prompt as soon as one name matches, as ranger does;
     /// off, Enter closes it.
-    find_auto_accept: bool = true,
+    find_auto_accept: bool,
     /// Ask before deleting permanently.
-    confirm_delete: bool = true,
+    confirm_delete: bool,
     /// Sizes in the current column.
-    show_size: bool = true,
+    show_size: bool,
     /// The terminal for $EDITOR and shell commands, as a command line
     /// that the program follows ("foot", "kitty --"); empty finds one.
-    terminal: []const u8 = "",
+    terminal: []const u8,
     /// The editor for bulk renames; empty uses $VISUAL, then $EDITOR,
     /// then vi.
-    editor: []const u8 = "",
+    editor: []const u8,
     /// Whether the editor is a terminal program (run in `terminal`).
-    editor_in_terminal: bool = true,
+    editor_in_terminal: bool,
     /// The shell for ! commands.
-    shell: []const u8 = "sh",
+    shell: []const u8,
     /// Re-read a shown folder that is not watched when it is older than
     /// this many milliseconds.
-    stale_ms: u32 = 2000,
+    stale_ms: u32,
+
+    /// The options without a configuration, where init.lua and :set start.
+    pub const default: Options = .{
+        .show_hidden = false,
+        .sort = .default,
+        .ratio = .{ 1, 3, 4 },
+        .fit_parent = true,
+        .narrow_width = 640,
+        .chooser_size = .{ 960, 640 },
+        .icons = true,
+        .preview = true,
+        .preview_images = true,
+        .preview_max_bytes = 128 * 1024,
+        .preview_max_image_bytes = 64 * 1024 * 1024,
+        .syntax = true,
+        .which_key_delay = 300,
+        .scroll_off = 3,
+        .wrap_scan = true,
+        .find_auto_accept = true,
+        .confirm_delete = true,
+        .show_size = true,
+        .terminal = "",
+        .editor = "",
+        .editor_in_terminal = true,
+        .shell = "sh",
+        .stale_ms = 2000,
+    };
 };
 
 pub const Kind = enum { boolean, number, string, sort, ratio, size };
@@ -104,7 +131,7 @@ pub fn info(name: []const u8) ?Info {
 /// Strings options own (the terminal, editor, shell), freed on change.
 pub const Strings = struct {
     gpa: Allocator,
-    owned: std.ArrayList([]u8) = .empty,
+    owned: std.ArrayList([]u8),
 
     pub fn deinit(s: *Strings) void {
         for (s.owned.items) |x| s.gpa.free(x);

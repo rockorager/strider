@@ -32,9 +32,13 @@ extern "c" fn system(cmd: [*:0]const u8) c_int;
 /// A folder of files with fixed sizes and times, removed afterwards. Its
 /// home has a trash, and the fixture's folder is "home".
 pub const Fixture = struct {
-    buf: [128]u8 = undefined,
-    path: [:0]const u8 = "",
+    buf: [128]u8,
+    path: [:0]const u8,
 
+    /// Not made yet: `create` makes it.
+    pub const empty: Fixture = .{ .buf = undefined, .path = "" };
+
+    // ast-grep-ignore: public-struct-field-default -- an options bag for create and add: an item sets what it needs.
     pub const Item = struct { name: []const u8, size: usize = 0, dir: bool = false, mtime: i64 = 1_791_900_300, mode: u32 = 0o644 };
 
     /// Makes /tmp/strider-test/NAME afresh: a fixed path, so that
@@ -107,17 +111,31 @@ pub const Fixture = struct {
 };
 
 pub const Harness = struct {
-    sapp: siv.App = .null,
-    app: ?*App = null,
-    win: ?*App.Window = null,
+    sapp: siv.App,
+    app: ?*App,
+    win: ?*App.Window,
     /// The fixture's data home first, as the app has $XDG_DATA_HOME.
-    data_dirs: [2][]const u8 = .{ "", "tests/data" },
-    config_dirs: [1][]const u8 = .{""},
-    config_buf: [256]u8 = undefined,
-    state_buf: [256]u8 = undefined,
-    data_home_buf: [256]u8 = undefined,
-    cache_buf: [256]u8 = undefined,
+    data_dirs: [2][]const u8,
+    config_dirs: [1][]const u8,
+    config_buf: [256]u8,
+    state_buf: [256]u8,
+    data_home_buf: [256]u8,
+    cache_buf: [256]u8,
 
+    /// Not started yet: `start` starts it.
+    pub const init: Harness = .{
+        .sapp = .null,
+        .app = null,
+        .win = null,
+        .data_dirs = .{ "", "tests/data" },
+        .config_dirs = .{""},
+        .config_buf = undefined,
+        .state_buf = undefined,
+        .data_home_buf = undefined,
+        .cache_buf = undefined,
+    };
+
+    // ast-grep-ignore: public-struct-field-default -- an options bag for start.
     pub const Start = struct {
         /// The folder to show; its parent is home.
         path: []const u8,

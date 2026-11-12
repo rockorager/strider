@@ -28,7 +28,7 @@ pub const Result = struct {
     /// Standard output and error, at most the limit asked for.
     output: []u8,
     /// More output was cut off.
-    truncated: bool = false,
+    truncated: bool,
 
     pub fn deinit(r: *Result, gpa: Allocator) void {
         gpa.free(r.output);
@@ -36,6 +36,7 @@ pub const Result = struct {
     }
 };
 
+// ast-grep-ignore: public-struct-field-default -- an options bag for run.
 pub const Options = struct {
     cwd: ?[]const u8 = null,
     /// Keep at most this much output; the rest is read and dropped.

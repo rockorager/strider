@@ -16,7 +16,7 @@ gpa: Allocator,
 on_change: *const fn (ctx: ?*anyopaque, wd: i32) void,
 ctx: ?*anyopaque,
 inotify: i32,
-watch: siv.Watch = .null,
+watch: siv.Watch,
 
 pub fn create(gpa: Allocator, app: siv.App, on_change: *const fn (?*anyopaque, i32) void, ctx: ?*anyopaque) !*Watcher {
     const ino = linux.inotify_init1(linux.IN.CLOEXEC | linux.IN.NONBLOCK);
@@ -24,7 +24,7 @@ pub fn create(gpa: Allocator, app: siv.App, on_change: *const fn (?*anyopaque, i
     errdefer _ = linux.close(@intCast(ino));
     const w = try gpa.create(Watcher);
     errdefer gpa.destroy(w);
-    w.* = .{ .gpa = gpa, .on_change = on_change, .ctx = ctx, .inotify = @intCast(ino) };
+    w.* = .{ .gpa = gpa, .on_change = on_change, .ctx = ctx, .inotify = @intCast(ino), .watch = .null };
     try siv.check(c.siv_app_watch_fd(app, w.inotify, .{ .readable = true }, ready, null, w, &w.watch));
     return w;
 }

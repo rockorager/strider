@@ -16,7 +16,7 @@ pub const Listing = struct {
     arena: std.heap.ArenaAllocator,
     entries: []Entry,
     /// There were more entries than the limit, or the archive ended early.
-    truncated: bool = false,
+    truncated: bool,
 
     pub fn deinit(l: *Listing) void {
         l.arena.deinit();
@@ -43,7 +43,7 @@ pub fn kindOf(name: []const u8) ?Kind {
 
 /// Lists up to `limit` entries of the archive at `path`.
 pub fn list(gpa: Allocator, path: []const u8, kind: Kind, limit: usize) !Listing {
-    var l: Listing = .{ .arena = .init(gpa), .entries = &.{} };
+    var l: Listing = .{ .arena = .init(gpa), .entries = &.{}, .truncated = false };
     errdefer l.arena.deinit();
     const a = l.arena.allocator();
     var out: std.ArrayList(Entry) = .empty;

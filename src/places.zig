@@ -11,6 +11,7 @@ const linux = std.os.linux;
 const Allocator = std.mem.Allocator;
 const uri = @import("uri.zig");
 const model = @import("model.zig");
+const mime = @import("mime.zig");
 
 pub const Kind = enum { header, place, bookmark, trash, root, drive };
 
@@ -22,7 +23,7 @@ pub const Place = struct {
     /// Icon names, one per line.
     icon: []const u8,
     /// Drives: the index in `drives`.
-    drive: u32 = 0,
+    drive: u32,
 };
 
 /// Drive icons, with the application's own symbolic ones last: each
@@ -37,35 +38,35 @@ pub const Drive = struct {
     label: []const u8,
     /// Empty when not mounted.
     mount_point: []const u8,
-    icon: []const u8 = "drive-harddisk",
-    can_mount: bool = false,
-    can_unmount: bool = false,
-    can_eject: bool = false,
+    icon: []const u8,
+    can_mount: bool,
+    can_unmount: bool,
+    can_eject: bool,
     /// Size in bytes, 0 if unknown.
-    size: u64 = 0,
+    size: u64,
 };
 
 /// The Drives folder's rows, parallel to its listing's entries: a copy
 /// of each drive, with the size and free space of the mounted ones.
 pub const DriveRows = struct {
     arena: std.heap.ArenaAllocator,
-    items: []Row = &.{},
+    items: []Row,
 
     pub const Row = struct {
         drive: Drive,
         /// Bytes, from the mounted file system; 0 when not mounted.
-        total: u64 = 0,
-        free: u64 = 0,
+        total: u64,
+        free: u64,
     };
 
     /// Copies `drives`, for a worker to list.
     pub fn init(gpa: Allocator, drives: []const Drive) !DriveRows {
-        var r: DriveRows = .{ .arena = .init(gpa) };
+        var r: DriveRows = .{ .arena = .init(gpa), .items = &.{} };
         errdefer r.deinit();
         const a = r.arena.allocator();
         r.items = try a.alloc(Row, drives.len);
         for (drives, r.items) |d, *row| {
-            row.* = .{ .drive = d };
+            row.* = .{ .drive = d, .total = 0, .free = 0 };
             row.drive.id = try a.dupe(u8, d.id);
             row.drive.label = try a.dupe(u8, d.label);
             row.drive.mount_point = try a.dupe(u8, d.mount_point);
@@ -85,7 +86,7 @@ pub const DriveRows = struct {
 /// size and free space into `rows`, which can wait on the file system:
 /// runs on a worker.
 pub fn listDrives(gpa: Allocator, rows: *DriveRows) model.ReadError!model.Listing {
-    var b: model.Builder = .{ .gpa = gpa };
+    var b: model.Builder = .init(gpa);
     errdefer b.deinit();
     for (rows.items) |*row| {
         const mounted = row.drive.mount_point.len != 0;
@@ -102,6 +103,8 @@ pub fn listDrives(gpa: Allocator, rows: *DriveRows) model.ReadError!model.Listin
             .size = if (row.total != 0) row.total else row.drive.size,
             .mtime = 0,
             .mode = 0,
+            .base_off = 0,
+            .mime = mime.unknown,
             .kind = if (mounted) .dir else .other,
             .link = false,
             .hidden = false,
@@ -125,14 +128,14 @@ fn spaceOf(path: []const u8) ?struct { total: u64, free: u64 } {
 
 pub const Places = struct {
     gpa: Allocator,
-    items: std.ArrayList(Place) = .empty,
+    items: std.ArrayList(Place),
     /// $XDG_DATA_HOME/Trash, and its files folder.
-    trash_dir: []u8 = &.{},
-    trash_files: []u8 = &.{},
-    bookmarks_file: []u8 = &.{},
-    home: []u8 = &.{},
+    trash_dir: []u8,
+    trash_files: []u8,
+    bookmarks_file: []u8,
+    home: []u8,
     /// Owned copies of the drives the items refer to.
-    drives: std.ArrayList(Drive) = .empty,
+    drives: std.ArrayList(Drive),
     drive_arena: std.heap.ArenaAllocator,
 
     pub fn deinit(p: *Places) void {
@@ -160,7 +163,7 @@ pub const Places = struct {
         errdefer p.gpa.free(l);
         const pa = try p.gpa.dupe(u8, path);
         errdefer p.gpa.free(pa);
-        try p.items.append(p.gpa, .{ .kind = kind, .label = l, .path = pa, .icon = icon });
+        try p.items.append(p.gpa, .{ .kind = kind, .label = l, .path = pa, .icon = icon, .drive = 0 });
     }
 
     fn has(p: *const Places, path: []const u8) bool {
@@ -313,7 +316,16 @@ pub const Env = struct {
 
 /// Builds the list for `env`. Directories that do not exist are left out.
 pub fn load(gpa: Allocator, env: Env) !Places {
-    var p: Places = .{ .gpa = gpa, .drive_arena = .init(gpa) };
+    var p: Places = .{
+        .gpa = gpa,
+        .items = .empty,
+        .trash_dir = &.{},
+        .trash_files = &.{},
+        .bookmarks_file = &.{},
+        .home = &.{},
+        .drives = .empty,
+        .drive_arena = .init(gpa),
+    };
     errdefer p.deinit();
     var buf: [linux.PATH_MAX]u8 = undefined;
     p.home = try gpa.dupe(u8, env.home);

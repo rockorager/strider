@@ -10,12 +10,12 @@ pub const Mode = enum { replace, template };
 
 pub const Spec = struct {
     mode: Mode,
-    find: []const u8 = "",
-    replace: []const u8 = "",
+    find: []const u8,
+    replace: []const u8,
     /// [N] the name without its extension, [E] the extension, [#] the
     /// item's number from 1 ([###] pads it to three digits). Without [E],
     /// the extension stays.
-    template: []const u8 = "",
+    template: []const u8,
 };
 
 /// The new name of the item at `index` (owned).
@@ -101,13 +101,15 @@ const testing = std.testing;
 
 test "templates and replacing" {
     const gpa = testing.allocator;
-    const a = try newName(gpa, .{ .mode = .template, .template = "Trip [###]" }, "IMG_0042.JPG", 6);
+    const trip: Spec = .{ .mode = .template, .find = "", .replace = "", .template = "Trip [###]" };
+    const a = try newName(gpa, trip, "IMG_0042.JPG", 6);
     defer gpa.free(a);
     try testing.expectEqualStrings("Trip 007.JPG", a);
-    const b = try newName(gpa, .{ .mode = .template, .template = "[N]-[#].[E]" }, "notes.tar.gz", 0);
+    const parts: Spec = .{ .mode = .template, .find = "", .replace = "", .template = "[N]-[#].[E]" };
+    const b = try newName(gpa, parts, "notes.tar.gz", 0);
     defer gpa.free(b);
     try testing.expectEqualStrings("notes-1.tar.gz", b);
-    const r = try newName(gpa, .{ .mode = .replace, .find = "_", .replace = " " }, "a_b_c.txt", 0);
+    const r = try newName(gpa, .{ .mode = .replace, .find = "_", .replace = " ", .template = "" }, "a_b_c.txt", 0);
     defer gpa.free(r);
     try testing.expectEqualStrings("a b c.txt", r);
 }

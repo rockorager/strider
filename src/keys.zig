@@ -21,14 +21,14 @@ pub const Mods = packed struct(u8) {
 /// that type nothing.
 pub const Key = struct {
     code: u32,
-    mods: Mods = .{},
+    mods: Mods,
 
     pub fn eql(a: Key, b: Key) bool {
         return a.code == b.code and @as(u8, @bitCast(a.mods)) == @as(u8, @bitCast(b.mods));
     }
 
     pub fn char(ch: u32) Key {
-        return .{ .code = ch };
+        return .{ .code = ch, .mods = .{} };
     }
 
     /// A printable character without modifiers.
@@ -92,7 +92,7 @@ pub fn parse(spec: []const u8, out: []Key) ParseError!usize {
             }
         };
         const first = decodeFirst(spec[i..]) orelse return error.InvalidKey;
-        out[n] = .{ .code = first.cp };
+        out[n] = .char(first.cp);
         n += 1;
         i += first.len;
     }
@@ -158,7 +158,7 @@ pub fn fromEvent(keysym: u32, text: []const u8, ctrl: bool, alt: bool, super: bo
     const mods: Mods = .{ .ctrl = ctrl, .alt = alt, .super = super };
     if (!ctrl and !alt and !super and text.len > 0) {
         if (decodeFirst(text)) |first| {
-            if (first.len == text.len and first.cp >= 0x20 and first.cp != 0x7f) return .{ .code = first.cp };
+            if (first.len == text.len and first.cp >= 0x20 and first.cp != 0x7f) return .char(first.cp);
         }
     }
     var code = keysym;
@@ -253,10 +253,15 @@ pub const max_keys = 8;
 
 pub const Keymap = struct {
     gpa: Allocator,
-    bindings: std.ArrayList(Binding) = .empty,
+    bindings: std.ArrayList(Binding),
     /// Called with a Lua action that is replaced, to release it.
-    release: ?*const fn (ctx: ?*anyopaque, ref: c_int) void = null,
-    release_ctx: ?*anyopaque = null,
+    release: ?*const fn (ctx: ?*anyopaque, ref: c_int) void,
+    release_ctx: ?*anyopaque,
+
+    /// No bindings, and nothing to release Lua actions with.
+    pub fn init(gpa: Allocator) Keymap {
+        return .{ .gpa = gpa, .bindings = .empty, .release = null, .release_ctx = null };
+    }
 
     pub fn deinit(km: *Keymap) void {
         for (km.bindings.items) |*b| km.freeBinding(b);
@@ -313,9 +318,11 @@ pub const Keymap = struct {
 
     pub const Match = struct {
         /// The binding the keys complete, if any.
-        exact: ?*const Binding = null,
+        exact: ?*const Binding,
         /// Whether longer bindings start with the keys.
-        prefix: bool = false,
+        prefix: bool,
+
+        pub const none: Match = .{ .exact = null, .prefix = false };
     };
 
     /// What `keys` mean in `mode`; visual mode falls back to normal
@@ -327,7 +334,7 @@ pub const Keymap = struct {
     }
 
     fn lookupIn(km: *const Keymap, mode: Mode, keys: []const Key) Match {
-        var m: Match = .{};
+        var m: Match = .none;
         for (km.bindings.items) |*b| {
             if (b.mode != mode or b.keys.len < keys.len) continue;
             if (!seqEql(b.keys[0..keys.len], keys)) continue;
@@ -387,18 +394,18 @@ test "parse and format" {
 
 test "keys from events" {
     // Shift+g types "G".
-    try testing.expect(fromEvent('G', "G", false, false, false, true).?.eql(.{ .code = 'G' }));
+    try testing.expect(fromEvent('G', "G", false, false, false, true).?.eql(.char('G')));
     // Ctrl+d types a control character; it is <C-d>.
     try testing.expect(fromEvent('d', "\x04", true, false, false, false).?.eql(.{ .code = 'd', .mods = .{ .ctrl = true } }));
     // Shift+Tab arrives as ISO_Left_Tab.
     try testing.expect(fromEvent(sym.iso_left_tab, "", false, false, false, true).?.eql(.{ .code = sym.tab, .mods = .{ .shift = true } }));
-    try testing.expect(fromEvent(sym.@"return", "\r", false, false, false, false).?.eql(.{ .code = sym.@"return" }));
+    try testing.expect(fromEvent(sym.@"return", "\r", false, false, false, false).?.eql(.{ .code = sym.@"return", .mods = .{} }));
     try testing.expect(fromEvent(0xffe1, "", false, false, false, true) == null);
-    try testing.expect(fromEvent(' ', " ", false, false, false, false).?.eql(.{ .code = ' ' }));
+    try testing.expect(fromEvent(' ', " ", false, false, false, false).?.eql(.char(' ')));
 }
 
 test "keymap lookup, prefixes, and visual fallback" {
-    var km: Keymap = .{ .gpa = testing.allocator };
+    var km: Keymap = .init(testing.allocator);
     defer km.deinit();
     try km.map(.normal, "gg", .{ .command = "top" }, "Top");
     try km.map(.normal, "gh", .{ .command = "cd ~" }, "Home");

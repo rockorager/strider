@@ -87,16 +87,29 @@ pub const Resolution = enum(u32) { none = 0, replace, skip, keep_both, merge, ca
 
 /// What the UI is asked about: `src` would land on `dst`, which exists.
 pub const Conflict = struct {
-    src: [linux.PATH_MAX]u8 = undefined,
-    src_len: usize = 0,
-    dst: [linux.PATH_MAX]u8 = undefined,
-    dst_len: usize = 0,
-    src_dir: bool = false,
-    dst_dir: bool = false,
-    src_size: u64 = 0,
-    dst_size: u64 = 0,
-    src_mtime: i64 = 0,
-    dst_mtime: i64 = 0,
+    src: [linux.PATH_MAX]u8,
+    src_len: usize,
+    dst: [linux.PATH_MAX]u8,
+    dst_len: usize,
+    src_dir: bool,
+    dst_dir: bool,
+    src_size: u64,
+    dst_size: u64,
+    src_mtime: i64,
+    dst_mtime: i64,
+
+    pub const empty: Conflict = .{
+        .src = undefined,
+        .src_len = 0,
+        .dst = undefined,
+        .dst_len = 0,
+        .src_dir = false,
+        .dst_dir = false,
+        .src_size = 0,
+        .dst_size = 0,
+        .src_mtime = 0,
+        .dst_mtime = 0,
+    };
 
     pub fn srcPath(c: *const Conflict) []const u8 {
         return c.src[0..c.src_len];
@@ -111,7 +124,7 @@ pub const Done = struct {
     from: []u8,
     to: []u8,
     /// A copy that replaced an existing file (undo cannot bring it back).
-    replaced: bool = false,
+    replaced: bool,
 };
 
 pub const Op = struct {
@@ -123,58 +136,58 @@ pub const Op = struct {
     dest: []u8,
     /// Restore and move_back: where each source goes (owned, parallel to
     /// sources).
-    targets: [][]u8 = &.{},
+    targets: [][]u8,
     /// The home trash ($XDG_DATA_HOME/Trash).
-    home_trash: []u8 = &.{},
+    home_trash: []u8,
     /// chmod: what to do to the permissions, as chmod(1) takes it (owned;
     /// checked with `parseMode` first).
-    mode_spec: []u8 = &.{},
+    mode_spec: []u8,
     /// chown: the new owner and group; null keeps one.
-    uid: ?u32 = null,
-    gid: ?u32 = null,
+    uid: ?u32,
+    gid: ?u32,
     /// chmod and chown: into folders too.
-    recursive: bool = false,
+    recursive: bool,
 
-    cancel: std.atomic.Value(bool) = .init(false),
+    cancel: std.atomic.Value(bool),
     /// 1 while paused: the worker waits at its next item or chunk.
-    paused: std.atomic.Value(u32) = .init(0),
-    total_bytes: std.atomic.Value(u64) = .init(0),
-    done_bytes: std.atomic.Value(u64) = .init(0),
-    total_items: std.atomic.Value(u32) = .init(0),
-    done_items: std.atomic.Value(u32) = .init(0),
+    paused: std.atomic.Value(u32),
+    total_bytes: std.atomic.Value(u64),
+    done_bytes: std.atomic.Value(u64),
+    total_items: std.atomic.Value(u32),
+    done_items: std.atomic.Value(u32),
     /// Counting what to do before doing it.
-    scanning: std.atomic.Value(bool) = .init(true),
+    scanning: std.atomic.Value(bool),
     /// Waiting for the UI to resolve `conflict`.
-    asking: std.atomic.Value(bool) = .init(false),
+    asking: std.atomic.Value(bool),
     /// Set once by the worker when it finishes.
-    result: ?Error = null,
+    result: ?Error,
     /// The file the error was about.
-    err_path: [256]u8 = undefined,
-    err_path_len: usize = 0,
+    err_path: [256]u8,
+    err_path_len: usize,
     /// Names the operation created in `dest`, newline-separated, so the
     /// view can select them.
-    created: std.ArrayList(u8) = .empty,
+    created: std.ArrayList(u8),
     /// What was done, in order (owned).
-    done: std.ArrayList(Done) = .empty,
+    done: std.ArrayList(Done),
     /// Items skipped by the user.
-    skipped: u32 = 0,
+    skipped: u32,
 
     // Conflicts.
-    conflict: Conflict = .{},
-    answer: Resolution = .none,
-    answer_all: bool = false,
-    answered: sync.Event = .{},
+    conflict: Conflict,
+    answer: Resolution,
+    answer_all: bool,
+    answered: sync.Event,
     /// The answer that applies to every conflict from now on.
-    policy: Resolution = .none,
+    policy: Resolution,
     /// Called on the worker thread when a conflict needs an answer; must
     /// get it to the UI thread (siv_post) and return.
-    ask: ?*const fn (ctx: ?*anyopaque, op: *Op) void = null,
-    ask_ctx: ?*anyopaque = null,
+    ask: ?*const fn (ctx: ?*anyopaque, op: *Op) void,
+    ask_ctx: ?*anyopaque,
 
     /// The current item's name, for progress.
-    current_mutex: sync.Mutex = .{},
-    current: [256]u8 = undefined,
-    current_len: usize = 0,
+    current_mutex: sync.Mutex,
+    current: [256]u8,
+    current_len: usize,
 
     /// An operation that moves each source to its target (restore,
     /// move_back).
@@ -191,7 +204,42 @@ pub const Op = struct {
         const srcs = try dupeAll(gpa, sources);
         errdefer freeAll(gpa, srcs);
         const d = try gpa.dupe(u8, dest);
-        op.* = .{ .gpa = gpa, .kind = kind, .sources = srcs, .dest = d };
+        op.* = .{
+            .gpa = gpa,
+            .kind = kind,
+            .sources = srcs,
+            .dest = d,
+            .targets = &.{},
+            .home_trash = &.{},
+            .mode_spec = &.{},
+            .uid = null,
+            .gid = null,
+            .recursive = false,
+            .cancel = .init(false),
+            .paused = .init(0),
+            .total_bytes = .init(0),
+            .done_bytes = .init(0),
+            .total_items = .init(0),
+            .done_items = .init(0),
+            .scanning = .init(true),
+            .asking = .init(false),
+            .result = null,
+            .err_path = undefined,
+            .err_path_len = 0,
+            .created = .empty,
+            .done = .empty,
+            .skipped = 0,
+            .conflict = .empty,
+            .answer = .none,
+            .answer_all = false,
+            .answered = .unset,
+            .policy = .none,
+            .ask = null,
+            .ask_ctx = null,
+            .current_mutex = .unlocked,
+            .current = undefined,
+            .current_len = 0,
+        };
         return op;
     }
 
@@ -534,7 +582,7 @@ pub const Op = struct {
     /// Asks the UI what to do about `dst` existing (or applies the
     /// policy), waiting for the answer.
     fn resolveConflict(op: *Op, src: []const u8, dst: [:0]const u8) Error!Resolution {
-        var c: Conflict = .{};
+        var c: Conflict = .empty;
         fillConflict(&c, src, dst);
         // A policy of merging folders replaces files.
         if (op.policy != .none) {
@@ -1189,14 +1237,14 @@ fn freeAll(gpa: Allocator, items: [][]u8) void {
 /// Names in a directory, without "." and "..".
 pub const DirIter = struct {
     fd: i32,
-    buf: [8192]u8 align(8) = undefined,
-    len: usize = 0,
-    off: usize = 0,
+    buf: [8192]u8 align(8),
+    len: usize,
+    off: usize,
 
     pub fn open(path: [:0]const u8) Error!DirIter {
         const rc = linux.openat(linux.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true, .NOFOLLOW = true }, 0);
         return switch (linux.errno(rc)) {
-            .SUCCESS => .{ .fd = @intCast(rc) },
+            .SUCCESS => .{ .fd = @intCast(rc), .buf = undefined, .len = 0, .off = 0 },
             else => |e| mapErrno(e),
         };
     }

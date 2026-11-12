@@ -31,13 +31,13 @@ const encrypted_iface = "org.freedesktop.UDisks2.Encrypted";
 app: *App,
 conn: siv.Dbus,
 /// UDisks2 runs (its name has an owner).
-present: bool = false,
-fetching: bool = false,
+present: bool,
+fetching: bool,
 /// A change arrived during a fetch: fetch again when it answers.
-stale: bool = false,
+stale: bool,
 /// What the drives in the sidebar refer to, by block path.
 arena: std.heap.ArenaAllocator,
-volumes: []Volume = &.{},
+volumes: []Volume,
 
 /// A file system UDisks2 can mount, or an encrypted volume to unlock.
 const Volume = struct {
@@ -84,7 +84,15 @@ pub fn create(app: *App) !*UDisks {
     errdefer c.siv_dbus_disconnect(conn);
     const self = try app.gpa.create(UDisks);
     errdefer app.gpa.destroy(self);
-    self.* = .{ .app = app, .conn = conn, .arena = .init(app.gpa) };
+    self.* = .{
+        .app = app,
+        .conn = conn,
+        .present = false,
+        .fetching = false,
+        .stale = false,
+        .arena = .init(app.gpa),
+        .volumes = &.{},
+    };
     errdefer self.arena.deinit();
     var watch: siv.DbusNameWatch = .null;
     try siv.check(c.siv_dbus_watch_name(conn, service, service.len, onOwner, null, self, &watch));

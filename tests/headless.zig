@@ -71,10 +71,10 @@ fn fixture(f: *Fixture, name: []const u8) !void {
 var path_buf: [512]u8 = undefined;
 
 test "three columns: the parent, the folder, and a preview" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "columns");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // Folders first, by name; the cursor on the first.
@@ -97,10 +97,10 @@ test "three columns: the parent, the folder, and a preview" {
 }
 
 test "keys: counts, gg and G, search, find, and history" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "keys");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // assets docs src a-very… backup.tar.gz build.zig photo.png README.md report.pdf run.sh
@@ -190,10 +190,10 @@ test "keys: counts, gg and G, search, find, and history" {
 const model = App.model;
 
 test "zf filters the folder as you type, in smart case, apart from / search" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "filter");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const all = h.dir().count();
@@ -249,11 +249,11 @@ fn opsDone(x: *Harness) bool {
 }
 
 test "chmod and chown on the targets, into folders with -R" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "perms");
     defer f.remove();
     try f.add(.{ .name = "work/assets/logo.svg", .size = 10 });
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     try testing.expectEqual(@as(u32, 0o644), modeOf(&f, "work/build.zig"));
@@ -294,10 +294,10 @@ test "chmod and chown on the targets, into folders with -R" {
 }
 
 test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "ops");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // Space marks and moves down: build.zig and photo.png.
@@ -373,10 +373,10 @@ test "marks, visual selection, copy, cut, paste, trash, undo, delete" {
 }
 
 test "visual operators act at once, as in vim; two-key forms still work; unbound keys say so" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "visual-ops");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const w = h.win.?;
@@ -467,10 +467,10 @@ test "visual operators act at once, as in vim; two-key forms still work; unbound
 }
 
 test "rename, create, and bulk rename in an editor" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "rename");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // r selects the name without its extension: typing replaces it.
@@ -508,10 +508,10 @@ test "rename, create, and bulk rename in an editor" {
 }
 
 test "the which-key popup, the command line, and completion" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "keyhints");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     try h.typeText("g");
@@ -552,7 +552,7 @@ test "the which-key popup, the command line, and completion" {
 }
 
 test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped, not a crash" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "bookmarks-file");
     defer f.remove();
     for ([_][]const u8{ ".local", ".local/state", ".local/state/strider" }) |d| {
@@ -563,7 +563,7 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
     // key of several bytes.
     var bb: [512]u8 = undefined;
     try f.writeFile(".local/state/strider/bookmarks", try std.mem.print(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}));
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .state = true });
     const app = h.app.?;
@@ -594,10 +594,10 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
 }
 
 test "messages stay until the next key, and :messages lists them" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "messages");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // An error stays in the status line, however long nothing happens.
@@ -625,10 +625,10 @@ test "messages stay until the next key, and :messages lists them" {
 }
 
 test "tabs, bookmarks, sorting, and hidden files" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "tabs");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     try h.typeText("ma");
@@ -693,7 +693,7 @@ fn writePdf(f: *Fixture, rel: []const u8) !void {
 }
 
 test "previews: images at the size shown, archives, PDFs, text, binary files" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "previews");
     defer f.remove();
     // A real PNG: a 160×120 gradient.
@@ -717,7 +717,7 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try writePdf(&f, "work/report.pdf");
     try f.writeFile("work/data.bin", "\x00\x01\x02binary\x00");
     for ([_][]const u8{ "work/backup.tar.gz", "work/report.pdf", "work/data.bin" }) |n| try f.touch(n, 1_791_900_300);
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const p = &h.win.?.preview;
@@ -771,7 +771,7 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
 }
 
 test "*.ts: TypeScript shows as highlighted source, a transport stream as video" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "typescript");
     defer f.remove();
     // The test database lists *.ts as Linguist and MPEG-TS at weight 50,
@@ -781,7 +781,7 @@ test "*.ts: TypeScript shows as highlighted source, a transport stream as video"
     for (0..5) |k| stream[k * 188] = 0x47;
     try f.writeFile("work/clip.ts", &stream);
     for ([_][]const u8{ "work/app.ts", "work/clip.ts" }) |n| try f.touch(n, 1_791_900_300);
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const db = h.app.?.mimeDb().?;
@@ -807,7 +807,7 @@ fn infoText(h: *Harness, buf: []u8) []const u8 {
 }
 
 test "previews without poppler, of videos, and of links; slow previewers never hold the keys" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "fallbacks");
     defer f.remove();
     try writePdf(&f, "work/report.pdf");
@@ -845,7 +845,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
 
     var cbuf: [512]u8 = undefined;
     try f.writeFile("init.lua", "local strider = require('strider')\nstrider.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
     const p = &h.win.?.preview;
@@ -887,7 +887,7 @@ test "previews without poppler, of videos, and of links; slow previewers never h
 }
 
 test "Lua: options, keys, commands, previewers, and siv from init.lua" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "lua");
     defer f.remove();
     try f.writeFile("work/data.csv", "a,b\n1,2\n");
@@ -912,7 +912,7 @@ test "Lua: options, keys, commands, previewers, and siv from init.lua" {
         \\strider.command("where", function() strider.notify(strider.cwd() .. " " .. tostring(#strider.selected())) end)
         \\strider.command("boom", function() error("boom!") end)
     );
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var cbuf: [512]u8 = undefined;
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
@@ -971,7 +971,7 @@ fn dispatchFor(h: *Harness, ms: usize) !void {
 }
 
 test "gf finds files below; gz and :z jump with zoxide, which hears of each folder" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "picker");
     defer f.remove();
     // A stand-in zoxide: it logs what it is told and knows three folders.
@@ -994,7 +994,7 @@ test "gf finds files below; gz and :z jump with zoxide, which hears of each fold
     var pbuf: [1024]u8 = undefined;
     _ = setenv("PATH", (try std.mem.printSentinel(&pbuf, "{s}/bin:{s}", .{ f.path, old_path }, 0)).ptr, 1);
 
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const w = h.win.?;
@@ -1056,13 +1056,13 @@ fn readFile(f: *const Fixture, rel: []const u8, buf: []u8) ![]const u8 {
 }
 
 test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "tasks");
     defer f.remove();
     var cmd: [512]u8 = undefined;
     // 256 MiB: 64 of the copy's 4 MiB chunks, so a pause lands mid-copy.
     try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "truncate -s 256M '{s}/work/big.bin'", .{f.path}, 0)).ptr));
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const app = h.app.?;
@@ -1106,10 +1106,10 @@ test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
 }
 
 test "column widths: the ratio, the parent fitted to its names, narrow windows" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "ratio");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work/src") });
     const w = h.win.?;
@@ -1163,12 +1163,12 @@ fn dragHandle(h: *Harness, which: usize, dx: f32) !void {
 }
 
 test "column handles: dragging, < and >, z= to reset, and widths kept across starts" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "resize");
     defer f.remove();
     var lb: [256]u8 = undefined;
     {
-        var h: Harness = .{};
+        var h: Harness = .init;
         defer h.deinit();
         try h.start(.{ .path = f.sub(&path_buf, "work/src"), .state = true });
         const w = h.win.?;
@@ -1219,7 +1219,7 @@ test "column handles: dragging, < and >, z= to reset, and widths kept across sta
     {
         // The next start keeps them; z= goes back to the ratio and
         // forgets them.
-        var h: Harness = .{};
+        var h: Harness = .init;
         defer h.deinit();
         try h.start(.{ .path = f.sub(&path_buf, "work/src"), .state = true });
         const w = h.win.?;
@@ -1233,7 +1233,7 @@ test "column handles: dragging, < and >, z= to reset, and widths kept across sta
     {
         // Right to left, the parent is on the right: dragging its
         // boundary left widens it.
-        var h: Harness = .{};
+        var h: Harness = .init;
         defer h.deinit();
         try h.start(.{ .path = f.sub(&path_buf, "work/src"), .rtl = true });
         try dragHandle(&h, 0, -60);
@@ -1261,12 +1261,12 @@ fn menuHas(h: *Harness, name: []const u8) bool {
 }
 
 test "context menus: entries, the selection, empty space, the Menu key, and init.lua's commands" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "menus");
     defer f.remove();
     var cbuf: [512]u8 = undefined;
     try f.writeFile("init.lua", "local strider = require('strider')\nstrider.command('hello', function() strider.notify('hi from init.lua') end, 'Say hello')\n");
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
     const app = h.app.?;
@@ -1311,10 +1311,10 @@ test "context menus: entries, the selection, empty space, the Menu key, and init
 }
 
 test "the properties dialog: the mode typed or ticked, the owner, applied as operations" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "props");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     try testing.expectEqual(@as(u32, 0o644), modeOf(&f, "work/build.zig"));
@@ -1374,7 +1374,7 @@ fn nodeOf(h: *Harness, n: siv.Node) !siv.TestNode {
 }
 
 test "themes and right to left" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "themes");
     defer f.remove();
     const looks = [_]struct { []const u8, siv.ColorScheme, siv.Contrast, bool }{
@@ -1383,7 +1383,7 @@ test "themes and right to left" {
         .{ "strider-rtl", .light, .follow, true },
     };
     for (looks) |l| {
-        var h: Harness = .{};
+        var h: Harness = .init;
         defer h.deinit();
         try h.start(.{ .path = f.sub(&path_buf, "work/src"), .scheme = l[1], .contrast = l[2], .rtl = l[3] });
         try h.typeText("G v");
@@ -1394,14 +1394,14 @@ test "themes and right to left" {
         try expectSquareFirstRow(&h);
         if (l[1] == .dark) try h.expectGolden(h.window(), "first-row-dark");
     }
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work/src") });
     try expectSquareFirstRow(&h);
 }
 
 test "Omarchy themes: the columns follow the user's theme, dark and light" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "omarchy");
     defer f.remove();
     // As siv finds ~/.local/state/omarchy/current/theme/colors.toml on a
@@ -1413,7 +1413,7 @@ test "Omarchy themes: the columns follow the user's theme, dark and light" {
     for (themes) |th| {
         _ = setenv("SIV_THEME", th[1].ptr, 1);
         defer _ = unsetenv("SIV_THEME");
-        var h: Harness = .{};
+        var h: Harness = .init;
         defer h.deinit();
         // The theme's mode picks light or dark.
         try h.start(.{ .path = f.sub(&path_buf, "work"), .scheme = .follow });
@@ -1455,10 +1455,10 @@ fn expectSquareFirstRow(h: *Harness) !void {
 }
 
 test "the mouse: clicks in each column, double clicks, and drops" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "mouse");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // A click moves the cursor; the keyboard keeps working after.
@@ -1509,7 +1509,7 @@ fn recorded(h: *Harness, f: *const Fixture, buf: []u8) ![]const u8 {
 }
 
 test "opening: %F applications like imv and nvim get the paths, in a terminal, through symlinked folders" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "open");
     defer f.remove();
     // Applications whose Exec takes a list (%F), as imv's and nvim's do,
@@ -1537,7 +1537,7 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     // A terminal this does not know: it gets "-e" before the command.
     _ = setenv("TERMINAL", "record-args", 1);
     defer _ = unsetenv("TERMINAL");
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     var rb: [2048]u8 = undefined;
@@ -1555,7 +1555,7 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
 }
 
 test "terminals in folders: S, :terminal, o on a folder, and the menus, with a token" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "terminal");
     defer f.remove();
     // A terminal that records where it started, the activation token it
@@ -1573,7 +1573,7 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     // which a terminal by itself leaves out.
     _ = setenv("TERMINAL", "fake-term --title x -e", 1);
     defer _ = unsetenv("TERMINAL");
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     var rb: [2048]u8 = undefined;
@@ -1615,10 +1615,10 @@ fn hover(h: *Harness, n: siv.TestNode) !void {
 }
 
 test "the header path: hovering a folder underlines it, a click goes there, a middle click opens a tab" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "crumbs");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     // Home is the parent of the folder shown: the path reads "~ / src /".
     try h.start(.{ .path = f.sub(&path_buf, "work/src") });
@@ -1646,10 +1646,10 @@ test "the header path: hovering a folder underlines it, a click goes there, a mi
 }
 
 test "tabs: the x closes its tab, the active one stays; hover and middle clicks" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "tabx");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     // Three tabs: work, src, docs; the second is active.
@@ -1706,11 +1706,11 @@ fn release(h: *Harness) !void {
 }
 
 test "drag and drop inside the window: folders in each column, Ctrl copies, undo, spring-loaded folders" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "dnd-folders");
     defer f.remove();
     try f.add(.{ .name = "work/src/util/inner", .dir = true });
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     const w = h.win.?;
@@ -1781,10 +1781,10 @@ test "drag and drop inside the window: folders in each column, Ctrl copies, undo
 }
 
 test "drag and drop inside the window: the header path, tabs, its own folder, Escape" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "dnd-path");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     // Home is work: the path reads "~ / src /".
     try h.start(.{ .path = f.sub(&path_buf, "work/src") });
@@ -1838,7 +1838,7 @@ fn clickBelowRows(h: *Harness, list: []const u8, clicks: u32, button: siv.Pointe
 }
 
 test "clicks on the empty space below the rows open nothing and go nowhere" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "empty-click");
     defer f.remove();
     // Opening photo.png would run the recorder, as imv.
@@ -1856,7 +1856,7 @@ test "clicks on the empty space below the rows open nothing and go nowhere" {
     var nb: [4096]u8 = undefined;
     _ = setenv("PATH", (try std.mem.printSentinel(&nb, "{s}/bin:{s}", .{ f.path, saved_path }, 0)).ptr, 1);
     defer _ = setenv("PATH", saved_path.ptr, 1);
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
     var wb: [512]u8 = undefined;
@@ -1891,10 +1891,10 @@ test "clicks on the empty space below the rows open nothing and go nowhere" {
 }
 
 test "folders follow changes on disk: the current one, its parent, and the previewed one" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try fixture(&f, "watch");
     defer f.remove();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .watch = true });
     // The cursor is on assets, previewed (empty).

@@ -26,28 +26,42 @@ pub const Kind = enum { files, folders };
 pub const rows = 10;
 
 win: *Window,
-panel: Node = .null,
-kind: Kind = .files,
-open: bool = false,
+panel: Node,
+kind: Kind,
+open: bool,
 /// The folder files are found below (absolute, no trailing slash).
-root: std.ArrayList(u8) = .empty,
-paths: fuzzy.Paths = .{},
+root: std.ArrayList(u8),
+paths: fuzzy.Paths,
 /// What the query matches, best first, and the buffer filtering swaps in.
-matches: std.ArrayList(fuzzy.Match) = .empty,
-spare: std.ArrayList(fuzzy.Match) = .empty,
-query: std.ArrayList(u8) = .empty,
-selected: usize = 0,
+matches: std.ArrayList(fuzzy.Match),
+spare: std.ArrayList(fuzzy.Match),
+query: std.ArrayList(u8),
+selected: usize,
 /// The worker is still reading candidates.
-loading: bool = false,
+loading: bool,
 /// Which open its deliveries belong to.
-gen: u64 = 0,
-source: ?*Source = null,
+gen: u64,
+source: ?*Source,
 
 /// Pickers alive, for deliveries posted by workers to check against.
 var live: [16]?*Picker = @splat(null);
 
 pub fn init(win: *Window) Picker {
-    return .{ .win = win };
+    return .{
+        .win = win,
+        .panel = .null,
+        .kind = .files,
+        .open = false,
+        .root = .empty,
+        .paths = .empty,
+        .matches = .empty,
+        .spare = .empty,
+        .query = .empty,
+        .selected = 0,
+        .loading = false,
+        .gen = 0,
+        .source = null,
+    };
 }
 
 pub fn deinit(p: *Picker) void {
@@ -256,12 +270,21 @@ const Source = struct {
         const s: *Source = @ptrCast(@alignCast(ud.?));
         switch (s.kind) {
             .files => {
-                const w: fuzzy.Walk = .{ .gpa = s.gpa, .root = s.root, .hidden = s.hidden, .cancel = &s.cancel, .sink = sink, .ctx = s };
+                const w: fuzzy.Walk = .{
+                    .gpa = s.gpa,
+                    .root = s.root,
+                    .hidden = s.hidden,
+                    .limit = 200_000,
+                    .cancel = &s.cancel,
+                    .sink = sink,
+                    .ctx = s,
+                    .batch_size = 4096,
+                };
                 w.run();
             },
             .folders => {
                 const batch = s.gpa.create(fuzzy.Paths) catch return;
-                batch.* = .{};
+                batch.* = .empty;
                 // zoxide leaves out the folder it is asked from.
                 var r = proc.run(s.gpa, &.{ "zoxide", "query", "--list", "--exclude", s.root }, .{ .max_output = 4 << 20, .cancel = &s.cancel, .timeout_ms = 10_000 }) catch null;
                 if (r) |*res| {

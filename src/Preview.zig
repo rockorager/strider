@@ -38,39 +38,61 @@ const Txn = siv.Txn;
 pub const Mode = enum { none, dir, text, image, info };
 
 win: *Window,
-root: Node = .null,
+root: Node,
 column: Column,
-scroll: Node = .null,
-text: Node = .null,
-image_box: Node = .null,
-image: Node = .null,
-caption: Node = .null,
-info: Node = .null,
-info_title: Node = .null,
-info_body: Node = .null,
-mode: Mode = .none,
+scroll: Node,
+text: Node,
+image_box: Node,
+image: Node,
+caption: Node,
+info: Node,
+info_title: Node,
+info_body: Node,
+mode: Mode,
 /// Which preview results belong to.
-gen: u64 = 0,
+gen: u64,
 /// The file previewed, for results to check against.
-path: std.ArrayList(u8) = .empty,
-image_request: siv.ImageRequest = .null,
+path: std.ArrayList(u8),
+image_request: siv.ImageRequest,
 /// The image load in flight's link back here, cut when it is no longer
 /// wanted.
-image_ctx: ?*ImageCtx = null,
-job: ?*Job = null,
+image_ctx: ?*ImageCtx,
+job: ?*Job,
 /// Scrolled lines of a text preview.
-scroll_y: f32 = 0,
+scroll_y: f32,
 /// For tests and measurements: the kind of the last preview applied.
-applied: Mode = .none,
+applied: Mode,
 /// What the text preview shows, for tests.
-text_kind: TextKind = .none,
+text_kind: TextKind,
 /// A job waiting for one of the `max_jobs` slots (the newest wins).
-pending: ?Pending = null,
+pending: ?Pending,
 
 pub const TextKind = enum { none, text, archive, command, binary };
 
 pub fn init(win: *Window) Preview {
-    return .{ .win = win, .column = .{ .win = win, .kind = .preview } };
+    return .{
+        .win = win,
+        .root = .null,
+        .column = .init(win, .preview),
+        .scroll = .null,
+        .text = .null,
+        .image_box = .null,
+        .image = .null,
+        .caption = .null,
+        .info = .null,
+        .info_title = .null,
+        .info_body = .null,
+        .mode = .none,
+        .gen = 0,
+        .path = .empty,
+        .image_request = .null,
+        .image_ctx = null,
+        .job = null,
+        .scroll_y = 0,
+        .applied = .none,
+        .text_kind = .none,
+        .pending = null,
+    };
 }
 
 pub fn deinit(p: *Preview) void {

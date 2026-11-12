@@ -39,6 +39,7 @@ pub const app_id = "dev.rockorager.Strider";
 pub const chooser_app_id = "dev.rockorager.Strider.Chooser";
 pub const program = "strider";
 
+// ast-grep-ignore: public-struct-field-default -- an options bag for create: tests override a few knobs.
 pub const Options = struct {
     /// Thread-safe: jobs allocate on worker threads.
     gpa: Allocator,
@@ -92,60 +93,60 @@ app: siv.App,
 opts: Options,
 home: []u8,
 places: places_mod.Places,
-options: Config.Options = .{},
+options: Config.Options,
 strings: Config.Strings,
 keymap: keys.Keymap,
 cache: Dir.Cache,
-windows: std.ArrayList(*Window) = .empty,
+windows: std.ArrayList(*Window),
 undo: undo_mod.Stack,
 tz_offset_s: i64,
-thumbnail_cache: []u8 = &.{},
-preview_cache: []u8 = &.{},
-lua: ?*Lua = null,
+thumbnail_cache: []u8,
+preview_cache: []u8,
+lua: ?*Lua,
 /// Errors from init.lua, shown by the first window.
-config_error: ?[]u8 = null,
+config_error: ?[]u8,
 
 /// Bookmarks: a path per key character.
-bookmarks: std.array_hash_map.Auto(u32, []u8) = .empty,
+bookmarks: std.array_hash_map.Auto(u32, []u8),
 /// Command lines entered, oldest first.
-history: std.ArrayList([]u8) = .empty,
+history: std.ArrayList([]u8),
 /// Column widths the user chose by dragging a handle or with < and >:
 /// the parent's and the current column's shares of the window's width.
 /// They win over `ratio` and `fit_parent` until `column-reset`, and
 /// persist in $XDG_STATE_HOME/strider/columns.
-widths: ?[2]f32 = null,
+widths: ?[2]f32,
 /// The size the user last gave a file chooser window, kept across starts.
-chooser_size: ?[2]u32 = null,
+chooser_size: ?[2]u32,
 /// File operations that finished, newest first, for the tasks view.
-recent: std.ArrayList(Finished) = .empty,
+recent: std.ArrayList(Finished),
 /// zoxide is on $PATH (looked for once, at startup), and the folder
 /// last told to it.
-zoxide: bool = false,
-zoxide_last: std.ArrayList(u8) = .empty,
+zoxide: bool,
+zoxide_last: std.ArrayList(u8),
 /// The status line's recent messages, oldest first (`:messages`).
-messages: std.ArrayList(Message) = .empty,
+messages: std.ArrayList(Message),
 /// What yy and dd took: paths, and whether pasting moves them.
-register: std.ArrayList([]u8) = .empty,
-register_cut: bool = false,
+register: std.ArrayList([]u8),
+register_cut: bool,
 /// The app's drag in progress, from one of its windows (Drag.zig).
-drag: ?*Dnd.Source = null,
+drag: ?*Dnd.Source,
 
 /// Loaded once by the first job that needs it.
-mime_db: ?*mime.Db = null,
-mime_mutex: sync.Mutex = .{},
-apps_db: ?*apps.Db = null,
-apps_loading: bool = false,
+mime_db: ?*mime.Db,
+mime_mutex: sync.Mutex,
+apps_db: ?*apps.Db,
+apps_loading: bool,
 /// Opens waiting for the application database.
-pending_opens: std.ArrayList(PendingOpen) = .empty,
+pending_opens: std.ArrayList(PendingOpen),
 
-ops: std.ArrayList(*OpEntry) = .empty,
-ops_timer: siv.Timer = .null,
-udisks: ?*UDisks = null,
-file_manager1: ?*FileManager1 = null,
+ops: std.ArrayList(*OpEntry),
+ops_timer: siv.Timer,
+udisks: ?*UDisks,
+file_manager1: ?*FileManager1,
 /// The FileChooser portal backend.
-portal: ?*Portal = null,
+portal: ?*Portal,
 /// Where the last file chooser picked, where the next one starts.
-last_chooser_folder: ?[]u8 = null,
+last_chooser_folder: ?[]u8,
 drives_arena: std.heap.ArenaAllocator,
 
 const PendingOpen = struct { win: *Window, paths: [][]u8, ask: bool };
@@ -208,11 +209,55 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
         .opts = opts,
         .home = home,
         .places = places,
-        .strings = .{ .gpa = gpa },
-        .keymap = .{ .gpa = gpa },
-        .cache = .{ .gpa = gpa, .sapp = sapp, .load_mime = loadMimeCb, .on_loaded = dirLoadedCb, .ctx = self },
-        .undo = .{ .gpa = gpa },
+        .options = .default,
+        .strings = .{ .gpa = gpa, .owned = .empty },
+        .keymap = .init(gpa),
+        .cache = .{
+            .gpa = gpa,
+            .sapp = sapp,
+            .dirs = .empty,
+            .tick = 0,
+            .load_mime = loadMimeCb,
+            .on_loaded = dirLoadedCb,
+            .ctx = self,
+            .trash_files = "",
+            .trash_dir = "",
+            .drives = &.{},
+            .sort = .default,
+            .show_hidden = false,
+            .max_cached = 64,
+            .watcher = null,
+            .change_timer = .null,
+        },
+        .windows = .empty,
+        .undo = .init(gpa),
         .tz_offset_s = opts.tz_offset_s,
+        .thumbnail_cache = &.{},
+        .preview_cache = &.{},
+        .lua = null,
+        .config_error = null,
+        .bookmarks = .empty,
+        .history = .empty,
+        .widths = null,
+        .chooser_size = null,
+        .recent = .empty,
+        .zoxide = false,
+        .zoxide_last = .empty,
+        .messages = .empty,
+        .register = .empty,
+        .register_cut = false,
+        .drag = null,
+        .mime_db = null,
+        .mime_mutex = .unlocked,
+        .apps_db = null,
+        .apps_loading = false,
+        .pending_opens = .empty,
+        .ops = .empty,
+        .ops_timer = .null,
+        .udisks = null,
+        .file_manager1 = null,
+        .portal = null,
+        .last_chooser_folder = null,
         .drives_arena = .init(gpa),
     };
     self.cache.trash_files = self.places.trash_files;
@@ -644,6 +689,10 @@ pub fn refreshMountDrives(self: *App) void {
             .label = a.dupe(u8, places_mod.basename(m.mount_point)) catch continue,
             .mount_point = a.dupe(u8, m.mount_point) catch continue,
             .icon = places_mod.removable_icon[1..],
+            .can_mount = false,
+            .can_unmount = false,
+            .can_eject = false,
+            .size = 0,
         }) catch return; // The places keep the last list: they copied it.
     }
     self.setDrives(drives.items);
@@ -1024,7 +1073,7 @@ pub const OpEntry = struct {
     /// Whether to record it for undo (not when it is an undo itself).
     undoable: bool,
     /// A conflict question is showing.
-    asking: bool = false,
+    asking: bool,
     sapp: siv.App,
 
     fn work(ud: ?*anyopaque) callconv(.c) void {
@@ -1103,7 +1152,7 @@ fn launchOp(self: *App, win: ?*Window, op: *fsops.Op, undoable: bool) void {
         op.destroy();
         return;
     };
-    e.* = .{ .app = self, .win = win, .op = op, .undoable = undoable, .sapp = self.app };
+    e.* = .{ .app = self, .win = win, .op = op, .undoable = undoable, .asking = false, .sapp = self.app };
     op.ask = OpEntry.ask;
     op.ask_ctx = e;
     self.ops.append(gpa, e) catch {

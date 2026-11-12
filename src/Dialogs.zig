@@ -28,31 +28,49 @@ const Txn = siv.Txn;
 pub const Kind = enum { delete, empty_trash, conflict, properties, overwrite };
 
 win: *Window,
-kind: Kind = .delete,
-node: Node = .null,
+kind: Kind,
+node: Node,
 /// Buttons by what they do.
-buttons: [6]Node = @splat(.null),
-actions: [6]Action = undefined,
-nbuttons: usize = 0,
+buttons: [6]Node,
+actions: [6]Action,
+nbuttons: usize,
 /// Delete: what goes. Properties: what changes.
-paths: std.ArrayList([]u8) = .empty,
+paths: std.ArrayList([]u8),
 /// Conflict: the operation asking, and "every conflict".
-entry: ?*App.OpEntry = null,
-all: Node = .null,
+entry: ?*App.OpEntry,
+all: Node,
 /// Properties.
-mode_field: Node = .null,
-owner_field: Node = .null,
-boxes: [9]Node = @splat(.null),
-recursive: Node = .null,
-mode0: [16]u8 = undefined,
-mode0_len: usize = 0,
-owner0: [128]u8 = undefined,
-owner0_len: usize = 0,
+mode_field: Node,
+owner_field: Node,
+boxes: [9]Node,
+recursive: Node,
+mode0: [16]u8,
+mode0_len: usize,
+owner0: [128]u8,
+owner0_len: usize,
 
 const Action = enum { cancel, delete, empty_trash, replace, skip, keep_both, merge, apply, overwrite };
 
 pub fn init(win: *Window) Dialogs {
-    return .{ .win = win };
+    return .{
+        .win = win,
+        .kind = .delete,
+        .node = .null,
+        .buttons = @splat(.null),
+        .actions = undefined,
+        .nbuttons = 0,
+        .paths = .empty,
+        .entry = null,
+        .all = .null,
+        .mode_field = .null,
+        .owner_field = .null,
+        .boxes = @splat(.null),
+        .recursive = .null,
+        .mode0 = undefined,
+        .mode0_len = 0,
+        .owner0 = undefined,
+        .owner0_len = 0,
+    };
 }
 
 pub fn deinit(d: *Dialogs) void {

@@ -21,51 +21,51 @@ const Dir = @This();
 cache: *Cache,
 /// Absolute, normalized, without a trailing slash (except "/").
 path: []u8,
-listing: ?model.Listing = null,
+listing: ?model.Listing,
 /// The trash view: where each entry came from, parallel to entries.
-trash_info: ?trash.Info = null,
+trash_info: ?trash.Info,
 /// The Drives folder: each entry's drive, parallel to entries.
-drive_rows: ?places.DriveRows = null,
-err: ?model.ReadError = null,
+drive_rows: ?places.DriveRows,
+err: ?model.ReadError,
 /// Every entry's index, in `sorted_by` order.
-order: std.ArrayList(u32) = .empty,
-sorted_by: model.Sort = .{},
+order: std.ArrayList(u32),
+sorted_by: model.Sort,
 /// The entries shown, in order: the column's row i is entries[visible[i]].
-visible: std.ArrayList(u32) = .empty,
+visible: std.ArrayList(u32),
 /// A file chooser's type filter, set by the picker showing this folder.
-types: ?*const model.TypeFilter = null,
+types: ?*const model.TypeFilter,
 /// What `visible` was filtered with.
-shows_hidden: bool = false,
-filter: std.ArrayList(u8) = .empty,
+shows_hidden: bool,
+filter: std.ArrayList(u8),
 /// The cursor, as an index into `visible`, and the name it is on (or is
 /// to be on, once a reload shows it), which survives reloads, sorting,
 /// and filtering: every move of the cursor updates it.
-cursor: u32 = 0,
-cursor_name: std.ArrayList(u8) = .empty,
+cursor: u32,
+cursor_name: std.ArrayList(u8),
 /// Marked entries, by entry index.
-marks: std.DynamicBitSetUnmanaged = .{},
-mark_count: u32 = 0,
+marks: std.DynamicBitSetUnmanaged,
+mark_count: u32,
 /// The read in flight, if any.
-loading: ?*Load = null,
+loading: ?*Load,
 /// A read finished at least once (successfully or not).
-loaded: bool = false,
+loaded: bool,
 /// When the last read finished, in nanoseconds of CLOCK_MONOTONIC.
-stamp: i64 = 0,
+stamp: i64,
 /// Columns and tabs showing it; pinned directories are not evicted.
-pins: u32 = 0,
-last_used: u64 = 0,
+pins: u32,
+last_used: u64,
 /// Its inotify watch, or -1: a watched folder re-reads when it changes
 /// rather than when it is old.
-wd: i32 = -1,
+wd: i32,
 /// Changed since it was last read.
-dirty: bool = false,
+dirty: bool,
 
 /// The cache of directories, shared by every window.
 pub const Cache = struct {
     gpa: Allocator,
     sapp: siv.App,
-    dirs: std.StringHashMapUnmanaged(*Dir) = .empty,
-    tick: u64 = 0,
+    dirs: std.StringHashMapUnmanaged(*Dir),
+    tick: u64,
     /// The MIME database, for classifying and sorting by type; loaded by
     /// the first read (on a worker).
     load_mime: *const fn (ctx: ?*anyopaque) ?*mime.Db,
@@ -73,19 +73,19 @@ pub const Cache = struct {
     on_loaded: *const fn (ctx: ?*anyopaque, dir: *Dir) void,
     ctx: ?*anyopaque,
     /// The home trash's files directory: its listing is every trash's.
-    trash_files: []const u8 = "",
-    trash_dir: []const u8 = "",
+    trash_files: []const u8,
+    trash_dir: []const u8,
     /// What the Drives folder lists (the app's, replaced when they
     /// change).
-    drives: []const places.Drive = &.{},
-    sort: model.Sort = .{},
-    show_hidden: bool = false,
+    drives: []const places.Drive,
+    sort: model.Sort,
+    show_hidden: bool,
     /// How many unpinned directories to keep.
-    max_cached: usize = 64,
+    max_cached: usize,
     /// Follows changes to every cached folder; null without inotify.
-    watcher: ?*Watcher = null,
+    watcher: ?*Watcher,
     /// Coalesces bursts of changes before re-reading.
-    change_timer: siv.Timer = .null,
+    change_timer: siv.Timer,
 
     /// Whether a cached folder other than `except` holds watch `wd`.
     fn watchShared(cache: *Cache, wd: i32, except: ?*Dir) bool {
@@ -149,7 +149,31 @@ pub const Cache = struct {
             cache.gpa.destroy(d);
             return null;
         };
-        d.* = .{ .cache = cache, .path = owned, .last_used = cache.tick, .sorted_by = cache.sort, .shows_hidden = cache.show_hidden };
+        d.* = .{
+            .cache = cache,
+            .path = owned,
+            .listing = null,
+            .trash_info = null,
+            .drive_rows = null,
+            .err = null,
+            .order = .empty,
+            .sorted_by = cache.sort,
+            .visible = .empty,
+            .types = null,
+            .shows_hidden = cache.show_hidden,
+            .filter = .empty,
+            .cursor = 0,
+            .cursor_name = .empty,
+            .marks = .{},
+            .mark_count = 0,
+            .loading = null,
+            .loaded = false,
+            .stamp = 0,
+            .pins = 0,
+            .last_used = cache.tick,
+            .wd = -1,
+            .dirty = false,
+        };
         cache.dirs.put(cache.gpa, d.path, d) catch {
             d.destroy();
             return null;
@@ -230,7 +254,7 @@ pub fn isDrives(d: *const Dir) bool {
 
 // Reading ---------------------------------------------------------------------------
 
-pub const Load = struct {
+const Load = struct {
     dir: ?*Dir,
     gpa: Allocator,
     cache: *Cache,

@@ -322,14 +322,14 @@ fn inDir(h: *Harness, suffix: []const u8, n: u32) bool {
 }
 
 test "drives from UDisks2: mount, browse, unmount and power off" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try f.create("udisks", &.{ .{ .name = "home", .dir = true }, .{ .name = "Stick", .dir = true }, .{ .name = "Stick/on-the-stick.txt", .size = 10 } });
     defer f.remove();
     try f.touch("Stick", 1_791_900_300);
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -412,14 +412,14 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
 }
 
 test "encrypted volumes: a passphrase unlocks and mounts; eject locks" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try f.create("udisks-luks", &.{ .{ .name = "home", .dir = true }, .{ .name = "Secret", .dir = true }, .{ .name = "Secret/diary.txt", .size = 20 } });
     defer f.remove();
     try f.touch("Secret", 1_791_900_300);
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -511,13 +511,13 @@ fn callFileManager(h: *Harness, conn: siv.Dbus, member: []const u8, uri: []const
 }
 
 test "FileManager1: show items, folders, and properties for other applications" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try f.create("fm1", &.{ .{ .name = "home", .dir = true }, .{ .name = "Projects", .dir = true }, .{ .name = "Projects/siv", .dir = true }, .{ .name = "notes.txt", .size = 3 } });
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -737,13 +737,13 @@ fn chooserFixture(f: *Fixture, name: []const u8) !void {
 }
 
 test "FileChooser: open one file and several, choose folders, by keys and by double clicks" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-open");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -827,13 +827,13 @@ test "FileChooser: open one file and several, choose folders, by keys and by dou
 }
 
 test "FileChooser: filters hide other files but not folders; choices come back" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-filters");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "work"), .bus = d.addr() });
@@ -926,13 +926,13 @@ test "FileChooser: filters hide other files but not folders; choices come back" 
 }
 
 test "FileChooser: save with a name, asking before replacing; save several into a folder" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-save");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -1011,13 +1011,13 @@ test "FileChooser: save with a name, asking before replacing; save several into 
 }
 
 test "FileChooser: Escape and q cancel; the caller's Close ends it" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-cancel");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -1098,13 +1098,13 @@ fn buttonsShow(h: *Harness, width: f32) !void {
 }
 
 test "FileChooser: Save has vim's modes: insert in the name, normal in the columns" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-modes");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -1183,13 +1183,13 @@ fn workFolder(m: siv.DbusMessage, fx: *const Fixture) void {
 }
 
 test "FileChooser: Open and folder choosers type a path in insert mode" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-path");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
@@ -1295,13 +1295,13 @@ test "FileChooser: Open and folder choosers type a path in insert mode" {
 }
 
 test "FileChooser: a narrow window keeps its buttons; Escape twice from the name and closing the window cancel; the size is kept" {
-    var f: Fixture = .{};
+    var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-narrow");
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
     defer d.stop();
-    var h: Harness = .{};
+    var h: Harness = .init;
     defer h.deinit();
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr(), .state = true });

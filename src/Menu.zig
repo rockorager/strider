@@ -29,15 +29,15 @@ pub const Context = enum {
 };
 
 win: *Window,
-node: Node = .null,
+node: Node,
 /// The command of each item of the menu and of its submenus, by menu,
 /// in item order (separators and submenu openers have none).
-items: std.ArrayList(Item) = .empty,
+items: std.ArrayList(Item),
 
 const Item = struct { menu: Node, command: ?[]u8 };
 
 pub fn init(win: *Window) Menu {
-    return .{ .win = win };
+    return .{ .win = win, .node = .null, .items = .empty };
 }
 
 pub fn deinit(m: *Menu) void {

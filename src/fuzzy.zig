@@ -14,8 +14,10 @@ const Allocator = std.mem.Allocator;
 
 /// Paths in one buffer: path i is bytes[offs[i]..offs[i + 1]].
 pub const Paths = struct {
-    bytes: std.ArrayList(u8) = .empty,
-    offs: std.ArrayList(u32) = .empty,
+    bytes: std.ArrayList(u8),
+    offs: std.ArrayList(u32),
+
+    pub const empty: Paths = .{ .bytes = .empty, .offs = .empty };
 
     pub fn deinit(p: *Paths, gpa: Allocator) void {
         p.bytes.deinit(gpa);
@@ -181,12 +183,12 @@ pub const Walk = struct {
     gpa: Allocator,
     root: []const u8,
     hidden: bool,
-    limit: usize = 200_000,
+    limit: usize,
     cancel: *const std.atomic.Value(bool),
     /// Takes a batch (it owns it from then on); `done` on the last.
     sink: *const fn (ctx: ?*anyopaque, batch: *Paths, done: bool) void,
     ctx: ?*anyopaque,
-    batch_size: usize = 4096,
+    batch_size: usize,
 
     pub fn run(w: *const Walk) void {
         var arena_state: std.heap.ArenaAllocator = .init(w.gpa);
@@ -231,7 +233,7 @@ pub const Walk = struct {
                     if (dir) queue.append(arena, arena.dupe(u8, child) catch continue) catch continue;
                     if (batch == null) {
                         batch = w.gpa.create(Paths) catch break :outer;
-                        batch.?.* = .{};
+                        batch.?.* = .empty;
                     }
                     batch.?.append(w.gpa, child) catch break :outer;
                     count += 1;
@@ -249,7 +251,7 @@ pub const Walk = struct {
     fn finish(w: *const Walk, batch: ?*Paths) void {
         const b = batch orelse blk: {
             const nb = w.gpa.create(Paths) catch return;
-            nb.* = .{};
+            nb.* = .empty;
             break :blk nb;
         };
         w.sink(w.ctx, b, true);
@@ -302,7 +304,7 @@ test "positions for highlighting" {
 
 test "filter ranks, breaks ties by length, and narrows a previous result" {
     const gpa = testing.allocator;
-    var paths: Paths = .{};
+    var paths: Paths = .empty;
     defer paths.deinit(gpa);
     for ([_][]const u8{ "docs/", "src/", "src/util/", "src/main.zig", "src/util/strings.zig", "docs/manual.md", "README.md" }) |p| try paths.append(gpa, p);
     var out: std.ArrayList(Match) = .empty;
@@ -335,7 +337,7 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
     _ = S.system((try std.mem.printSentinel(&cmd, "rm -rf {s} && mkdir -p {s}/a/b {s}/.git/objects {s}/.hidden && touch {s}/top {s}/a/mid {s}/a/b/deep {s}/.git/HEAD {s}/.hidden/x {s}/.dotfile", .{ root, root, root, root, root, root, root, root, root, root }, 0)).ptr);
     defer _ = S.system((std.mem.printSentinel(&cmd, "rm -rf {s}", .{root}, 0) catch unreachable).ptr);
     const Sink = struct {
-        all: Paths = .{},
+        all: Paths = .empty,
         batches: usize = 0,
         done: bool = false,
         err: ?Allocator.Error = null,
@@ -355,7 +357,16 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
     for ([_]bool{ false, true }) |hidden| {
         var s: Sink = .{};
         defer s.all.deinit(gpa);
-        const w: Walk = .{ .gpa = gpa, .root = root, .hidden = hidden, .cancel = &cancel, .sink = Sink.sink, .ctx = &s, .batch_size = 2 };
+        const w: Walk = .{
+            .gpa = gpa,
+            .root = root,
+            .hidden = hidden,
+            .limit = 200_000,
+            .cancel = &cancel,
+            .sink = Sink.sink,
+            .ctx = &s,
+            .batch_size = 2,
+        };
         w.run();
         if (s.err) |err| return err;
         try testing.expect(s.done);

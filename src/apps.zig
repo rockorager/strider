@@ -26,15 +26,15 @@ pub const App = struct {
 
 pub const Db = struct {
     arena: std.heap.ArenaAllocator,
-    apps: std.ArrayList(App) = .empty,
-    by_id: std.StringHashMapUnmanaged(u32) = .empty,
+    apps: std.ArrayList(App),
+    by_id: std.StringHashMapUnmanaged(u32),
     /// mimeapps.list: [Default Applications], [Added Associations], and
     /// [Removed Associations], merged most important first.
-    defaults: std.StringHashMapUnmanaged([]const []const u8) = .empty,
-    added: std.StringHashMapUnmanaged([]const []const u8) = .empty,
-    removed: std.StringHashMapUnmanaged([]const []const u8) = .empty,
+    defaults: std.StringHashMapUnmanaged([]const []const u8),
+    added: std.StringHashMapUnmanaged([]const []const u8),
+    removed: std.StringHashMapUnmanaged([]const []const u8),
     /// The user's mimeapps.list, which setDefault writes.
-    user_list: []const u8 = "",
+    user_list: []const u8,
 
     pub fn deinit(db: *Db) void {
         db.arena.deinit();
@@ -155,14 +155,22 @@ pub const Dirs = struct {
     config: []const []const u8,
     /// $XDG_CURRENT_DESKTOP's names, lowercased, for desktop-specific
     /// mimeapps lists.
-    desktops: []const []const u8 = &.{},
+    desktops: []const []const u8,
 };
 
 /// Reads every desktop entry and mimeapps.list. Blocking.
 pub fn load(gpa: Allocator, dirs: Dirs) !*Db {
     const db = try gpa.create(Db);
     errdefer gpa.destroy(db);
-    db.* = .{ .arena = .init(gpa) };
+    db.* = .{
+        .arena = .init(gpa),
+        .apps = .empty,
+        .by_id = .empty,
+        .defaults = .empty,
+        .added = .empty,
+        .removed = .empty,
+        .user_list = "",
+    };
     errdefer db.arena.deinit();
     // Applications: earlier directories win for the same id. A directory
     // or list that fails to load is skipped; the others still count.

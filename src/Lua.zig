@@ -26,10 +26,10 @@ gpa: Allocator,
 app: *App,
 state: *State,
 /// The window a binding, command, or event runs for.
-window: ?*Window = null,
-user_commands: std.ArrayList(UserCommand) = .empty,
-previewers: std.ArrayList(Previewer) = .empty,
-handlers: std.ArrayList(Handler) = .empty,
+window: ?*Window,
+user_commands: std.ArrayList(UserCommand),
+previewers: std.ArrayList(Previewer),
+handlers: std.ArrayList(Handler),
 
 const UserCommand = struct { name: []u8, desc: []u8, ref: c_int };
 const Previewer = struct {
@@ -44,7 +44,15 @@ const Handler = struct { event: []u8, ref: c_int };
 pub fn create(app: *App) !*Lua {
     const state = sl.siv_lua_new(~@as(c_int, 0)) orelse return error.OutOfMemory;
     const self = try app.gpa.create(Lua);
-    self.* = .{ .gpa = app.gpa, .app = app, .state = state };
+    self.* = .{
+        .gpa = app.gpa,
+        .app = app,
+        .state = state,
+        .window = null,
+        .user_commands = .empty,
+        .previewers = .empty,
+        .handlers = .empty,
+    };
     // require("strider").
     _ = lc.lua_getfield(state, lh.registry, "_PRELOAD");
     lc.lua_pushlightuserdata(state, self);

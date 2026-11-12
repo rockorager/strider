@@ -16,7 +16,7 @@ pub const Mount = struct {
 
 pub const Table = struct {
     arena: std.heap.ArenaAllocator,
-    mounts: []Mount = &.{},
+    mounts: []Mount,
 
     pub fn deinit(t: *Table) void {
         t.arena.deinit();
@@ -53,7 +53,7 @@ pub fn isUserDrive(m: Mount) bool {
 }
 
 pub fn read(gpa: Allocator) !Table {
-    var t: Table = .{ .arena = .init(gpa) };
+    var t: Table = .{ .arena = .init(gpa), .mounts = &.{} };
     errdefer t.deinit();
     const a = t.arena.allocator();
     const data = readAll(a, "/proc/self/mountinfo") orelse return t;

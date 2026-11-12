@@ -13,14 +13,14 @@ pub const Span = struct { start: u32, end: u32, class: Class };
 
 pub const Lang = struct {
     name: []const u8,
-    line_comments: []const []const u8 = &.{},
-    block_comment: ?[2][]const u8 = null,
-    quotes: []const u8 = "\"'",
-    keywords: []const []const u8 = &.{},
-    types: []const []const u8 = &.{},
+    line_comments: []const []const u8,
+    block_comment: ?[2][]const u8,
+    quotes: []const u8,
+    keywords: []const []const u8,
+    types: []const []const u8,
     /// Capitalized words are types (Rust, Go, Zig, Java, ...).
-    capital_types: bool = false,
-    kind: enum { code, markdown, diff, ini } = .code,
+    capital_types: bool,
+    kind: enum { code, markdown, diff, ini },
 };
 
 const c_keywords = [_][]const u8{ "auto", "break", "case", "const", "continue", "default", "do", "else", "enum", "extern", "for", "goto", "if", "inline", "register", "restrict", "return", "sizeof", "static", "struct", "switch", "typedef", "union", "volatile", "while", "#include", "#define", "#if", "#ifdef", "#ifndef", "#endif", "#else", "#elif", "#pragma", "class", "namespace", "template", "typename", "public", "private", "protected", "virtual", "override", "new", "delete", "try", "catch", "throw", "using", "nullptr", "true", "false", "NULL" };
@@ -46,26 +46,206 @@ const css_keywords = [_][]const u8{ "important", "inherit", "initial", "none", "
 const sql_keywords = [_][]const u8{ "select", "from", "where", "insert", "into", "values", "update", "set", "delete", "create", "table", "drop", "alter", "index", "join", "left", "right", "inner", "outer", "on", "and", "or", "not", "null", "as", "order", "by", "group", "having", "limit", "primary", "key", "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "INDEX", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON", "AND", "OR", "NOT", "NULL", "AS", "ORDER", "BY", "GROUP", "HAVING", "LIMIT", "PRIMARY", "KEY" };
 
 pub const langs = struct {
-    pub const c: Lang = .{ .name = "C", .line_comments = &.{"//"}, .block_comment = .{ "/*", "*/" }, .keywords = &c_keywords, .types = &c_types };
-    pub const zig: Lang = .{ .name = "Zig", .line_comments = &.{"//"}, .keywords = &zig_keywords, .types = &zig_types, .capital_types = true };
-    pub const rust: Lang = .{ .name = "Rust", .line_comments = &.{"//"}, .block_comment = .{ "/*", "*/" }, .keywords = &rust_keywords, .types = &rust_types, .capital_types = true, .quotes = "\"" };
-    pub const go: Lang = .{ .name = "Go", .line_comments = &.{"//"}, .block_comment = .{ "/*", "*/" }, .keywords = &go_keywords, .types = &go_types, .quotes = "\"'`" };
-    pub const python: Lang = .{ .name = "Python", .line_comments = &.{"#"}, .keywords = &py_keywords, .types = &py_types, .capital_types = true };
-    pub const js: Lang = .{ .name = "JavaScript", .line_comments = &.{"//"}, .block_comment = .{ "/*", "*/" }, .keywords = &js_keywords, .types = &js_types, .quotes = "\"'`", .capital_types = true };
-    pub const lua: Lang = .{ .name = "Lua", .line_comments = &.{"--"}, .keywords = &lua_keywords };
-    pub const sh: Lang = .{ .name = "Shell", .line_comments = &.{"#"}, .keywords = &sh_keywords };
-    pub const json: Lang = .{ .name = "JSON", .keywords = &json_keywords, .quotes = "\"" };
-    pub const toml: Lang = .{ .name = "TOML", .line_comments = &.{"#"}, .keywords = &toml_keywords, .kind = .ini };
-    pub const yaml: Lang = .{ .name = "YAML", .line_comments = &.{"#"}, .keywords = &toml_keywords };
-    pub const java: Lang = .{ .name = "Java", .line_comments = &.{"//"}, .block_comment = .{ "/*", "*/" }, .keywords = &java_keywords, .types = &java_types, .capital_types = true };
-    pub const ruby: Lang = .{ .name = "Ruby", .line_comments = &.{"#"}, .keywords = &rb_keywords, .capital_types = true };
-    pub const css: Lang = .{ .name = "CSS", .block_comment = .{ "/*", "*/" }, .keywords = &css_keywords };
-    pub const html: Lang = .{ .name = "HTML", .block_comment = .{ "<!--", "-->" }, .quotes = "\"'" };
-    pub const sql: Lang = .{ .name = "SQL", .line_comments = &.{"--"}, .block_comment = .{ "/*", "*/" }, .keywords = &sql_keywords };
-    pub const make: Lang = .{ .name = "Makefile", .line_comments = &.{"#"}, .quotes = "\"'" };
-    pub const markdown: Lang = .{ .name = "Markdown", .kind = .markdown };
-    pub const diff: Lang = .{ .name = "Diff", .kind = .diff };
-    pub const ini: Lang = .{ .name = "INI", .line_comments = &.{ "#", ";" }, .kind = .ini };
+    pub const c: Lang = .{
+        .name = "C",
+        .line_comments = &.{"//"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'",
+        .keywords = &c_keywords,
+        .types = &c_types,
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const zig: Lang = .{
+        .name = "Zig",
+        .line_comments = &.{"//"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &zig_keywords,
+        .types = &zig_types,
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const rust: Lang = .{
+        .name = "Rust",
+        .line_comments = &.{"//"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"",
+        .keywords = &rust_keywords,
+        .types = &rust_types,
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const go: Lang = .{
+        .name = "Go",
+        .line_comments = &.{"//"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'`",
+        .keywords = &go_keywords,
+        .types = &go_types,
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const python: Lang = .{
+        .name = "Python",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &py_keywords,
+        .types = &py_types,
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const js: Lang = .{
+        .name = "JavaScript",
+        .line_comments = &.{"//"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'`",
+        .keywords = &js_keywords,
+        .types = &js_types,
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const lua: Lang = .{
+        .name = "Lua",
+        .line_comments = &.{"--"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &lua_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const sh: Lang = .{
+        .name = "Shell",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &sh_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const json: Lang = .{
+        .name = "JSON",
+        .line_comments = &.{},
+        .block_comment = null,
+        .quotes = "\"",
+        .keywords = &json_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const toml: Lang = .{
+        .name = "TOML",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &toml_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .ini,
+    };
+    pub const yaml: Lang = .{
+        .name = "YAML",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &toml_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const java: Lang = .{
+        .name = "Java",
+        .line_comments = &.{"//"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'",
+        .keywords = &java_keywords,
+        .types = &java_types,
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const ruby: Lang = .{
+        .name = "Ruby",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &rb_keywords,
+        .types = &.{},
+        .capital_types = true,
+        .kind = .code,
+    };
+    pub const css: Lang = .{
+        .name = "CSS",
+        .line_comments = &.{},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'",
+        .keywords = &css_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const html: Lang = .{
+        .name = "HTML",
+        .line_comments = &.{},
+        .block_comment = .{ "<!--", "-->" },
+        .quotes = "\"'",
+        .keywords = &.{},
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const sql: Lang = .{
+        .name = "SQL",
+        .line_comments = &.{"--"},
+        .block_comment = .{ "/*", "*/" },
+        .quotes = "\"'",
+        .keywords = &sql_keywords,
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const make: Lang = .{
+        .name = "Makefile",
+        .line_comments = &.{"#"},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &.{},
+        .types = &.{},
+        .capital_types = false,
+        .kind = .code,
+    };
+    pub const markdown: Lang = .{
+        .name = "Markdown",
+        .line_comments = &.{},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &.{},
+        .types = &.{},
+        .capital_types = false,
+        .kind = .markdown,
+    };
+    pub const diff: Lang = .{
+        .name = "Diff",
+        .line_comments = &.{},
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &.{},
+        .types = &.{},
+        .capital_types = false,
+        .kind = .diff,
+    };
+    pub const ini: Lang = .{
+        .name = "INI",
+        .line_comments = &.{ "#", ";" },
+        .block_comment = null,
+        .quotes = "\"'",
+        .keywords = &.{},
+        .types = &.{},
+        .capital_types = false,
+        .kind = .ini,
+    };
 };
 
 const ByExt = struct { []const u8, *const Lang };

@@ -51,7 +51,7 @@ pub const Choice = struct {
     label: []const u8,
     options: []const Option,
     initial: []const u8,
-    node: Node = .null,
+    node: Node,
 };
 pub const Option = struct { id: []const u8, label: []const u8 };
 
@@ -61,44 +61,77 @@ kind: Kind,
 conn: siv.Dbus,
 invocation: siv.DbusInvocation,
 /// The impl.portal.Request object at the request's handle (Close).
-request: siv.DbusObject = .null,
-handle: []const u8 = "",
-app_id: []const u8 = "",
-parent_window: []const u8 = "",
-title: []const u8 = "",
-accept_label: []const u8 = "",
-modal: bool = true,
-multiple: bool = false,
-directory: bool = false,
-filters: []Filter = &.{},
+request: siv.DbusObject,
+handle: []const u8,
+app_id: []const u8,
+parent_window: []const u8,
+title: []const u8,
+accept_label: []const u8,
+modal: bool,
+multiple: bool,
+directory: bool,
+filters: []Filter,
 /// The filter shown, an index into filters.
-filter: ?usize = null,
-choices: []Choice = &.{},
-current_name: []const u8 = "",
+filter: ?usize,
+choices: []Choice,
+current_name: []const u8,
 /// Where the window starts, and the name to put the cursor on there.
-folder: []const u8 = "",
-select: []const u8 = "",
+folder: []const u8,
+select: []const u8,
 /// SaveFiles: the names to save in the folder picked.
-files: []const []const u8 = &.{},
-win: ?*Window = null,
-answered: bool = false,
+files: []const []const u8,
+win: ?*Window,
+answered: bool,
 /// Close came; the answer follows on a timer.
-closing: bool = false,
-close_timer: siv.Timer = .null,
+closing: bool,
+close_timer: siv.Timer,
 /// When the call came (CLOCK_MONOTONIC), for the time to the first frame.
-called_ns: u64 = 0,
+called_ns: u64,
 /// Saving over files waits for the overwrite dialog: the URIs to answer.
-pending: std.ArrayList([]const u8) = .empty,
+pending: std.ArrayList([]const u8),
 
-bar: Node = .null,
-field: Node = .null,
-filter_combo: Node = .null,
-accept_button: Node = .null,
-cancel_button: Node = .null,
+bar: Node,
+field: Node,
+filter_combo: Node,
+accept_button: Node,
+cancel_button: Node,
 
 pub fn create(app: *App, kind: Kind, conn: siv.Dbus, invocation: siv.DbusInvocation) !*Chooser {
     const ch = try app.gpa.create(Chooser);
-    ch.* = .{ .app = app, .arena = .init(app.gpa), .kind = kind, .conn = conn, .invocation = invocation, .called_ns = now() };
+    ch.* = .{
+        .app = app,
+        .arena = .init(app.gpa),
+        .kind = kind,
+        .conn = conn,
+        .invocation = invocation,
+        .request = .null,
+        .handle = "",
+        .app_id = "",
+        .parent_window = "",
+        .title = "",
+        .accept_label = "",
+        .modal = true,
+        .multiple = false,
+        .directory = false,
+        .filters = &.{},
+        .filter = null,
+        .choices = &.{},
+        .current_name = "",
+        .folder = "",
+        .select = "",
+        .files = &.{},
+        .win = null,
+        .answered = false,
+        .closing = false,
+        .close_timer = .null,
+        .called_ns = now(),
+        .pending = .empty,
+        .bar = .null,
+        .field = .null,
+        .filter_combo = .null,
+        .accept_button = .null,
+        .cancel_button = .null,
+    };
     return ch;
 }
 
@@ -267,7 +300,13 @@ fn readChoice(ch: *Chooser, r: bus.Reader) ?Choice {
         }
     }
     const initial = bus.readString(r, al) orelse "";
-    return .{ .id = id, .label = stripMnemonic(al, label), .options = options.items, .initial = initial };
+    return .{
+        .id = id,
+        .label = stripMnemonic(al, label),
+        .options = options.items,
+        .initial = initial,
+        .node = .null,
+    };
 }
 
 /// "_Open" is "Open": GTK's mnemonic marks, which the bar does not use.

@@ -17,11 +17,14 @@ pub const Info = struct {
     items: []Item,
 
     pub const Item = struct {
-        off: u32 = 0,
-        len: u32 = 0,
+        off: u32,
+        len: u32,
         /// DeletionDate as local wall-clock nanoseconds (formatted with no
         /// time zone offset), 0 if unknown.
-        deleted: i64 = 0,
+        deleted: i64,
+
+        /// No original path, and no date.
+        pub const unknown: Item = .{ .off = 0, .len = 0, .deleted = 0 };
     };
 
     pub const Entry = struct { original: []const u8, deleted: i64 };
@@ -78,7 +81,7 @@ pub fn list(gpa: Allocator, home_trash: []const u8, mount_points: []const []cons
         for (dirs) |d| gpa.free(d);
         gpa.free(dirs);
     }
-    var b: model.Builder = .{ .gpa = gpa };
+    var b: model.Builder = .init(gpa);
     errdefer b.deinit();
     var strings: std.ArrayList(u8) = .empty;
     errdefer strings.deinit(gpa);
@@ -110,7 +113,7 @@ pub fn list(gpa: Allocator, home_trash: []const u8, mount_points: []const []cons
                 const rel = std.mem.print(&rel_buf, "{s}/{s}", .{ files[1..], nm }) catch continue;
                 try b.add(rel, e);
                 // Its info file.
-                var item: Info.Item = .{};
+                var item: Info.Item = .unknown;
                 var ibuf: [linux.PATH_MAX]u8 = undefined;
                 const info_path = std.mem.print(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, nm }) catch "";
                 var contents: [8192]u8 = undefined;

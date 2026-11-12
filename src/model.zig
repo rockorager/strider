@@ -23,8 +23,8 @@ pub const Entry = struct {
     mtime: i64,
     mode: u32,
     /// Offset of the base name within the name (after the last slash).
-    base_off: u16 = 0,
-    mime: mime.Id = mime.unknown,
+    base_off: u16,
+    mime: mime.Id,
     kind: Kind,
     /// A symbolic link (kind is its target's).
     link: bool,
@@ -72,8 +72,12 @@ pub const Listing = struct {
 /// search).
 pub const Builder = struct {
     gpa: Allocator,
-    names: std.ArrayList(u8) = .empty,
-    entries: std.ArrayList(Entry) = .empty,
+    names: std.ArrayList(u8),
+    entries: std.ArrayList(Entry),
+
+    pub fn init(gpa: Allocator) Builder {
+        return .{ .gpa = gpa, .names = .empty, .entries = .empty };
+    }
 
     pub fn deinit(b: *Builder) void {
         b.names.deinit(b.gpa);
@@ -115,7 +119,7 @@ pub fn read(gpa: Allocator, path: []const u8, db: ?*mime.Db) ReadError!Listing {
     const fd = try openDir(zpath);
     defer _ = linux.close(fd);
 
-    var b: Builder = .{ .gpa = gpa };
+    var b: Builder = .init(gpa);
     errdefer b.deinit();
     var sniffs: usize = 0;
     var buf: [32 * 1024]u8 align(8) = undefined;
@@ -220,6 +224,8 @@ pub fn statEntry(dirfd: i32, zname: [*:0]const u8, nm: []const u8) Entry {
         .size = 0,
         .mtime = 0,
         .mode = 0,
+        .base_off = 0,
+        .mime = mime.unknown,
         .kind = .other,
         .link = false,
         .hidden = nm.len > 0 and nm[0] == '.',
@@ -259,10 +265,13 @@ pub fn thumbnailable(nm: []const u8) bool {
 pub const SortKey = enum(u8) { name, size, modified, type, extension };
 
 pub const Sort = struct {
-    key: SortKey = .name,
-    descending: bool = false,
+    key: SortKey,
+    descending: bool,
     /// Folders before files whatever the order, as file managers do.
-    folders_first: bool = true,
+    folders_first: bool,
+
+    /// By name, ascending, folders first.
+    pub const default: Sort = .{ .key = .name, .descending = false, .folders_first = true };
 };
 
 /// Fills `order` with every entry's index, sorted. `db` names types for
@@ -377,8 +386,8 @@ pub fn filter(l: *const Listing, order: []const u32, out: []u32, query: []const 
 /// so the chooser can still go anywhere.
 pub const TypeFilter = struct {
     /// Lowercased globs.
-    globs: []const []const u8 = &.{},
-    mimes: []const []const u8 = &.{},
+    globs: []const []const u8,
+    mimes: []const []const u8,
 
     pub fn admits(f: *const TypeFilter, db: ?*mime.Db, nm: []const u8, e: Entry) bool {
         if (e.kind == .dir) return true;
@@ -563,8 +572,19 @@ test "paths" {
 }
 
 test "relative names" {
-    var b: Builder = .{ .gpa = testing.allocator };
-    const e: Entry = .{ .name_off = 0, .name_len = 0, .size = 1, .mtime = 0, .mode = 0, .kind = .file, .link = false, .hidden = false };
+    var b: Builder = .init(testing.allocator);
+    const e: Entry = .{
+        .name_off = 0,
+        .name_len = 0,
+        .size = 1,
+        .mtime = 0,
+        .mode = 0,
+        .base_off = 0,
+        .mime = mime.unknown,
+        .kind = .file,
+        .link = false,
+        .hidden = false,
+    };
     try b.add("sub/dir/file.txt", e);
     try b.add("top", e);
     var l = try b.finish("/x");

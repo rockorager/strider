@@ -30,9 +30,13 @@ pub const Step = struct {
 
 pub const Stack = struct {
     gpa: Allocator,
-    steps: std.ArrayList(Step) = .empty,
+    steps: std.ArrayList(Step),
 
     const max_steps = 50;
+
+    pub fn init(gpa: Allocator) Stack {
+        return .{ .gpa = gpa, .steps = .empty };
+    }
 
     pub fn deinit(s: *Stack) void {
         for (s.steps.items) |*st| freeStep(s.gpa, st);

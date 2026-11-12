@@ -45,7 +45,7 @@ pub const Hit = struct { id: Id, weight: u16 };
 const Hits = struct { list: std.ArrayList(Hit) = .empty, contested: bool = false };
 /// A glob match: the best type, and all candidates when content must
 /// settle it (see `Db.settle`).
-pub const Match = struct { id: Id, contested: ?[]const Hit = null };
+pub const Match = struct { id: Id, contested: ?[]const Hit };
 /// A rule from the `magic` file: `value` (under `mask`) at an offset from
 /// `offset` to `offset + range - 1`, and, if it has children, one of them.
 const Matchlet = struct { offset: u32, range: u32, value: []const u8, mask: ?[]const u8, children: []const Matchlet };
@@ -55,29 +55,29 @@ const Complex = struct { pattern: []const u8, id: Id, weight: u16, case_sensitiv
 pub const Db = struct {
     gpa: Allocator,
     arena: std.heap.ArenaAllocator,
-    names: std.ArrayList([]const u8) = .empty,
-    ids: std.StringHashMapUnmanaged(Id) = .empty,
+    names: std.ArrayList([]const u8),
+    ids: std.StringHashMapUnmanaged(Id),
     /// Exact file names (case-sensitive), then lowercased.
-    literal: std.StringHashMapUnmanaged(Hits) = .empty,
-    literal_ci: std.StringHashMapUnmanaged(Hits) = .empty,
+    literal: std.StringHashMapUnmanaged(Hits),
+    literal_ci: std.StringHashMapUnmanaged(Hits),
     /// "*.ext" globs by extension (without the dot): case-sensitive ones,
     /// then the rest lowercased.
-    ext_cs: std.StringHashMapUnmanaged(Hits) = .empty,
-    ext_ci: std.StringHashMapUnmanaged(Hits) = .empty,
-    complex: std.ArrayList(Complex) = .empty,
-    aliases: std.StringHashMapUnmanaged(Id) = .empty,
+    ext_cs: std.StringHashMapUnmanaged(Hits),
+    ext_ci: std.StringHashMapUnmanaged(Hits),
+    complex: std.ArrayList(Complex),
+    aliases: std.StringHashMapUnmanaged(Id),
     /// Each type's parents, by id.
-    parents: std.AutoHashMapUnmanaged(Id, []Id) = .empty,
+    parents: std.AutoHashMapUnmanaged(Id, []Id),
     /// Icon names by id (from `icons` and `generic-icons`).
-    icon: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
-    generic_icon: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
+    icon: std.AutoHashMapUnmanaged(Id, []const u8),
+    generic_icon: std.AutoHashMapUnmanaged(Id, []const u8),
     /// Magic rules, only for the types of contested names.
-    magic: std.AutoHashMapUnmanaged(Id, Magic) = .empty,
+    magic: std.AutoHashMapUnmanaged(Id, Magic),
     /// The directories holding mime/ (data dirs), for <type>.xml.
-    dirs: std.ArrayList([]const u8) = .empty,
+    dirs: std.ArrayList([]const u8),
 
-    mutex: sync.Mutex = .{},
-    comments: std.AutoHashMapUnmanaged(Id, []const u8) = .empty,
+    mutex: sync.Mutex,
+    comments: std.AutoHashMapUnmanaged(Id, []const u8),
 
     fn loadGlobs(db: *Db, dir: []const u8) !void {
         try eachLine(loadGlobsImpl, db.gpa, dir, "globs2", db);
@@ -151,7 +151,7 @@ pub const Db = struct {
             if (best != null and best.?.weight >= cx.weight) continue;
             if (globMatch(cx.pattern, subject)) best = .{ .id = cx.id, .weight = cx.weight };
         }
-        return if (best) |b| .{ .id = b.id } else null;
+        return if (best) |b| .{ .id = b.id, .contested = null } else null;
     }
 
     fn hitsMatch(h: Hits) Match {
@@ -347,7 +347,25 @@ fn unescapeXml(gpa: Allocator, s: []const u8) ![]const u8 {
 pub fn load(gpa: Allocator, data_dirs: []const []const u8) !*Db {
     const db = try gpa.create(Db);
     errdefer gpa.destroy(db);
-    db.* = .{ .gpa = gpa, .arena = .init(gpa) };
+    db.* = .{
+        .gpa = gpa,
+        .arena = .init(gpa),
+        .names = .empty,
+        .ids = .empty,
+        .literal = .empty,
+        .literal_ci = .empty,
+        .ext_cs = .empty,
+        .ext_ci = .empty,
+        .complex = .empty,
+        .aliases = .empty,
+        .parents = .empty,
+        .icon = .empty,
+        .generic_icon = .empty,
+        .magic = .empty,
+        .dirs = .empty,
+        .mutex = .unlocked,
+        .comments = .empty,
+    };
     errdefer db.arena.deinit();
     for (builtin_types) |t| _ = try db.intern(t);
     for (data_dirs) |d| try db.dirs.append(db.a(), try db.a().dupe(u8, d));
