@@ -97,7 +97,8 @@ pub fn run(gpa: Allocator, argv: []const []const u8, opts: Options) !Result {
             // Wake now and then to see whether to stop.
             var pfd = [1]linux.pollfd{.{ .fd = fds[0], .events = linux.POLL.IN, .revents = 0 }};
             const r = linux.poll(&pfd, 1, 100);
-            const stop = (if (opts.cancel) |cf| cf.load(.acquire) else false) or (if (deadline) |d| nowMs() >= d else false);
+            const stop = (if (opts.cancel) |cf| cf.load(.acquire) else false) or
+                (if (deadline) |d| nowMs() >= d else false);
             if (stop) {
                 _ = kill(-pid, 9);
                 truncated = true;

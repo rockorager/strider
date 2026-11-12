@@ -117,7 +117,9 @@ pub const Cache = struct {
         while (it.next()) |d| if (d.*.wd == wd) {
             d.*.dirty = true;
         };
-        if (cache.change_timer == .null) _ = c.siv_timer_start(cache.sapp, 150, onChangeTimer, null, cache, &cache.change_timer);
+        if (cache.change_timer == .null) {
+            _ = c.siv_timer_start(cache.sapp, 150, onChangeTimer, null, cache, &cache.change_timer);
+        }
     }
 
     /// Shown folders that changed read again; others when next shown.
@@ -139,7 +141,10 @@ pub const Cache = struct {
             d.last_used = cache.tick;
             // A watched folder is fresh unless it changed; an unwatched
             // one is read again when it is older than `max_age_ms`.
-            const stale = if (d.wd >= 0) d.dirty else (max_age_ms != 0 and now() - d.stamp > @as(i64, max_age_ms) * std.time.ns_per_ms);
+            const stale = if (d.wd >= 0)
+                d.dirty
+            else
+                (max_age_ms != 0 and now() - d.stamp > @as(i64, max_age_ms) * std.time.ns_per_ms);
             if (d.loading == null and (!d.loaded or stale)) d.reload();
             return d;
         }
@@ -479,7 +484,15 @@ fn rebuild(d: *Dir) void {
     d.visible.resize(gpa, d.order.items.len) catch return;
     // A chooser's type filter is for files; every drive shows.
     const types = if (d.isDrives()) null else d.types;
-    const n = model.filter(l, d.order.items, d.visible.items, d.filter.items, d.shows_hidden or d.isTrash(), types, if (types != null) cache.load_mime(cache.ctx) else null);
+    const n = model.filter(
+        l,
+        d.order.items,
+        d.visible.items,
+        d.filter.items,
+        d.shows_hidden or d.isTrash(),
+        types,
+        if (types != null) cache.load_mime(cache.ctx) else null,
+    );
     d.visible.shrinkRetainingCapacity(n);
     d.restoreCursor();
 }

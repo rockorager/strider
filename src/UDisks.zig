@@ -144,7 +144,14 @@ fn fetch(self: *UDisks) void {
         self.stale = true;
         return;
     }
-    const m = bus.newCall(self.conn, service, root_path, "org.freedesktop.DBus.ObjectManager", "GetManagedObjects", false) catch return;
+    const m = bus.newCall(
+        self.conn,
+        service,
+        root_path,
+        "org.freedesktop.DBus.ObjectManager",
+        "GetManagedObjects",
+        false,
+    ) catch return;
     if (c.siv_dbus_message_call(m, 0, onObjects, null, self) != .ok) return;
     self.fetching = true;
 }
@@ -176,7 +183,16 @@ fn parseObjects(r: siv.DbusReader, a: Allocator) ![]Object {
             while (bus.next(r) == '{') {
                 _ = bus.enter(r);
                 const iface = bus.readString(r, a) orelse return error.Invalid;
-                const kind: Kind = if (std.mem.eql(u8, iface, block_iface)) .block else if (std.mem.eql(u8, iface, fs_iface)) .fs else if (std.mem.eql(u8, iface, drive_iface)) .drive else if (std.mem.eql(u8, iface, encrypted_iface)) .encrypted else .other;
+                const kind: Kind = if (std.mem.eql(u8, iface, block_iface))
+                    .block
+                else if (std.mem.eql(u8, iface, fs_iface))
+                    .fs
+                else if (std.mem.eql(u8, iface, drive_iface))
+                    .drive
+                else if (std.mem.eql(u8, iface, encrypted_iface))
+                    .encrypted
+                else
+                    .other;
                 switch (kind) {
                     .block => o.block = true,
                     .fs => o.filesystem = true,
@@ -262,7 +278,10 @@ fn apply(self: *UDisks, objects: []const Object) void {
         // cleartext device's file system stands for it.
         const locked = o.encrypted and std.mem.eql(u8, o.cleartext, "/");
         if (!o.filesystem and !locked) continue;
-        const backing: ?*const Object = if (std.mem.eql(u8, o.crypto_backing, "/")) null else find(objects, o.crypto_backing);
+        const backing: ?*const Object = if (std.mem.eql(u8, o.crypto_backing, "/"))
+            null
+        else
+            find(objects, o.crypto_backing);
         // The cleartext device has no drive or useful hints of its own.
         const outer = backing orelse &o;
         if (outer.hint_ignore) continue;
@@ -271,7 +290,17 @@ fn apply(self: *UDisks, objects: []const Object) void {
         const mounted = o.mount_point.len != 0;
         if (outer.hint_system and !removable and !(mounted and userMountPoint(o.mount_point))) continue;
         var size_buf: [32]u8 = undefined;
-        const label = if (o.label.len != 0) o.label else if (outer.label.len != 0) outer.label else if (outer.hint_name.len != 0) outer.hint_name else a.print("{s} {s}", .{ model.formatSize(&size_buf, outer.size), if (locked or backing != null) "Encrypted Volume" else "Volume" }) catch continue;
+        const label = if (o.label.len != 0)
+            o.label
+        else if (outer.label.len != 0)
+            outer.label
+        else if (outer.hint_name.len != 0)
+            outer.hint_name
+        else
+            a.print("{s} {s}", .{
+                model.formatSize(&size_buf, outer.size),
+                if (locked or backing != null) "Encrypted Volume" else "Volume",
+            }) catch continue;
         const ejectable = if (d) |dd| dd.ejectable else false;
         const power_off = if (d) |dd| dd.can_power_off and removable else false;
         volumes.append(a, .{
@@ -389,8 +418,18 @@ fn newRequest(self: *UDisks, win: *Window, drive: u32, v: Volume) ?*Request {
 
 /// Calls `member` on `path` with the request's arguments and empty
 /// options. Consumes `req`.
-fn send(self: *UDisks, req: *Request, path: []const u8, iface: []const u8, member: []const u8, passphrase: ?[]const u8) void {
-    const m = bus.newCallFlags(self.conn, service, path, iface, member, .{ .interactive = true, .secret = passphrase != null }) catch {
+fn send(
+    self: *UDisks,
+    req: *Request,
+    path: []const u8,
+    iface: []const u8,
+    member: []const u8,
+    passphrase: ?[]const u8,
+) void {
+    const m = bus.newCallFlags(self.conn, service, path, iface, member, .{
+        .interactive = true,
+        .secret = passphrase != null,
+    }) catch {
         Request.free(req);
         return;
     };
@@ -470,7 +509,10 @@ fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader)
         }
         // Mounting just after an unlock: the file system may not be
         // known yet.
-        if (req.kind == .mount and req.retries < 10 and (std.mem.endsWith(u8, name, ".UnknownMethod") or std.mem.endsWith(u8, name, ".UnknownInterface") or std.mem.endsWith(u8, name, ".UnknownObject"))) {
+        if (req.kind == .mount and req.retries < 10 and (std.mem.endsWith(u8, name, ".UnknownMethod") or
+            std.mem.endsWith(u8, name, ".UnknownInterface") or
+            std.mem.endsWith(u8, name, ".UnknownObject")))
+        {
             const again = req.next(.mount) orelse return;
             again.retries += 1;
             var timer: siv.Timer = .null;
@@ -480,7 +522,10 @@ fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader)
         var tbuf: [256]u8 = undefined;
         var mbuf: [512]u8 = undefined;
         var mlen: usize = 0;
-        const detail = if (c.siv_dbus_reader_read_string(r, &tbuf, tbuf.len, &mlen) == .ok and mlen <= tbuf.len) tbuf[0..mlen] else name;
+        const detail = if (c.siv_dbus_reader_read_string(r, &tbuf, tbuf.len, &mlen) == .ok and mlen <= tbuf.len)
+            tbuf[0..mlen]
+        else
+            name;
         if (req.kind == .unlock) {
             if (req.window()) |w| w.unlockFailed(unlockError(detail), req.target.get(), label, req.new_tab);
             return;
@@ -492,7 +537,11 @@ fn onReply(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, r: siv.DbusReader)
             .lock => "lock",
             .eject => "eject",
         };
-        const msg = std.mem.print(&mbuf, "Cannot {s} “{s}”: {s}", .{ verb, label, detail }) catch "The drive refused";
+        const msg = std.mem.print(
+            &mbuf,
+            "Cannot {s} “{s}”: {s}",
+            .{ verb, label, detail },
+        ) catch "The drive refused";
         if (req.window()) |w| w.notify(msg, true);
         return;
     }
@@ -542,6 +591,7 @@ fn onRetry(ud: ?*anyopaque) callconv(.c) void {
 
 /// UDisks2's (cryptsetup's) words for a wrong passphrase, said plainly.
 fn unlockError(detail: []const u8) []const u8 {
-    if (std.ascii.findIgnoreCase(detail, "passphrase") != null or std.ascii.findIgnoreCase(detail, "No key available") != null) return "Wrong passphrase. Try again.";
+    if (std.ascii.findIgnoreCase(detail, "passphrase") != null or
+        std.ascii.findIgnoreCase(detail, "No key available") != null) return "Wrong passphrase. Try again.";
     return detail;
 }

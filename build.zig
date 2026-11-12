@@ -29,11 +29,24 @@ const program = "strider";
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize_opt = b.option(std.builtin.Optimize, "optimize", "Prioritize performance, safety, or binary size (default: safe for the program, debug for tests)");
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests whose name does not contain this text") orelse &.{};
+    const optimize_opt = b.option(
+        std.builtin.Optimize,
+        "optimize",
+        "Prioritize performance, safety, or binary size (default: safe for the program, debug for tests)",
+    );
+    const test_filters = b.option(
+        []const []const u8,
+        "test-filter",
+        "Skip tests whose name does not contain this text",
+    ) orelse &.{};
     // D-Bus activation cannot choose between two service files for one
     // name, so other file managers' would compete with this one.
-    const filemanager1 = b.option(bool, "filemanager1", "Install a D-Bus service file for org.freedesktop.FileManager1, so the bus starts this program for other applications' \"Show in folder\" (default: false)") orelse false;
+    const filemanager1 = b.option(
+        bool,
+        "filemanager1",
+        "Install a D-Bus service file for org.freedesktop.FileManager1, so the bus starts this program " ++
+            "for other applications' \"Show in folder\" (default: false)",
+    ) orelse false;
 
     const exe_optimize = optimize_opt orelse .safe;
     const test_optimize = optimize_opt orelse .debug;
@@ -47,13 +60,25 @@ pub fn build(b: *std.Build) void {
     // What `strider --version` says: the version a `release: X.Y.Z`
     // commit sets in build.zig.zon, unless the build names another.
     const options = b.addOptions();
-    options.addOption([]const u8, "version", b.option([]const u8, "version", "The version strider reports") orelse manifest.version);
+    options.addOption(
+        []const u8,
+        "version",
+        b.option([]const u8, "version", "The version strider reports") orelse manifest.version,
+    );
     exe.root_module.addOptions("build_options", options);
     b.installArtifact(exe);
     installData(b, filemanager1);
     const siv_dep = b.dependency("siv", .{ .target = target, .optimize = exe_optimize });
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(siv_dep.namedLazyPath("notices"), .prefix, "share/licenses/" ++ program ++ "/NOTICES-siv").step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(siv_dep.namedLazyPath("lua-notices"), .prefix, "share/licenses/" ++ program ++ "/NOTICES-siv-lua").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(
+        siv_dep.namedLazyPath("notices"),
+        .prefix,
+        "share/licenses/" ++ program ++ "/NOTICES-siv",
+    ).step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(
+        siv_dep.namedLazyPath("lua-notices"),
+        .prefix,
+        "share/licenses/" ++ program ++ "/NOTICES-siv-lua",
+    ).step);
 
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());
@@ -141,7 +166,10 @@ fn installData(b: *std.Build, filemanager1: bool) void {
         // The FileChooser portal backend: started by the bus, found by
         // xdg-desktop-portal (1.20.3 and later search every data dir,
         // ~/.local/share included).
-        .{ out.path(b, "org.freedesktop.impl.portal.desktop.strider.service"), "share/dbus-1/services/org.freedesktop.impl.portal.desktop.strider.service" },
+        .{
+            out.path(b, "org.freedesktop.impl.portal.desktop.strider.service"),
+            "share/dbus-1/services/org.freedesktop.impl.portal.desktop.strider.service",
+        },
         .{ b.path("data/" ++ program ++ ".portal"), "share/xdg-desktop-portal/portals/" ++ program ++ ".portal" },
         .{ b.path("data/" ++ app_id ++ ".svg"), "share/icons/hicolor/scalable/apps/" ++ app_id ++ ".svg" },
         .{ b.path("data/" ++ app_id ++ ".svg"), "share/" ++ program ++ "/icons/" ++ app_id ++ ".svg" },
@@ -149,6 +177,16 @@ fn installData(b: *std.Build, filemanager1: bool) void {
         .{ b.path("data/init.lua"), "share/doc/" ++ program ++ "/init.lua" },
     };
     for (files) |f| b.getInstallStep().dependOn(&b.addInstallFileWithDir(f[0], .prefix, f[1]).step);
-    if (filemanager1) b.getInstallStep().dependOn(&b.addInstallFileWithDir(out.path(b, "org.freedesktop.FileManager1.service"), .prefix, "share/dbus-1/services/org.freedesktop.FileManager1.service").step);
-    b.getInstallStep().dependOn(&b.addInstallDirectory(.{ .source_dir = b.path("icons"), .install_dir = .prefix, .install_subdir = "share/" ++ program ++ "/icons" }).step);
+    if (filemanager1) {
+        b.getInstallStep().dependOn(&b.addInstallFileWithDir(
+            out.path(b, "org.freedesktop.FileManager1.service"),
+            .prefix,
+            "share/dbus-1/services/org.freedesktop.FileManager1.service",
+        ).step);
+    }
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("icons"),
+        .install_dir = .prefix,
+        .install_subdir = "share/" ++ program ++ "/icons",
+    }).step);
 }

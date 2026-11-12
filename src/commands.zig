@@ -62,7 +62,12 @@ pub const list = [_]Command{
         .complete = .none,
     },
     .{ .name = "zi", .desc = "Pick a folder zoxide knows", .run = zPick, .complete = .none },
-    .{ .name = "cd-xdg", .desc = "Go to an XDG user folder: DOWNLOAD, DOCUMENTS, …", .run = cdXdg, .complete = .none },
+    .{
+        .name = "cd-xdg",
+        .desc = "Go to an XDG user folder: DOWNLOAD, DOCUMENTS, …",
+        .run = cdXdg,
+        .complete = .none,
+    },
     .{ .name = "cd-media", .desc = "Go to where drives mount", .run = cdMedia, .complete = .none },
     .{ .name = "trash-browse", .desc = "Show the trash", .run = trashBrowse, .complete = .none },
     .{ .name = "preview-down", .desc = "Scroll the preview down", .run = previewDown, .complete = .none },
@@ -115,7 +120,12 @@ pub const list = [_]Command{
     .{ .name = "toggle-hidden", .desc = "Show or hide hidden files", .run = toggleHidden, .complete = .none },
     .{ .name = "toggle-preview", .desc = "Show or hide the preview", .run = togglePreview, .complete = .none },
     .{ .name = "toggle-icons", .desc = "Show or hide icons", .run = toggleIcons, .complete = .none },
-    .{ .name = "sort", .desc = "Sort by name, size, modified, type, extension [reverse]", .run = sort, .complete = .sort },
+    .{
+        .name = "sort",
+        .desc = "Sort by name, size, modified, type, extension [reverse]",
+        .run = sort,
+        .complete = .sort,
+    },
     .{ .name = "sort-reverse", .desc = "Reverse the sort", .run = sortReverse, .complete = .none },
     .{ .name = "sort-dirs-first", .desc = "Folders first, or not", .run = sortDirsFirst, .complete = .none },
     .{ .name = "set", .desc = "Set an option: set name value", .run = set, .complete = .option },
@@ -267,7 +277,9 @@ fn fuzzyFind(ctx: Ctx) void {
     ctx.win.startPicker(.files, ctx.args);
 }
 fn zPick(ctx: Ctx) void {
-    if (!ctx.win.app.zoxide) return ctx.win.notify("zoxide is not installed (it is in most distributions' packages)", true);
+    if (!ctx.win.app.zoxide) {
+        return ctx.win.notify("zoxide is not installed (it is in most distributions' packages)", true);
+    }
     ctx.win.startPicker(.folders, ctx.args);
 }
 fn zJump(ctx: Ctx) void {
@@ -289,7 +301,20 @@ fn zFound(win: *Window, status: u8, output: []const u8) void {
 
 fn cdXdg(ctx: Ctx) void {
     const app = ctx.win.app;
-    const want = if (std.ascii.eqlIgnoreCase(ctx.args, "DOWNLOAD")) "Downloads" else if (std.ascii.eqlIgnoreCase(ctx.args, "DOCUMENTS")) "Documents" else if (std.ascii.eqlIgnoreCase(ctx.args, "PICTURES")) "Pictures" else if (std.ascii.eqlIgnoreCase(ctx.args, "MUSIC")) "Music" else if (std.ascii.eqlIgnoreCase(ctx.args, "VIDEOS")) "Videos" else if (std.ascii.eqlIgnoreCase(ctx.args, "DESKTOP")) "Desktop" else ctx.args;
+    const want = if (std.ascii.eqlIgnoreCase(ctx.args, "DOWNLOAD"))
+        "Downloads"
+    else if (std.ascii.eqlIgnoreCase(ctx.args, "DOCUMENTS"))
+        "Documents"
+    else if (std.ascii.eqlIgnoreCase(ctx.args, "PICTURES"))
+        "Pictures"
+    else if (std.ascii.eqlIgnoreCase(ctx.args, "MUSIC"))
+        "Music"
+    else if (std.ascii.eqlIgnoreCase(ctx.args, "VIDEOS"))
+        "Videos"
+    else if (std.ascii.eqlIgnoreCase(ctx.args, "DESKTOP"))
+        "Desktop"
+    else
+        ctx.args;
     for (app.places.items.items) |p| if (p.kind == .place and std.mem.eql(u8, p.label, want)) return ctx.win.cd(p.path);
     var buf: [128]u8 = undefined;
     ctx.win.notify(std.mem.print(&buf, "There is no {s} folder", .{want}) catch "No such folder", true);
@@ -436,12 +461,22 @@ fn cut(ctx: Ctx) void {
 }
 fn paste(ctx: Ctx) void {
     const d = ctx.win.curDir();
-    if (d.isTrash() or d.isDrives()) return ctx.win.notify(if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives", true);
+    if (d.isTrash() or d.isDrives()) {
+        return ctx.win.notify(
+            if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives",
+            true,
+        );
+    }
     ctx.win.paste(d.path, false);
 }
 fn pasteOverwrite(ctx: Ctx) void {
     const d = ctx.win.curDir();
-    if (d.isTrash() or d.isDrives()) return ctx.win.notify(if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives", true);
+    if (d.isTrash() or d.isDrives()) {
+        return ctx.win.notify(
+            if (d.isTrash()) "Paste into a folder, not the trash" else "Paste into a folder, not Drives",
+            true,
+        );
+    }
     ctx.win.paste(d.path, true);
 }
 fn yankText(ctx: Ctx, which: enum { path, name }) void {
@@ -458,7 +493,8 @@ fn yankText(ctx: Ctx, which: enum { path, name }) void {
     win.writeClipboardText(out.items);
     win.consumeTargets();
     var buf: [512]u8 = undefined;
-    win.notify(std.mem.print(&buf, "Copied {s}", .{if (paths.len == 1) out.items else if (which == .path) "the paths" else "the names"}) catch "Copied", false);
+    const what = if (paths.len == 1) out.items else if (which == .path) "the paths" else "the names";
+    win.notify(std.mem.print(&buf, "Copied {s}", .{what}) catch "Copied", false);
 }
 fn yankPath(ctx: Ctx) void {
     yankText(ctx, .path);
@@ -517,7 +553,10 @@ fn chmod(ctx: Ctx) void {
     if (spec.len == 0) return win.startPrompt(.command, "chmod ", 6, 6);
     if (!fsops.parseMode(spec)) {
         var buf: [128]u8 = undefined;
-        return win.notify(std.mem.print(&buf, "Not a mode: {s} (755, u+x, go-w, a=rX)", .{spec}) catch "Not a mode", true);
+        return win.notify(
+            std.mem.print(&buf, "Not a mode: {s} (755, u+x, go-w, a=rX)", .{spec}) catch "Not a mode",
+            true,
+        );
     }
     const paths = win.targets() catch return;
     defer App.freePaths(win.gpa, paths);
@@ -603,7 +642,12 @@ fn renameWith(ctx: Ctx, where: enum { stem, end, start }) void {
     const name = model.basename(p);
     const e = d.current().?;
     // The name without its extension is selected (folders: all of it).
-    const stem: u32 = @intCast(if (e.kind == .dir) name.len else if (std.mem.findScalarLast(u8, name, '.')) |dot| (if (dot == 0) name.len else dot) else name.len);
+    const stem: u32 = @intCast(if (e.kind == .dir)
+        name.len
+    else if (std.mem.findScalarLast(u8, name, '.')) |dot|
+        (if (dot == 0) name.len else dot)
+    else
+        name.len);
     switch (where) {
         .stem => win.startPrompt(.rename, name, stem, 0),
         .end => win.startPrompt(.rename, name, stem, stem),
@@ -659,10 +703,18 @@ pub fn finishCreate(win: *Window, text: []const u8) void {
     // Folders on the way.
     var parent_buf: [linux.PATH_MAX]u8 = undefined;
     mkdirs(&parent_buf, model.parent(full));
-    const r = if (is_dir) fsops.makeDir(model.parent(full), model.basename(full)) else fsops.makeFile(model.parent(full), model.basename(full));
+    const r = if (is_dir)
+        fsops.makeDir(model.parent(full), model.basename(full))
+    else
+        fsops.makeFile(model.parent(full), model.basename(full));
     r catch |err| {
         var mbuf: [512]u8 = undefined;
-        return win.notify(std.mem.print(&mbuf, "Could not create “{s}”: {s}", .{ rel, fsops.describe(err) }) catch "Could not create it", true);
+        const msg = std.mem.print(
+            &mbuf,
+            "Could not create “{s}”: {s}",
+            .{ rel, fsops.describe(err) },
+        ) catch "Could not create it";
+        return win.notify(msg, true);
     };
     win.app.undo.pushCreated(full);
     const first = rel[0 .. std.mem.findScalar(u8, rel, '/') orelse rel.len];
@@ -753,7 +805,9 @@ const ShellJob = struct {
         const out = std.mem.trimEnd(u8, r.output, "\n");
         var buf: [600]u8 = undefined;
         if (out.len == 0) {
-            if (r.status != 0) w.notify(std.mem.print(&buf, "“{s}” exited with {d}", .{ j.cmd, r.status }) catch "Failed", true);
+            if (r.status != 0) {
+                w.notify(std.mem.print(&buf, "“{s}” exited with {d}", .{ j.cmd, r.status }) catch "Failed", true);
+            }
             return;
         }
         // The last line in the status line; all of it in the preview.
@@ -893,7 +947,13 @@ fn insert(ctx: Ctx) void {
     const win = ctx.win;
     const ch = win.chooser orelse return win.notify("Only a chooser has a name or path to type", true);
     const a = std.mem.trim(u8, ctx.args, " ");
-    const how: App.Chooser.Insert = if (a.len == 0) .keep else std.meta.stringToEnum(App.Chooser.Insert, a) orelse return win.notify("insert takes stem, start, end, or clear", true);
+    const how: App.Chooser.Insert = if (a.len == 0)
+        .keep
+    else
+        std.meta.stringToEnum(App.Chooser.Insert, a) orelse return win.notify(
+            "insert takes stem, start, end, or clear",
+            true,
+        );
     _ = ch.insert(how);
 }
 
@@ -966,7 +1026,12 @@ pub fn applyBulk(win: *Window, paths: []const []const u8, text: []const u8) void
     while (it.next()) |l| names.append(gpa, l) catch return;
     if (names.items.len != paths.len) {
         var buf: [128]u8 = undefined;
-        return win.notify(std.mem.print(&buf, "The list has {d} lines for {d} names; nothing was renamed", .{ names.items.len, paths.len }) catch "Line count changed", true);
+        const msg = std.mem.print(
+            &buf,
+            "The list has {d} lines for {d} names; nothing was renamed",
+            .{ names.items.len, paths.len },
+        ) catch "Line count changed";
+        return win.notify(msg, true);
     }
     var pairs: std.ArrayList([2][]const u8) = .empty;
     defer pairs.deinit(gpa);
@@ -979,7 +1044,10 @@ pub fn applyBulk(win: *Window, paths: []const []const u8, text: []const u8) void
         if (std.mem.eql(u8, model.basename(p), n)) continue;
         if (!model.validName(n)) {
             var buf: [300]u8 = undefined;
-            return win.notify(std.mem.print(&buf, "“{s}” is not a valid name; nothing was renamed", .{n}) catch "Invalid name", true);
+            return win.notify(
+                std.mem.print(&buf, "“{s}” is not a valid name; nothing was renamed", .{n}) catch "Invalid name",
+                true,
+            );
         }
         const to = gpa.print("{s}/{s}", .{ model.parent(p), n }) catch return;
         bufs.append(gpa, to) catch return;
@@ -1009,13 +1077,20 @@ fn bulkRename(ctx: Ctx) void {
     }
     const tmpdir = std.mem.span(getenv("XDG_RUNTIME_DIR") orelse getenv("TMPDIR") orelse "/tmp");
     var fbuf: [linux.PATH_MAX]u8 = undefined;
-    const file = std.mem.print(&fbuf, "{s}/" ++ App.program ++ "-rename-{d}-{d}.txt", .{ tmpdir, linux.getpid(), @as(u64, @bitCast(Dir.now())) }) catch return;
+    const file = std.mem.print(
+        &fbuf,
+        "{s}/" ++ App.program ++ "-rename-{d}-{d}.txt",
+        .{ tmpdir, linux.getpid(), @as(u64, @bitCast(Dir.now())) },
+    ) catch return;
     if (!writeFile(file, body.items)) {
         App.freePaths(gpa, paths);
         return win.notify("Could not write the list of names", true);
     }
     // The editor: in a terminal unless it is a graphical one.
-    const editor = if (app.options.editor.len != 0) app.options.editor else std.mem.span(getenv("VISUAL") orelse getenv("EDITOR") orelse "vi");
+    const editor = if (app.options.editor.len != 0)
+        app.options.editor
+    else
+        std.mem.span(getenv("VISUAL") orelse getenv("EDITOR") orelse "vi");
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     const ed_argv = apps.splitExec(arena.allocator(), editor) catch &.{};
@@ -1028,7 +1103,14 @@ fn bulkRename(ctx: Ctx) void {
     for (ed_argv) |a| argv.append(gpa, gpa.dupe(u8, a) catch return) catch return;
     argv.append(gpa, gpa.dupe(u8, file) catch return) catch return;
     const j = gpa.create(BulkJob) catch return;
-    j.* = .{ .win = win, .app = app, .gpa = gpa, .paths = paths, .file = gpa.dupe(u8, file) catch return, .argv = argv.toOwnedSlice(gpa) catch return };
+    j.* = .{
+        .win = win,
+        .app = app,
+        .gpa = gpa,
+        .paths = paths,
+        .file = gpa.dupe(u8, file) catch return,
+        .argv = argv.toOwnedSlice(gpa) catch return,
+    };
     win.consumeTargets();
     win.notify("Editing the names: save and quit the editor to rename", false);
     _ = c.siv_job_start(app.app, .{}, BulkJob.work, BulkJob.done, BulkJob.destroy, j);
@@ -1037,7 +1119,12 @@ fn bulkRename(ctx: Ctx) void {
 fn writeFile(path: []const u8, data: []const u8) bool {
     var zb: [linux.PATH_MAX]u8 = undefined;
     const z = std.mem.printSentinel(&zb, "{s}", .{path}, 0) catch return false;
-    const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
+    const rc = linux.openat(
+        linux.AT.FDCWD,
+        z,
+        .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true },
+        0o600,
+    );
     if (linux.errno(rc) != .SUCCESS) return false;
     const fd: i32 = @intCast(rc);
     defer _ = linux.close(fd);
@@ -1092,7 +1179,10 @@ fn toggleIcons(ctx: Ctx) void {
 fn sort(ctx: Ctx) void {
     const app = ctx.win.app;
     var it = std.mem.tokenizeScalar(u8, ctx.args, ' ');
-    const key_name = it.next() orelse return ctx.win.notify("sort needs a key: name, size, modified, type, extension", true);
+    const key_name = it.next() orelse return ctx.win.notify(
+        "sort needs a key: name, size, modified, type, extension",
+        true,
+    );
     const key = Config.parseSortKey(key_name) orelse return ctx.win.notify("Unknown sort key", true);
     var descending = false;
     if (it.next()) |w| descending = std.mem.eql(u8, w, "reverse") or std.mem.eql(u8, w, "desc");
@@ -1120,7 +1210,9 @@ fn set(ctx: Ctx) void {
     if (std.mem.endsWith(u8, name, "!")) {
         name = name[0 .. name.len - 1];
         value = null;
-    } else if (std.mem.startsWith(u8, name, "no") and Config.info(name[2..]) != null and Config.info(name[2..]).?.kind == .boolean) {
+    } else if (std.mem.startsWith(u8, name, "no") and Config.info(name[2..]) != null and
+        Config.info(name[2..]).?.kind == .boolean)
+    {
         name = name[2..];
         value = "false";
     } else if (value == null) if (Config.info(name)) |i| if (i.kind == .boolean) {
@@ -1225,9 +1317,16 @@ fn unmountWith(ctx: Ctx, do_eject: bool) void {
     const here = win.curDir().path;
     // In Drives, the drive under the cursor, mounted or not (an unlocked
     // volume locks, an ejectable drive ejects).
-    const cursor: ?*const App.places_mod.DriveRows.Row = if (ctx.args.len == 0) win.curDir().driveAt(win.curDir().cursor) else null;
+    const cursor: ?*const App.places_mod.DriveRows.Row = if (ctx.args.len == 0)
+        win.curDir().driveAt(win.curDir().cursor)
+    else
+        null;
     for (app.places.drives.items, 0..) |d, i| {
-        const chosen = if (cursor) |row| std.mem.eql(u8, d.id, row.drive.id) else d.mount_point.len != 0 and (ctx.args.len == 0 and model.isWithin(here, d.mount_point) or std.ascii.eqlIgnoreCase(d.label, ctx.args));
+        const chosen = if (cursor) |row|
+            std.mem.eql(u8, d.id, row.drive.id)
+        else
+            d.mount_point.len != 0 and (ctx.args.len == 0 and model.isWithin(here, d.mount_point) or
+                std.ascii.eqlIgnoreCase(d.label, ctx.args));
         if (chosen) {
             if (app.udisks) |u| return u.unmount(win, @intCast(i), do_eject);
             return win.notify("Unmounting needs UDisks2", true);
@@ -1318,7 +1417,11 @@ fn messages(ctx: Ctx) void {
         const start: u32 = @intCast(out.items.len);
         const secs: u64 = @intCast(@max(0, m.time + app.tz_offset_s));
         const ds = (std.time.epoch.EpochSeconds{ .secs = secs }).getDaySeconds();
-        out.print(gpa, "{d:0>2}:{d:0>2}:{d:0>2}  ", .{ ds.getHoursIntoDay(), ds.getMinutesIntoHour(), ds.getSecondsIntoMinute() }) catch return;
+        out.print(gpa, "{d:0>2}:{d:0>2}:{d:0>2}  ", .{
+            ds.getHoursIntoDay(),
+            ds.getMinutesIntoHour(),
+            ds.getSecondsIntoMinute(),
+        }) catch return;
         // One line each.
         for (m.text) |ch| out.append(gpa, if (ch == '\n') ' ' else ch) catch return;
         const end: u32 = @intCast(out.items.len);
@@ -1344,10 +1447,16 @@ fn contextMenu(ctx: Ctx) void {
 const column_step: f32 = 32;
 
 fn columnWider(ctx: Ctx) void {
-    ctx.win.resizeColumn(std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"), column_step * @as(f32, @floatFromInt(ctx.n())));
+    ctx.win.resizeColumn(
+        std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"),
+        column_step * @as(f32, @floatFromInt(ctx.n())),
+    );
 }
 fn columnNarrower(ctx: Ctx) void {
-    ctx.win.resizeColumn(std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"), -column_step * @as(f32, @floatFromInt(ctx.n())));
+    ctx.win.resizeColumn(
+        std.mem.eql(u8, std.mem.trim(u8, ctx.args, " "), "parent"),
+        -column_step * @as(f32, @floatFromInt(ctx.n())),
+    );
 }
 fn columnReset(ctx: Ctx) void {
     ctx.win.app.setWidths(null);
@@ -1439,7 +1548,9 @@ pub fn complete(win: *Window, a: Allocator, text: []const u8, shell_line: bool) 
     var cands: std.ArrayList([]const u8) = .empty;
     switch (kind) {
         .option => for (Config.infos) |i| if (std.mem.startsWith(u8, i.name, word)) try cands.append(a, i.name),
-        .sort => for ([_][]const u8{ "name", "size", "modified", "type", "extension" }) |s| if (std.mem.startsWith(u8, s, word)) try cands.append(a, s),
+        .sort => for ([_][]const u8{ "name", "size", "modified", "type", "extension" }) |s| {
+            if (std.mem.startsWith(u8, s, word)) try cands.append(a, s);
+        },
         .command, .none, .path, .dir => try pathCandidates(win, a, word, kind == .dir, &cands),
     }
     return finish(a, head, word, cands.items, kind != .path and kind != .dir);
@@ -1455,7 +1566,11 @@ fn finish(a: Allocator, head: []const u8, word: []const u8, cands: []const []con
         prefix = prefix[0..k];
     }
     const full = cands.len == 1 and add_space;
-    const completed = try a.print("{s}{s}{s}", .{ head, if (prefix.len >= word.len) prefix else word, if (full) " " else "" });
+    const completed = try a.print("{s}{s}{s}", .{
+        head,
+        if (prefix.len >= word.len) prefix else word,
+        if (full) " " else "",
+    });
     return .{ .completed = completed, .candidates = cands };
 }
 
@@ -1467,7 +1582,13 @@ pub fn completePath(win: *Window, a: Allocator, word: []const u8, dirs_only: boo
     return finish(a, "", word, cands.items, false);
 }
 
-fn pathCandidates(win: *Window, a: Allocator, word: []const u8, dirs_only: bool, cands: *std.ArrayList([]const u8)) !void {
+fn pathCandidates(
+    win: *Window,
+    a: Allocator,
+    word: []const u8,
+    dirs_only: bool,
+    cands: *std.ArrayList([]const u8),
+) !void {
     // Split into the folder typed so far and the name being completed.
     const slash = std.mem.findScalarLast(u8, word, '/');
     const dir_part = if (slash) |i| word[0 .. i + 1] else "";

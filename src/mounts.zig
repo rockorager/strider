@@ -31,12 +31,42 @@ pub const Table = struct {
     }
 };
 
-const pseudo = [_][]const u8{ "proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup", "cgroup2", "securityfs", "pstore", "bpf", "debugfs", "tracefs", "configfs", "fusectl", "mqueue", "hugetlbfs", "autofs", "efivarfs", "binfmt_misc", "nsfs", "overlay", "squashfs", "rpc_pipefs", "ramfs", "selinuxfs", "fuse.portal", "fuse.gvfsd-fuse", "fuse.xdg-document-portal" };
+const pseudo = [_][]const u8{
+    "proc",
+    "sysfs",
+    "devtmpfs",
+    "devpts",
+    "tmpfs",
+    "cgroup",
+    "cgroup2",
+    "securityfs",
+    "pstore",
+    "bpf",
+    "debugfs",
+    "tracefs",
+    "configfs",
+    "fusectl",
+    "mqueue",
+    "hugetlbfs",
+    "autofs",
+    "efivarfs",
+    "binfmt_misc",
+    "nsfs",
+    "overlay",
+    "squashfs",
+    "rpc_pipefs",
+    "ramfs",
+    "selinuxfs",
+    "fuse.portal",
+    "fuse.gvfsd-fuse",
+    "fuse.xdg-document-portal",
+};
 
 pub fn isReal(m: Mount) bool {
     for (pseudo) |p| if (std.mem.eql(u8, m.fstype, p)) return false;
     for ([_][]const u8{ "/proc", "/sys", "/dev", "/run/user", "/run/credentials", "/snap", "/var/lib/docker" }) |p| {
-        if (std.mem.startsWith(u8, m.mount_point, p) and (m.mount_point.len == p.len or m.mount_point[p.len] == '/')) return false;
+        if (std.mem.startsWith(u8, m.mount_point, p) and
+            (m.mount_point.len == p.len or m.mount_point[p.len] == '/')) return false;
     }
     return true;
 }
@@ -47,7 +77,9 @@ pub fn isReal(m: Mount) bool {
 pub fn isUserDrive(m: Mount) bool {
     if (!isReal(m)) return false;
     if (std.mem.eql(u8, m.mount_point, "/")) return false;
-    for ([_][]const u8{ "/media/", "/run/media/", "/mnt/" }) |p| if (std.mem.startsWith(u8, m.mount_point, p)) return true;
+    for ([_][]const u8{ "/media/", "/run/media/", "/mnt/" }) |p| {
+        if (std.mem.startsWith(u8, m.mount_point, p)) return true;
+    }
     if (std.mem.eql(u8, m.mount_point, "/mnt")) return true;
     return false;
 }
@@ -77,7 +109,11 @@ fn parseLine(a: Allocator, line: []const u8) !Mount {
     while (fields.next()) |f| if (std.mem.eql(u8, f, "-")) break;
     const fstype = fields.next() orelse return error.Bad;
     const dev = fields.next() orelse "";
-    return .{ .mount_point = try unescapeOctal(a, mp), .device = try unescapeOctal(a, dev), .fstype = try a.dupe(u8, fstype) };
+    return .{
+        .mount_point = try unescapeOctal(a, mp),
+        .device = try unescapeOctal(a, dev),
+        .fstype = try a.dupe(u8, fstype),
+    };
 }
 
 /// mountinfo escapes spaces and the like as \040.
@@ -115,7 +151,10 @@ fn readAll(a: Allocator, path: [:0]const u8) ?[]u8 {
 test "mountinfo lines" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
-    const m = try parseLine(arena.allocator(), "36 35 98:0 / /run/media/me/My\\040Disk rw,nosuid shared:1 - vfat /dev/sdb1 rw");
+    const m = try parseLine(
+        arena.allocator(),
+        "36 35 98:0 / /run/media/me/My\\040Disk rw,nosuid shared:1 - vfat /dev/sdb1 rw",
+    );
     try testing.expectEqualStrings("/run/media/me/My Disk", m.mount_point);
     try testing.expectEqualStrings("vfat", m.fstype);
     try testing.expect(isUserDrive(m));

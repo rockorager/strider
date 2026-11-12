@@ -60,12 +60,14 @@ pub const sym = struct {
 
 const Name = struct { []const u8, u32 };
 const names = [_]Name{
-    .{ "Space", ' ' },          .{ "CR", sym.@"return" },       .{ "Enter", sym.@"return" }, .{ "Return", sym.@"return" },
-    .{ "Esc", sym.escape },     .{ "Tab", sym.tab },            .{ "BS", sym.backspace },    .{ "Backspace", sym.backspace },
-    .{ "Del", sym.delete },     .{ "Delete", sym.delete },      .{ "Up", sym.up },           .{ "Down", sym.down },
-    .{ "Left", sym.left },      .{ "Right", sym.right },        .{ "Home", sym.home },       .{ "End", sym.end },
-    .{ "PageUp", sym.page_up }, .{ "PageDown", sym.page_down }, .{ "Insert", sym.insert },   .{ "Menu", sym.menu },
-    .{ "lt", '<' },             .{ "gt", '>' },                 .{ "Bar", '|' },             .{ "Bslash", '\\' },
+    .{ "Space", ' ' },            .{ "CR", sym.@"return" },        .{ "Enter", sym.@"return" },
+    .{ "Return", sym.@"return" }, .{ "Esc", sym.escape },          .{ "Tab", sym.tab },
+    .{ "BS", sym.backspace },     .{ "Backspace", sym.backspace }, .{ "Del", sym.delete },
+    .{ "Delete", sym.delete },    .{ "Up", sym.up },               .{ "Down", sym.down },
+    .{ "Left", sym.left },        .{ "Right", sym.right },         .{ "Home", sym.home },
+    .{ "End", sym.end },          .{ "PageUp", sym.page_up },      .{ "PageDown", sym.page_down },
+    .{ "Insert", sym.insert },    .{ "Menu", sym.menu },           .{ "lt", '<' },
+    .{ "gt", '>' },               .{ "Bar", '|' },                 .{ "Bslash", '\\' },
 };
 
 /// The name `format` gives a keysym or character, if it has one.
@@ -396,10 +398,19 @@ test "keys from events" {
     // Shift+g types "G".
     try testing.expect(fromEvent('G', "G", false, false, false, true).?.eql(.char('G')));
     // Ctrl+d types a control character; it is <C-d>.
-    try testing.expect(fromEvent('d', "\x04", true, false, false, false).?.eql(.{ .code = 'd', .mods = .{ .ctrl = true } }));
+    try testing.expect(fromEvent('d', "\x04", true, false, false, false).?.eql(.{
+        .code = 'd',
+        .mods = .{ .ctrl = true },
+    }));
     // Shift+Tab arrives as ISO_Left_Tab.
-    try testing.expect(fromEvent(sym.iso_left_tab, "", false, false, false, true).?.eql(.{ .code = sym.tab, .mods = .{ .shift = true } }));
-    try testing.expect(fromEvent(sym.@"return", "\r", false, false, false, false).?.eql(.{ .code = sym.@"return", .mods = .{} }));
+    try testing.expect(fromEvent(sym.iso_left_tab, "", false, false, false, true).?.eql(.{
+        .code = sym.tab,
+        .mods = .{ .shift = true },
+    }));
+    try testing.expect(fromEvent(sym.@"return", "\r", false, false, false, false).?.eql(.{
+        .code = sym.@"return",
+        .mods = .{},
+    }));
     try testing.expect(fromEvent(0xffe1, "", false, false, false, true) == null);
     try testing.expect(fromEvent(' ', " ", false, false, false, false).?.eql(.char(' ')));
 }

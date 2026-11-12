@@ -136,7 +136,13 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     var sapp: siv.App = .null;
-    var r = c.siv_app_create(&.{ .flags = flags, .name = "Strider", .name_len = 7, .app_id = App.app_id, .app_id_len = App.app_id.len }, &sapp);
+    var r = c.siv_app_create(&.{
+        .flags = flags,
+        .name = "Strider",
+        .name_len = 7,
+        .app_id = App.app_id,
+        .app_id_len = App.app_id.len,
+    }, &sapp);
     if (r != .ok) {
         print("strider: cannot start: {s}\n", .{std.mem.span(c.siv_result_name(r))});
         return 1;
@@ -145,7 +151,10 @@ pub fn main(init: std.process.Init) !u8 {
     if (scheme != .follow) _ = c.siv_app_set_theme(sapp, &.{ .scheme = scheme });
 
     var icon_buf: [4096]u8 = undefined;
-    const config_file = if (clean) null else config_override orelse try arena.print("{s}/" ++ App.program ++ "/init.lua", .{config_home});
+    const config_file = if (clean) null else config_override orelse try arena.print(
+        "{s}/" ++ App.program ++ "/init.lua",
+        .{config_home},
+    );
     const app = App.create(sapp, .{
         .gpa = gpa,
         .home = home,
@@ -171,7 +180,10 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     var startup: Startup = .{ .app = app, .new_window = new_window };
-    _ = siv.actionCreate(sapp, .{ .name = "new-window", .label = "New Window" }, onNewWindowAction, null, app) catch null;
+    _ = siv.actionCreate(sapp, .{
+        .name = "new-window",
+        .label = "New Window",
+    }, onNewWindowAction, null, app) catch null;
     r = c.siv_app_launch(sapp, &.{
         .uris = uris.items.ptr,
         .uris_count = uris.items.len,
@@ -260,7 +272,19 @@ fn iconDir(buf: []u8) ?[]const u8 {
 
 /// The local time zone's offset from UTC now, in seconds, from libc.
 fn localOffset() i64 {
-    const tm = extern struct { sec: c_int, min: c_int, hour: c_int, mday: c_int, mon: c_int, year: c_int, wday: c_int, yday: c_int, isdst: c_int, gmtoff: c_long, zone: ?[*:0]const u8 };
+    const tm = extern struct {
+        sec: c_int,
+        min: c_int,
+        hour: c_int,
+        mday: c_int,
+        mon: c_int,
+        year: c_int,
+        wday: c_int,
+        yday: c_int,
+        isdst: c_int,
+        gmtoff: c_long,
+        zone: ?[*:0]const u8,
+    };
     const S = struct {
         extern "c" fn time(t: ?*i64) i64;
         extern "c" fn localtime_r(t: *const i64, out: *tm) ?*tm;

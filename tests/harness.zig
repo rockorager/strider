@@ -39,7 +39,13 @@ pub const Fixture = struct {
     pub const empty: Fixture = .{ .buf = undefined, .path = "" };
 
     // ast-grep-ignore: public-struct-field-default -- an options bag for create and add: an item sets what it needs.
-    pub const Item = struct { name: []const u8, size: usize = 0, dir: bool = false, mtime: i64 = 1_791_900_300, mode: u32 = 0o644 };
+    pub const Item = struct {
+        name: []const u8,
+        size: usize = 0,
+        dir: bool = false,
+        mtime: i64 = 1_791_900_300,
+        mode: u32 = 0o644,
+    };
 
     /// Makes /tmp/strider-test/NAME afresh: a fixed path, so that
     /// captures showing it are the same on every run.
@@ -58,7 +64,12 @@ pub const Fixture = struct {
         if (it.dir) {
             if (linux.errno(linux.mkdirat(linux.AT.FDCWD, p, 0o755)) != .SUCCESS) return error.Unexpected;
         } else {
-            const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, it.mode);
+            const rc = linux.openat(
+                linux.AT.FDCWD,
+                p,
+                .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true },
+                it.mode,
+            );
             if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
             const fd: i32 = @intCast(rc);
             defer _ = linux.close(fd);
@@ -84,7 +95,12 @@ pub const Fixture = struct {
     pub fn writeFile(f: *Fixture, rel: []const u8, data: []const u8) !void {
         var buf: [512]u8 = undefined;
         const p = try std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, rel }, 0);
-        const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
+        const rc = linux.openat(
+            linux.AT.FDCWD,
+            p,
+            .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true },
+            0o600,
+        );
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         const fd: i32 = @intCast(rc);
         defer _ = linux.close(fd);
@@ -99,7 +115,13 @@ pub const Fixture = struct {
         var buf: [512]u8 = undefined;
         const p = std.mem.printSentinel(&buf, "{s}/{s}", .{ f.path, name }, 0) catch return false;
         var st: linux.Statx = undefined;
-        return linux.errno(linux.statx(linux.AT.FDCWD, p, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS;
+        return linux.errno(linux.statx(
+            linux.AT.FDCWD,
+            p,
+            linux.AT.SYMLINK_NOFOLLOW,
+            .{ .TYPE = true },
+            &st,
+        )) == .SUCCESS;
     }
 
     pub fn remove(f: *Fixture) void {
@@ -157,7 +179,10 @@ pub const Harness = struct {
     };
 
     pub fn start(h: *Harness, s: Start) !void {
-        try siv.check(c.siv_app_create(&.{ .backend = .headless, .flags = .{ .no_system_fonts = true, .no_system_icons = true, .reduced_motion = true, .rtl = s.rtl } }, &h.sapp));
+        try siv.check(c.siv_app_create(&.{
+            .backend = .headless,
+            .flags = .{ .no_system_fonts = true, .no_system_icons = true, .reduced_motion = true, .rtl = s.rtl },
+        }, &h.sapp));
         for (fonts) |font| try siv.check(c.siv_app_add_font(h.sapp, "Droid", 5, font.ptr, font.len));
         try siv.check(c.siv_app_set_default_font(h.sapp, "Droid", 5));
         try siv.check(c.siv_app_set_theme(h.sapp, &.{ .scheme = s.scheme, .contrast = s.contrast }));

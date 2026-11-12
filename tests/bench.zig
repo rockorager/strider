@@ -54,7 +54,12 @@ fn status(key: []const u8) u64 {
 /// Context switches of every thread: each is a wakeup or a preemption.
 fn switches() u64 {
     var total: u64 = 0;
-    const dfd: i32 = @intCast(linux.openat(linux.AT.FDCWD, "/proc/self/task", .{ .DIRECTORY = true, .CLOEXEC = true }, 0));
+    const dfd: i32 = @intCast(linux.openat(
+        linux.AT.FDCWD,
+        "/proc/self/task",
+        .{ .DIRECTORY = true, .CLOEXEC = true },
+        0,
+    ));
     defer _ = linux.close(dfd);
     var dbuf: [8192]u8 align(8) = undefined;
     while (true) {
@@ -76,8 +81,13 @@ fn switches() u64 {
             var sbuf: [4096]u8 = undefined;
             const sn = linux.read(fd, &sbuf, sbuf.len);
             var lines = std.mem.splitScalar(u8, sbuf[0..sn], '\n');
-            while (lines.next()) |line| for ([_][]const u8{ "voluntary_ctxt_switches:", "nonvoluntary_ctxt_switches:" }) |key| {
-                if (std.mem.startsWith(u8, line, key)) total += std.fmt.parseInt(u64, std.mem.trim(u8, line[key.len..], " \t"), 10) catch 0;
+            while (lines.next()) |line| for ([_][]const u8{
+                "voluntary_ctxt_switches:",
+                "nonvoluntary_ctxt_switches:",
+            }) |key| {
+                if (std.mem.startsWith(u8, line, key)) {
+                    total += std.fmt.parseInt(u64, std.mem.trim(u8, line[key.len..], " \t"), 10) catch 0;
+                }
             };
         }
     }
@@ -91,7 +101,12 @@ fn makeFolder(path: [:0]const u8, n: usize) !void {
         // Varied names, sizes, and kinds, as in a real download folder.
         const ext = [_][]const u8{ "txt", "pdf", "png", "zig", "tar.gz", "flac", "md" };
         const p = try std.mem.printSentinel(&buf, "{s}/file-{d}.{s}", .{ path, i, ext[i % ext.len] }, 0);
-        const fd: i32 = @intCast(linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true }, 0o644));
+        const fd: i32 = @intCast(linux.openat(
+            linux.AT.FDCWD,
+            p,
+            .{ .ACCMODE = .WRONLY, .CREAT = true, .CLOEXEC = true },
+            0o644,
+        ));
         if (i % 3 == 0) _ = linux.ftruncate(fd, @intCast(i * 37));
         _ = linux.close(fd);
         if (i % 1000 == 0) {
@@ -103,7 +118,18 @@ fn makeFolder(path: [:0]const u8, n: usize) !void {
 
 extern "c" fn system(cmd: [*:0]const u8) c_int;
 
-const MallInfo2 = extern struct { arena: usize, ordblks: usize, smblks: usize, hblks: usize, hblkhd: usize, usmblks: usize, fsmblks: usize, uordblks: usize, fordblks: usize, keepcost: usize };
+const MallInfo2 = extern struct {
+    arena: usize,
+    ordblks: usize,
+    smblks: usize,
+    hblks: usize,
+    hblkhd: usize,
+    usmblks: usize,
+    fsmblks: usize,
+    uordblks: usize,
+    fordblks: usize,
+    keepcost: usize,
+};
 extern "c" fn mallinfo2() MallInfo2;
 
 /// Bytes malloc has handed out and not had back.
@@ -212,14 +238,23 @@ pub fn main() !void {
             if (now() - t0 > 10 * std.time.ns_per_s) return error.Timeout;
         }
         const cpu = threadCpu() - cpu0;
-        report("startup (40 entries): first frame {d:.1} ms, first frame with rows {d:.1} ms, UI thread CPU {d:.1} ms", .{ ms(r.win.first_frame_ns - t0), ms(r.win.rows_frame_ns - t0), ms(cpu) });
+        report(
+            "startup (40 entries): first frame {d:.1} ms, first frame with rows {d:.1} ms, UI thread CPU {d:.1} ms",
+            .{ ms(r.win.first_frame_ns - t0), ms(r.win.rows_frame_ns - t0), ms(cpu) },
+        );
         try r.settle();
         base_heap = heapInUse();
-        report("memory with the window open: {d:.1} MiB resident (the process grew {d:.1} MiB), heap in use {d:.1} MiB", .{ mib(status("VmRSS")), mib(status("VmRSS") -| rss0), mib(base_heap) });
+        report(
+            "memory with the window open: {d:.1} MiB resident (the process grew {d:.1} MiB), heap in use {d:.1} MiB",
+            .{ mib(status("VmRSS")), mib(status("VmRSS") -| rss0), mib(base_heap) },
+        );
         const sw0 = switches();
         const t_idle = now();
         while (now() - t_idle < 2 * std.time.ns_per_s) try siv.check(c.siv_app_dispatch(r.sapp, 2000));
-        report("idle for 2 s: {d} context switches over all threads (the bench's own 2 s timeout is one)", .{switches() - sw0});
+        report(
+            "idle for 2 s: {d} context switches over all threads (the bench's own 2 s timeout is one)",
+            .{switches() - sw0},
+        );
         r.stop();
     }
 
@@ -250,9 +285,15 @@ pub fn main() !void {
         if (now() - t0 > 60 * std.time.ns_per_s) return error.Timeout;
     }
     try r.settle();
-    report("{d} entries: first frame {d:.1} ms, read and sorted {d:.1} ms, rows shown {d:.1} ms", .{ r.win.curDir().count(), ms(r.win.first_frame_ns - t0), ms(loaded - t0), ms(r.win.rows_frame_ns - t0) });
+    report(
+        "{d} entries: first frame {d:.1} ms, read and sorted {d:.1} ms, rows shown {d:.1} ms",
+        .{ r.win.curDir().count(), ms(r.win.first_frame_ns - t0), ms(loaded - t0), ms(r.win.rows_frame_ns - t0) },
+    );
     const listed = heapInUse() -| base_heap;
-    report("memory: {d:.1} MiB resident, heap in use {d:.1} MiB more than with 40 entries ({d:.0} bytes per entry)", .{ mib(status("VmRSS")), mib(listed), @as(f64, @floatFromInt(listed)) / entries });
+    report(
+        "memory: {d:.1} MiB resident, heap in use {d:.1} MiB more than with 40 entries ({d:.0} bytes per entry)",
+        .{ mib(status("VmRSS")), mib(listed), @as(f64, @floatFromInt(listed)) / entries },
+    );
 
     // j, one key at a time, each settled (its frame presented, its
     // preview read) before the next: UI thread CPU per key bounds how
@@ -269,7 +310,11 @@ pub fn main() !void {
             total_cpu += cpu;
             worst = @max(worst, cpu);
         }
-        report("j x{d} (cursor and preview each time): UI thread CPU {d:.2} ms per key on average, {d:.2} ms worst; {d:.1} ms wall per settled key (the headless backend's 60 Hz vblanks)", .{ steps, ms(total_cpu / steps), ms(worst), ms((now() - w0) / steps) });
+        report(
+            "j x{d} (cursor and preview each time): UI thread CPU {d:.2} ms per key on average, " ++
+                "{d:.2} ms worst; {d:.1} ms wall per settled key (the headless backend's 60 Hz vblanks)",
+            .{ steps, ms(total_cpu / steps), ms(worst), ms((now() - w0) / steps) },
+        );
     }
     // Held keys: 100 j's queued at once, as key repeat delivers them.
     const hundred: [100]u8 = @splat('j');
@@ -286,7 +331,10 @@ pub fn main() !void {
             total += cpu;
             worst = @max(worst, cpu);
         }
-        report("Ctrl+F (page down) x100: UI thread CPU {d:.2} ms per page on average, {d:.2} ms worst", .{ ms(total / 100), ms(worst) });
+        report(
+            "Ctrl+F (page down) x100: UI thread CPU {d:.2} ms per page on average, {d:.2} ms worst",
+            .{ ms(total / 100), ms(worst) },
+        );
     }
     try timed(&r, "/ search typed \"file-99999\" (every keystroke searches 100 100 names) and Enter", "/file-99999\n");
     try timed(&r, "n (next match, wrapping)", "n");
@@ -295,7 +343,10 @@ pub fn main() !void {
         const c0 = threadCpu();
         const w0 = now();
         try r.key(@fromBackingInt(@intCast('a')), .{ .ctrl = true }, "\x01");
-        report("Ctrl+A marking all {d}: UI thread CPU {d:.1} ms, {d:.1} ms wall", .{ r.win.curDir().mark_count, ms(threadCpu() - c0), ms(now() - w0) });
+        report(
+            "Ctrl+A marking all {d}: UI thread CPU {d:.1} ms, {d:.1} ms wall",
+            .{ r.win.curDir().mark_count, ms(threadCpu() - c0), ms(now() - w0) },
+        );
     }
     try timed(&r, "Escape (unmark all)", "\x1b");
     try timed(&r, "sS (sort by size, largest first, keeping the cursor's entry)", "sS");

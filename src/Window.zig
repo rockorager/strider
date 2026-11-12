@@ -76,7 +76,15 @@ pub const PromptKind = enum {
 };
 
 /// A key the window waits for instead of a binding.
-pub const Await = enum { none, bookmark_set, bookmark_jump, bookmark_remove, confirm_delete, confirm_empty_trash, conflict };
+pub const Await = enum {
+    none,
+    bookmark_set,
+    bookmark_jump,
+    bookmark_remove,
+    confirm_delete,
+    confirm_empty_trash,
+    conflict,
+};
 
 gpa: Allocator,
 app: *App,
@@ -334,10 +342,14 @@ pub fn close(self: *Window) void {
 fn onWindowEvent(ud: ?*anyopaque, _: siv.Window, ev: *const siv.WindowEvent) callconv(.c) bool {
     const self: *Window = @ptrCast(@alignCast(ud.?));
     switch (ev.type) {
-        .resized => if (self.width != @as(f32, @floatFromInt(ev.width)) or self.height != @as(f32, @floatFromInt(ev.height))) {
+        .resized => if (self.width != @as(f32, @floatFromInt(ev.width)) or
+            self.height != @as(f32, @floatFromInt(ev.height)))
+        {
             // A resize well after the first frame is the user's (the
             // compositor settles a new window's size before that).
-            if (self.first_frame_ns != 0 and Chooser.now() > self.first_frame_ns + 500 * std.time.ns_per_ms) self.user_resized = true;
+            if (self.first_frame_ns != 0 and Chooser.now() > self.first_frame_ns + 500 * std.time.ns_per_ms) {
+                self.user_resized = true;
+            }
             self.height = @floatFromInt(ev.height);
             self.width = @floatFromInt(ev.width);
             if (self.tabs.items.len != 0) if (self.begin()) |txn| {
@@ -438,7 +450,10 @@ fn build(self: *Window) !void {
 
     // Header: the path, the hovered name, and the tabs.
     self.header = c.siv_flex(txn, main, &.{ .axis = .row, .gap = 0, .align_items = .center });
-    _ = c.siv_set_layout(txn, self.header, &.{ .padding = .{ .start = 12, .end = 8, .top = 6, .bottom = 6 }, .min_height = 32 });
+    _ = c.siv_set_layout(txn, self.header, &.{
+        .padding = .{ .start = 12, .end = 8, .top = 6, .bottom = 6 },
+        .min_height = 32,
+    });
     // Paths read left to right in right-to-left layouts too.
     const path_box = c.siv_flex(txn, self.header, &.{ .axis = .row, .align_items = .center });
     _ = c.siv_set_layout(txn, path_box, &.{ .grow = 1, .basis = px(0), .direction = .ltr });
@@ -447,7 +462,11 @@ fn build(self: *Window) !void {
     _ = c.siv_set_visual(txn, self.path_dir, &.{ .flags = .{ .clip = true } });
     _ = c.siv_set_semantics(txn, self.path_dir, &.{ .role = .heading, .level = 1 });
     self.path_name = c.siv_text(txn, path_box, "", 0);
-    _ = c.siv_set_text_style(txn, self.path_name, &.{ .color_token = .window_fg, .size_role = .body, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_text_style(txn, self.path_name, &.{
+        .color_token = .window_fg,
+        .size_role = .body,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
     _ = c.siv_set_layout(txn, self.path_name, &.{ .grow = 1, .basis = px(0), .shrink = 4 });
     self.tabs_row = c.siv_flex(txn, self.header, &.{ .axis = .row, .gap = 4, .align_items = .center });
     _ = c.siv_set_semantics(txn, self.tabs_row, &.{ .role = .tab_list, .label = "Tabs", .label_len = 4 });
@@ -470,13 +489,27 @@ fn build(self: *Window) !void {
 
     // The status line.
     const status = c.siv_flex(txn, main, &.{ .axis = .row, .gap = 10, .align_items = .center });
-    _ = c.siv_set_layout(txn, status, &.{ .padding = .{ .start = 8, .end = 12, .top = 3, .bottom = 3 }, .min_height = 26 });
+    _ = c.siv_set_layout(txn, status, &.{
+        .padding = .{ .start = 8, .end = 12, .top = 3, .bottom = 3 },
+        .min_height = 26,
+    });
     _ = c.siv_set_visual(txn, status, &.{ .background_token = .window_bg });
     _ = c.siv_set_semantics(txn, status, &.{ .role = .status, .flags = .{ .live_polite = true } });
     self.status_mode = c.siv_text(txn, status, "", 0);
-    _ = c.siv_set_layout(txn, self.status_mode, &.{ .padding = .{ .start = 6, .end = 6, .top = 1, .bottom = 1 }, .flags = .{ .no_shrink = true } });
-    _ = c.siv_set_visual(txn, self.status_mode, &.{ .background_token = .accent, .radius = .{ .top_start = 3, .top_end = 3, .bottom_start = 3, .bottom_end = 3 } });
-    _ = c.siv_set_text_style(txn, self.status_mode, &.{ .color_token = .accent_fg, .size_role = .caption, .weight = .bold, .flags = .{ .no_wrap = true } });
+    _ = c.siv_set_layout(txn, self.status_mode, &.{
+        .padding = .{ .start = 6, .end = 6, .top = 1, .bottom = 1 },
+        .flags = .{ .no_shrink = true },
+    });
+    _ = c.siv_set_visual(txn, self.status_mode, &.{
+        .background_token = .accent,
+        .radius = .{ .top_start = 3, .top_end = 3, .bottom_start = 3, .bottom_end = 3 },
+    });
+    _ = c.siv_set_text_style(txn, self.status_mode, &.{
+        .color_token = .accent_fg,
+        .size_role = .caption,
+        .weight = .bold,
+        .flags = .{ .no_wrap = true },
+    });
     _ = c.siv_set_hidden(txn, self.status_mode, true);
     self.status_left = ui.text(txn, status, "", .muted_fg, .caption);
     _ = c.siv_set_layout(txn, self.status_left, &.{ .grow = 1, .basis = px(0) });
@@ -490,18 +523,33 @@ fn build(self: *Window) !void {
     _ = c.siv_set_layout(txn, self.cmd_row, &.{ .padding = .{ .start = 8, .end = 8, .top = 4, .bottom = 4 } });
     _ = c.siv_set_visual(txn, self.cmd_row, &.{ .background_token = .view_bg });
     self.cmd_label = c.siv_text(txn, self.cmd_row, ":", 1);
-    _ = c.siv_set_text_style(txn, self.cmd_label, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true } });
+    _ = c.siv_set_text_style(txn, self.cmd_label, &.{
+        .color_token = .accent,
+        .size_role = .body,
+        .weight = .bold,
+        .flags = .{ .no_wrap = true },
+    });
     _ = c.siv_set_layout(txn, self.cmd_label, &.{ .flags = .{ .no_shrink = true } });
     self.cmd_editor = c.siv_editor(txn, self.cmd_row, .{});
     _ = c.siv_set_layout(txn, self.cmd_editor, &.{ .grow = 1, .basis = px(0) });
     _ = c.siv_set_text_style(txn, self.cmd_editor, &.{ .color_token = .view_fg, .size_role = .body });
-    _ = c.siv_set_semantics(txn, self.cmd_editor, &.{ .role = .text_input, .label = "Command", .label_len = 7, .flags = .{ .focusable = true } });
+    _ = c.siv_set_semantics(txn, self.cmd_editor, &.{
+        .role = .text_input,
+        .label = "Command",
+        .label_len = 7,
+        .flags = .{ .focusable = true },
+    });
     _ = c.siv_on(txn, self.cmd_editor, .key, onPromptKey, null, self);
     _ = c.siv_on(txn, self.cmd_editor, .change, onPromptChange, null, self);
     self.pass_editor = c.siv_editor(txn, self.cmd_row, .{ .masked = true });
     _ = c.siv_set_layout(txn, self.pass_editor, &.{ .grow = 1, .basis = px(0) });
     _ = c.siv_set_text_style(txn, self.pass_editor, &.{ .color_token = .view_fg, .size_role = .body });
-    _ = c.siv_set_semantics(txn, self.pass_editor, &.{ .role = .text_input, .label = "Passphrase", .label_len = 10, .flags = .{ .focusable = true } });
+    _ = c.siv_set_semantics(txn, self.pass_editor, &.{
+        .role = .text_input,
+        .label = "Passphrase",
+        .label_len = 10,
+        .flags = .{ .focusable = true },
+    });
     _ = c.siv_on(txn, self.pass_editor, .key, onPromptKey, null, self);
     _ = c.siv_set_hidden(txn, self.pass_editor, true);
     _ = c.siv_set_hidden(txn, self.cmd_row, true);
@@ -517,7 +565,12 @@ fn build(self: *Window) !void {
         .padding = .{ .start = 14, .end = 14, .top = 10, .bottom = 12 },
         .flags = .{ .inset_end = true, .inset_bottom = true },
     });
-    _ = c.siv_set_visual(txn, self.whichkey, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
+    _ = c.siv_set_visual(txn, self.whichkey, &.{
+        .background_token = .card_bg,
+        .border_token = .border,
+        .border_width = 1,
+        .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 },
+    });
     _ = c.siv_set_semantics(txn, self.whichkey, &.{ .role = .group, .label = "Keys", .label_len = 4 });
     _ = c.siv_set_hidden(txn, self.whichkey, true);
 
@@ -530,7 +583,12 @@ fn build(self: *Window) !void {
         .max_width = 720,
         .padding = .{ .start = 16, .end = 16, .top = 12, .bottom = 12 },
     });
-    _ = c.siv_set_visual(txn, self.tasks, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
+    _ = c.siv_set_visual(txn, self.tasks, &.{
+        .background_token = .card_bg,
+        .border_token = .border,
+        .border_width = 1,
+        .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 },
+    });
     _ = c.siv_set_semantics(txn, self.tasks, &.{ .role = .list, .label = "Tasks", .label_len = 5 });
     _ = c.siv_set_hidden(txn, self.tasks, true);
     self.picker.build(txn, self.root);
@@ -558,7 +616,11 @@ fn buildHandle(self: *Window, txn: Txn, parent: Node, which: u1) void {
     const h = &self.handles[which];
     h.* = .{ .win = self, .which = which };
     h.node = c.siv_flex(txn, parent, &.{ .axis = .row, .align_items = .stretch });
-    _ = c.siv_set_layout(txn, h.node, &.{ .width = px(handle_width), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+    _ = c.siv_set_layout(txn, h.node, &.{
+        .width = px(handle_width),
+        .height = ui.fill(),
+        .flags = .{ .no_shrink = true },
+    });
     const sides = [2][2]siv.ColorToken{ .{ .sidebar_bg, .secondary_sidebar_bg }, .{ .secondary_sidebar_bg, .view_bg } };
     const a = c.siv_box(txn, h.node);
     _ = c.siv_set_layout(txn, a, &.{ .grow = 1, .basis = px(0) });
@@ -689,14 +751,31 @@ fn applyRatioTxn(self: *Window, txn: Txn) void {
         // The user's widths win over the ratio and fit_parent; narrow
         // windows still drop columns, and the preview keeps its least.
         const room = w - 2 * handle_width - (if (show_preview) min_column else 0);
-        parent_px = if (show_parent) std.math.clamp(chosen[0] * w, min_column, @max(min_column, room - min_column)) else 0;
-        current_px = if (show_preview) std.math.clamp(chosen[1] * w, min_column, @max(min_column, room - parent_px)) else 0;
+        parent_px = if (show_parent)
+            std.math.clamp(chosen[0] * w, min_column, @max(min_column, room - min_column))
+        else
+            0;
+        current_px = if (show_preview)
+            std.math.clamp(chosen[1] * w, min_column, @max(min_column, room - parent_px))
+        else
+            0;
     };
     const manual = self.app.widths != null and w > 0;
     if (manual) {
-        if (show_parent) _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
+        if (show_parent) {
+            _ = c.siv_set_layout(txn, self.parent_box, &.{
+                .basis = px(parent_px),
+                .height = ui.fill(),
+                .min_width = 0,
+                .flags = .{ .no_shrink = true },
+            });
+        }
         if (show_preview)
-            _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } })
+            _ = c.siv_set_layout(txn, self.current_box, &.{
+                .basis = px(current_px),
+                .height = ui.fill(),
+                .flags = .{ .no_shrink = true },
+            })
         else
             _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = 1, .basis = px(0), .height = ui.fill() });
     } else {
@@ -707,11 +786,29 @@ fn applyRatioTxn(self: *Window, txn: Txn) void {
             current_px = w * @max(r[1], 0.1) / total;
         }
         if (parent_px > 0) {
-            _ = c.siv_set_layout(txn, self.parent_box, &.{ .basis = px(parent_px), .height = ui.fill(), .min_width = 0, .flags = .{ .no_shrink = true } });
-            _ = c.siv_set_layout(txn, self.current_box, &.{ .basis = px(current_px), .height = ui.fill(), .flags = .{ .no_shrink = true } });
+            _ = c.siv_set_layout(txn, self.parent_box, &.{
+                .basis = px(parent_px),
+                .height = ui.fill(),
+                .min_width = 0,
+                .flags = .{ .no_shrink = true },
+            });
+            _ = c.siv_set_layout(txn, self.current_box, &.{
+                .basis = px(current_px),
+                .height = ui.fill(),
+                .flags = .{ .no_shrink = true },
+            });
         } else {
-            _ = c.siv_set_layout(txn, self.parent_box, &.{ .grow = r[0], .basis = px(0), .height = ui.fill(), .min_width = 0 });
-            _ = c.siv_set_layout(txn, self.current_box, &.{ .grow = @max(r[1], 0.1), .basis = px(0), .height = ui.fill() });
+            _ = c.siv_set_layout(txn, self.parent_box, &.{
+                .grow = r[0],
+                .basis = px(0),
+                .height = ui.fill(),
+                .min_width = 0,
+            });
+            _ = c.siv_set_layout(txn, self.current_box, &.{
+                .grow = @max(r[1], 0.1),
+                .basis = px(0),
+                .height = ui.fill(),
+            });
         }
     }
     _ = c.siv_set_hidden(txn, self.parent_box, !show_parent);
@@ -753,7 +850,14 @@ fn fitWidth(self: *Window, d: ?*Dir) f32 {
     for (longest[0..n]) |i| {
         const name = l.base(l.entries[i]);
         var m: siv.TextMetrics = .{};
-        if (c.siv_app_measure_text(self.app.app, name.ptr, name.len, 1e6, &.{ .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true } }, &m) == .ok)
+        if (c.siv_app_measure_text(
+            self.app.app,
+            name.ptr,
+            name.len,
+            1e6,
+            &.{ .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true } },
+            &m,
+        ) == .ok)
             widest = @max(widest, m.width);
     }
     if (widest == 0) return 0;
@@ -862,7 +966,10 @@ fn applyTabs(self: *Window, txn: Txn) void {
         var buf: [96]u8 = undefined;
         const label = self.tabLabel(&buf, i);
         const root = c.siv_flex(txn, self.tabs_row, &.{ .axis = .row, .gap = 2, .align_items = .center });
-        _ = c.siv_set_layout(txn, root, &.{ .padding = .{ .start = 8, .end = 2, .top = 1, .bottom = 1 }, .max_width = 180 });
+        _ = c.siv_set_layout(txn, root, &.{
+            .padding = .{ .start = 8, .end = 2, .top = 1, .bottom = 1 },
+            .max_width = 180,
+        });
         _ = c.siv_set_semantics(txn, root, &.{ .role = .tab, .label = label.ptr, .label_len = label.len });
         _ = c.siv_on(txn, root, .pointer, onTabPointer, null, self);
         // Files dragged onto a tab go to its folder.
@@ -890,21 +997,48 @@ fn styleTab(self: *Window, txn: Txn, i: usize) void {
     const on = i == self.active;
     const hover = self.tab_hover == i;
     const fg: siv.ColorToken = if (on) .accent_fg else if (hover) .control_fg else .muted_fg;
-    _ = c.siv_set_visual(txn, n.root, &.{ .background_token = if (on) .accent else if (hover) .control_hover else .control_bg, .radius = tab_radius });
+    _ = c.siv_set_visual(txn, n.root, &.{
+        .background_token = if (on) .accent else if (hover) .control_hover else .control_bg,
+        .radius = tab_radius,
+    });
     var tb: [96]u8 = undefined;
     const label = self.tabLabel(&tb, i);
-    _ = c.siv_set_semantics(txn, n.root, &.{ .role = .tab, .label = label.ptr, .label_len = label.len, .selected = if (on) .on else .off });
-    _ = c.siv_set_text_style(txn, n.label, &.{ .color_token = fg, .size_role = .caption, .weight = if (on) .bold else .regular, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_semantics(txn, n.root, &.{
+        .role = .tab,
+        .label = label.ptr,
+        .label_len = label.len,
+        .selected = if (on) .on else .off,
+    });
+    _ = c.siv_set_text_style(txn, n.label, &.{
+        .color_token = fg,
+        .size_role = .caption,
+        .weight = if (on) .bold else .regular,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
     const shown = on or hover;
     const close_hover = shown and self.tab_close_hover == i;
-    _ = c.siv_set_visual(txn, n.close, &.{ .background_token = if (!close_hover) .none else if (on) .accent_active else .control_active, .radius = tab_radius, .flags = .{ .no_hit_test = !shown } });
+    _ = c.siv_set_visual(txn, n.close, &.{
+        .background_token = if (!close_hover) .none else if (on) .accent_active else .control_active,
+        .radius = tab_radius,
+        .flags = .{ .no_hit_test = !shown },
+    });
     _ = c.siv_set_opacity(txn, n.close, if (shown) 1 else 0);
     _ = c.siv_set_cursor(txn, n.close, if (shown) .pointer else .default);
     var lb: [96]u8 = undefined;
     var buf: [104]u8 = undefined;
     const name = std.mem.print(&buf, "Close {s}", .{self.tabLabel(&lb, i)}) catch "Close";
-    _ = c.siv_set_semantics(txn, n.close, &.{ .role = if (shown) .button else .none, .label = name.ptr, .label_len = name.len, .flags = .{ .focusable = false } });
-    _ = c.siv_set_image_view(txn, n.icon, &.{ .icon = "window-close-symbolic", .icon_len = 21, .icon_size = 12, .color_token = fg });
+    _ = c.siv_set_semantics(txn, n.close, &.{
+        .role = if (shown) .button else .none,
+        .label = name.ptr,
+        .label_len = name.len,
+        .flags = .{ .focusable = false },
+    });
+    _ = c.siv_set_image_view(txn, n.icon, &.{
+        .icon = "window-close-symbolic",
+        .icon_len = 21,
+        .icon_size = 12,
+        .color_token = fg,
+    });
 }
 
 fn onTabDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
@@ -919,7 +1053,14 @@ fn onTabDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv
 pub fn tabDropOutline(self: *Window, txn: Txn, i: usize, on: bool) void {
     if (i >= self.tab_nodes.items.len) return;
     self.styleTab(txn, i);
-    if (on) _ = c.siv_set_visual(txn, self.tab_nodes.items[i].root, &.{ .background_token = .control_hover, .border_token = .accent, .border_width = 2, .radius = tab_radius });
+    if (on) {
+        _ = c.siv_set_visual(txn, self.tab_nodes.items[i].root, &.{
+            .background_token = .control_hover,
+            .border_token = .accent,
+            .border_width = 2,
+            .radius = tab_radius,
+        });
+    }
 }
 
 fn tabIndex(self: *Window, node: Node, comptime field: []const u8) ?usize {
@@ -946,7 +1087,12 @@ fn onTabPointer(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) 
         .enter => self.setTabHover(i, self.tab_close_hover),
         .leave => if (self.tab_hover == i) self.setTabHover(null, null),
         .down => {
-            if (ev.button == .middle) self.closeTabAt(i) else if (ev.button == .primary) self.selectTab(i) else return .pass;
+            if (ev.button == .middle)
+                self.closeTabAt(i)
+            else if (ev.button == .primary)
+                self.selectTab(i)
+            else
+                return .pass;
             return .handled;
         },
         else => {},
@@ -1004,7 +1150,9 @@ pub fn showTab(self: *Window) void {
 /// folder, or Drives from a drive's mount point; null at the top.
 fn parentOf(self: *Window, path: []const u8) ?struct { path: []const u8, name: []const u8 } {
     if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, model.drives_path)) return null;
-    for (self.app.places.drives.items) |dr| if (std.mem.eql(u8, dr.mount_point, path)) return .{ .path = model.drives_path, .name = dr.label };
+    for (self.app.places.drives.items) |dr| {
+        if (std.mem.eql(u8, dr.mount_point, path)) return .{ .path = model.drives_path, .name = dr.label };
+    }
     return .{ .path = model.parent(path), .name = model.basename(path) };
 }
 
@@ -1149,8 +1297,18 @@ fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
     const n = c.siv_text(txn, self.path_dir, label.ptr, label.len);
     // Folders above give way first when the path is too long, so the
     // current folder stays whole.
-    _ = c.siv_set_text_style(txn, n, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = path != null } });
-    _ = c.siv_set_layout(txn, n, if (path != null) &.{ .shrink = 1, .min_width = 0 } else &.{ .flags = .{ .no_shrink = true } });
+    _ = c.siv_set_text_style(txn, n, &.{
+        .color_token = .accent,
+        .size_role = .body,
+        .weight = .bold,
+        .direction = .ltr,
+        .flags = .{ .no_wrap = true, .ellipsize = path != null },
+    });
+    _ = c.siv_set_layout(
+        txn,
+        n,
+        if (path != null) &.{ .shrink = 1, .min_width = 0 } else &.{ .flags = .{ .no_shrink = true } },
+    );
     const p = path orelse return n;
     const copy = self.gpa.dupe(u8, p) catch return n;
     self.crumbs.append(self.gpa, .{ .node = n, .path = copy }) catch {
@@ -1158,7 +1316,12 @@ fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
         return n;
     };
     _ = c.siv_set_cursor(txn, n, .pointer);
-    _ = c.siv_set_semantics(txn, n, &.{ .role = .link, .label = label.ptr, .label_len = label.len, .flags = .{ .focusable = false } });
+    _ = c.siv_set_semantics(txn, n, &.{
+        .role = .link,
+        .label = label.ptr,
+        .label_len = label.len,
+        .flags = .{ .focusable = false },
+    });
     _ = c.siv_on(txn, n, .pointer, onCrumbPointer, null, self);
     // Files dragged onto a folder of the path go there (not into
     // Drives, which is no folder).
@@ -1169,7 +1332,12 @@ fn crumb(self: *Window, txn: Txn, label: []const u8, path: ?[]const u8) Node {
 }
 
 /// What folders take: files, copied or moved.
-pub const drop_target: siv.DropTargetDesc = .{ .mimes = "text/uri-list", .mimes_len = 13, .actions = .{ .copy = true, .move = true }, .preferred = .copy };
+pub const drop_target: siv.DropTargetDesc = .{
+    .mimes = "text/uri-list",
+    .mimes_len = 13,
+    .actions = .{ .copy = true, .move = true },
+    .preferred = .copy,
+};
 
 fn onCrumbDrop(ud: ?*anyopaque, node: Node, ev: *const siv.Event) callconv(.c) siv.EventResult {
     const self: *Window = @ptrCast(@alignCast(ud.?));
@@ -1259,9 +1427,16 @@ fn applyStatus(self: *Window, txn: Txn) void {
         var tb: [32]u8 = undefined;
         const mp = row.drive.mount_point;
         left = if (mp.len == 0)
-            (if (row.drive.size != 0) std.mem.print(&lbuf, "Not mounted   {s}", .{model.formatSize(&tb, row.drive.size)}) catch "" else "Not mounted")
+            (if (row.drive.size != 0)
+                std.mem.print(&lbuf, "Not mounted   {s}", .{model.formatSize(&tb, row.drive.size)}) catch ""
+            else
+                "Not mounted")
         else if (row.total != 0)
-            std.mem.print(&lbuf, "{s} free of {s}   {s}", .{ model.formatSize(&fb, row.free), model.formatSize(&tb, row.total), mp }) catch ""
+            std.mem.print(&lbuf, "{s} free of {s}   {s}", .{
+                model.formatSize(&fb, row.free),
+                model.formatSize(&tb, row.total),
+                mp,
+            }) catch ""
         else
             mp;
     } else if (d.current()) |e| {
@@ -1275,12 +1450,23 @@ fn applyStatus(self: *Window, txn: Txn) void {
             .other => if (e.link) 'l' else '?',
         };
         const size = if (e.kind == .dir) (if (d.trash_info != null) "" else "") else model.formatSize(&sb, e.size);
-        left = std.mem.print(&lbuf, "{c}{s}   {s}{s}{s}", .{ kind, model.formatMode(&mb, e.mode), size, if (size.len != 0) "   " else "", model.formatTime(&tb, e.mtime, tz) }) catch "";
+        left = std.mem.print(&lbuf, "{c}{s}   {s}{s}{s}", .{
+            kind,
+            model.formatMode(&mb, e.mode),
+            size,
+            if (size.len != 0) "   " else "",
+            model.formatTime(&tb, e.mtime, tz),
+        }) catch "";
     } else if (d.err) |_| {
         left = "Cannot read this folder";
     }
     _ = c.siv_set_text(txn, self.status_left, left.ptr, left.len);
-    _ = c.siv_set_text_style(txn, self.status_left, &.{ .color_token = left_token, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_text_style(txn, self.status_left, &.{
+        .color_token = left_token,
+        .size_role = .caption,
+        .direction = .ltr,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
     // Pending keys and count.
     var kbuf: [64]u8 = undefined;
     var kw: Io.Writer = .fixed(&kbuf);
@@ -1321,7 +1507,9 @@ fn applyStatus(self: *Window, txn: Txn) void {
     if (d.filter.items.len != 0) printCut(&w, "filter: {s}   ", .{d.filter.items});
     if (app.options.show_hidden) printCut(&w, "hidden   ", .{});
     const s = app.options.sort;
-    if (s.key != .name or s.descending) printCut(&w, "{s}{s}   ", .{ @tagName(s.key), if (s.descending) " ↓" else "" });
+    if (s.key != .name or s.descending) {
+        printCut(&w, "{s}{s}   ", .{ @tagName(s.key), if (s.descending) " ↓" else "" });
+    }
     if (d.count() != 0) printCut(&w, "{d}/{d}", .{ d.cursor + 1, d.count() }) else printCut(&w, "0/0", .{});
     const right = w.buffered();
     _ = c.siv_set_text(txn, self.status_right, right.ptr, right.len);
@@ -1346,11 +1534,21 @@ fn questionText(self: *Window, buf: []u8) []const u8 {
         .bookmark_set => "Set a bookmark: press a key",
         .bookmark_jump => "Go to a bookmark: press its key",
         .bookmark_remove => "Remove a bookmark: press its key",
-        .confirm_delete => std.mem.print(buf, "Delete {d} item{s} permanently? y/N", .{ self.confirm_paths.items.len, if (self.confirm_paths.items.len == 1) "" else "s" }) catch "",
+        .confirm_delete => std.mem.print(buf, "Delete {d} item{s} permanently? y/N", .{
+            self.confirm_paths.items.len,
+            if (self.confirm_paths.items.len == 1) "" else "s",
+        }) catch "",
         .confirm_empty_trash => "Empty the trash? Everything in it is deleted permanently. y/N",
         .conflict => blk: {
             const e = self.conflict orelse break :blk "";
-            break :blk std.mem.print(buf, "“{s}” exists: (r)eplace (s)kip (k)eep both{s} (c)ancel — Shift for all", .{ model.basename(e.op.conflict.dstPath()), if (e.op.conflict.src_dir and e.op.conflict.dst_dir) " (m)erge" else "" }) catch "";
+            break :blk std.mem.print(
+                buf,
+                "“{s}” exists: (r)eplace (s)kip (k)eep both{s} (c)ancel — Shift for all",
+                .{
+                    model.basename(e.op.conflict.dstPath()),
+                    if (e.op.conflict.src_dir and e.op.conflict.dst_dir) " (m)erge" else "",
+                },
+            ) catch "";
         },
     };
 }
@@ -1416,7 +1614,8 @@ pub fn cdSelect(self: *Window, path_in: []const u8, select: ?[]const u8, record:
     const path = model.normalize(&nbuf, expanded);
     // A folder the cache holds is a folder; anything else is looked at
     // on a worker, so a slow or hung file system never holds the keys.
-    if (std.mem.eql(u8, path, self.app.places.trash_files) or std.mem.eql(u8, path, model.drives_path) or self.app.cache.dirs.get(path) != null)
+    if (std.mem.eql(u8, path, self.app.places.trash_files) or std.mem.eql(u8, path, model.drives_path) or
+        self.app.cache.dirs.get(path) != null)
         return self.cdKnown(path, select, record);
     self.probe(path, select, record);
 }
@@ -1493,7 +1692,14 @@ fn probe(self: *Window, path: []const u8, select: ?[]const u8, record: bool) voi
     const gpa = self.gpa;
     self.probe_gen +%= 1;
     const pr = gpa.create(Probe) catch return;
-    pr.* = .{ .win = self, .gpa = gpa, .gen = self.probe_gen, .path = gpa.dupe(u8, path) catch return gpa.destroy(pr), .select = null, .record = record };
+    pr.* = .{
+        .win = self,
+        .gpa = gpa,
+        .gen = self.probe_gen,
+        .path = gpa.dupe(u8, path) catch return gpa.destroy(pr),
+        .select = null,
+        .record = record,
+    };
     if (select) |x| pr.select = gpa.dupe(u8, x) catch null;
     if (self.probing) |old| old.win = null;
     self.probing = pr;
@@ -1738,7 +1944,10 @@ fn onKey(ud: ?*anyopaque, _: Node, ev: *const siv.Event) callconv(.c) siv.EventR
     // character wins (siv D44).
     const shortcut: u32 = @bitCast(@backingInt(ev.shortcut_key));
     const latin = if (shortcut != keysym) keys.fromEvent(shortcut, "", m.ctrl, m.alt, m.super, m.shift) else null;
-    const k = if (latin) |l| (if (self.await_key == .none and !self.binds(typed) and self.binds(l)) l else typed) else typed;
+    const k = if (latin) |l|
+        (if (self.await_key == .none and !self.binds(typed) and self.binds(l)) l else typed)
+    else
+        typed;
     if (self.chooserInsertKey(k)) return .handled;
     return if (self.handleKey(k)) .handled else .pass;
 }
@@ -1765,7 +1974,8 @@ fn chooserInsertKey(self: *Window, k: keys.Key) bool {
         'A' => "end",
         'S' => "clear",
         else => return false,
-    } else if (self.pending_len == 1 and k.code == 'c' and self.pending[0].code == 'c' and self.pending[0].isChar() and @as(u8, @bitCast(self.pending[0].mods)) == 0)
+    } else if (self.pending_len == 1 and k.code == 'c' and self.pending[0].code == 'c' and
+        self.pending[0].isChar() and @as(u8, @bitCast(self.pending[0].mods)) == 0)
         "clear"
     else
         return false;
@@ -1789,7 +1999,9 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
     }
     if (self.visualFollowup(k)) return true;
     // Counts.
-    if (self.pending_len == 0 and k.isChar() and k.code >= '0' and k.code <= '9' and (k.code != '0' or self.count != null)) {
+    if (self.pending_len == 0 and k.isChar() and k.code >= '0' and k.code <= '9' and
+        (k.code != '0' or self.count != null))
+    {
         const digit: u32 = k.code - '0';
         self.count = (self.count orelse 0) *| 10 +| digit;
         self.updateStatus();
@@ -1803,7 +2015,8 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
         const count = self.count;
         const action = b.action;
         // A visual operator that takes the range into the register.
-        const op: u32 = if (self.mode == .visual and self.pending_len == 1 and (k.code == 'y' or k.code == 'd') and k.isChar()) k.code else 0;
+        const op: u32 = if (self.mode == .visual and self.pending_len == 1 and
+            (k.code == 'y' or k.code == 'd') and k.isChar()) k.code else 0;
         self.resetPending();
         self.run(action, count);
         if (op != 0 and self.mode == .normal) self.visual_op = op;
@@ -1822,7 +2035,8 @@ pub fn handleKey(self: *Window, k: keys.Key) bool {
         var kb: [64]u8 = undefined;
         var mb: [128]u8 = undefined;
         const seq = keys.format(&kb, self.pending[0..self.pending_len]);
-        self.notify(std.mem.print(&mb, "{s} isn't bound in {s} mode", .{ seq, @tagName(self.mode) }) catch "Not bound", false);
+        const msg = std.mem.print(&mb, "{s} isn't bound in {s} mode", .{ seq, @tagName(self.mode) }) catch "Not bound";
+        self.notify(msg, false);
     }
     self.resetPending();
     return was_pending or !(k.code == keys.sym.tab and @as(u8, @bitCast(k.mods)) == 0);
@@ -1875,7 +2089,9 @@ fn scheduleWhichKey(self: *Window) void {
 fn onWhichKeyTimer(ud: ?*anyopaque) callconv(.c) void {
     const self: *Window = @ptrCast(@alignCast(ud.?));
     self.whichkey_timer = .null;
-    if (self.pending_len != 0 or self.await_key == .bookmark_jump or self.await_key == .bookmark_remove) self.showWhichKey();
+    if (self.pending_len != 0 or self.await_key == .bookmark_jump or self.await_key == .bookmark_remove) {
+        self.showWhichKey();
+    }
 }
 
 const Hint = struct { key: []const u8, desc: []const u8 };
@@ -1929,17 +2145,33 @@ pub fn showWhichKey(self: *Window) void {
         tracks[i * 2] = .{ .unit = .auto };
         tracks[i * 2 + 1] = .{ .unit = .auto };
     }
-    const grid = c.siv_grid(txn, self.whichkey, &.{ .columns = &tracks, .columns_count = cols * 2, .column_gap = 12, .row_gap = 3 });
+    const grid = c.siv_grid(txn, self.whichkey, &.{
+        .columns = &tracks,
+        .columns_count = cols * 2,
+        .column_gap = 12,
+        .row_gap = 3,
+    });
     const rows = (hints.items.len + cols - 1) / cols;
     for (0..rows) |r| for (0..cols) |col| {
         const idx = col * rows + r;
         if (idx >= hints.items.len) continue;
         const h = hints.items[idx];
         const kn = c.siv_text(txn, grid, h.key.ptr, h.key.len);
-        _ = c.siv_set_text_style(txn, kn, &.{ .color_token = .accent, .size_role = .body, .weight = .bold, .family = "monospace", .family_len = 9, .flags = .{ .no_wrap = true } });
+        _ = c.siv_set_text_style(txn, kn, &.{
+            .color_token = .accent,
+            .size_role = .body,
+            .weight = .bold,
+            .family = "monospace",
+            .family_len = 9,
+            .flags = .{ .no_wrap = true },
+        });
         _ = c.siv_set_layout(txn, kn, &.{ .column = @intCast(col * 2 + 1), .row = @intCast(r + 1) });
         const dn = c.siv_text(txn, grid, h.desc.ptr, h.desc.len);
-        _ = c.siv_set_text_style(txn, dn, &.{ .color_token = .card_fg, .size_role = .body, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        _ = c.siv_set_text_style(txn, dn, &.{
+            .color_token = .card_fg,
+            .size_role = .body,
+            .flags = .{ .no_wrap = true, .ellipsize = true },
+        });
         _ = c.siv_set_layout(txn, dn, &.{ .column = @intCast(col * 2 + 2), .row = @intCast(r + 1), .max_width = 240 });
     };
     _ = c.siv_set_hidden(txn, self.whichkey, false);
@@ -1977,7 +2209,8 @@ pub fn hideWhichKey(self: *Window) void {
 /// entry alone (the marks go, the cursor moves there).
 pub fn contextMenuAt(self: *Window, i: u32, anchor: Node, x: f32, y: f32) void {
     const d = self.curDir();
-    const in_selection = (self.mode == .visual and self.inVisualRange(&self.current, i)) or (self.mode != .visual and d.mark_count != 0 and d.isMarked(i));
+    const in_selection = (self.mode == .visual and self.inVisualRange(&self.current, i)) or
+        (self.mode != .visual and d.mark_count != 0 and d.isMarked(i));
     if (!in_selection) {
         if (self.mode == .visual) self.endVisual();
         if (d.mark_count != 0) {
@@ -2067,7 +2300,9 @@ pub fn refreshTasks(self: *Window) void {
     const head = c.siv_text(txn, self.tasks, "Tasks", 5);
     _ = c.siv_set_text_style(txn, head, &.{ .color_token = .card_fg, .size_role = .heading, .weight = .bold });
     _ = c.siv_set_semantics(txn, head, &.{ .role = .heading, .level = 2 });
-    if (n == 0) _ = ui.text(txn, self.tasks, "No file operations yet: copies, moves, and deletes show here.", .muted_fg, .body);
+    if (n == 0) {
+        _ = ui.text(txn, self.tasks, "No file operations yet: copies, moves, and deletes show here.", .muted_fg, .body);
+    }
     for (0..n) |i| {
         const t = app.taskAt(i).?;
         const selected = i == self.task_cursor;
@@ -2077,20 +2312,44 @@ pub fn refreshTasks(self: *Window) void {
             .finished => |f| f.title,
         };
         const row = c.siv_flex(txn, self.tasks, &.{ .axis = .column, .gap = 4 });
-        _ = c.siv_set_layout(txn, row, &.{ .width = ui.fill(), .padding = .{ .start = 10, .end = 10, .top = 6, .bottom = 6 } });
-        _ = c.siv_set_visual(txn, row, &.{ .background_token = if (selected) .selection_bg else .none, .radius = .{ .top_start = 6, .top_end = 6, .bottom_start = 6, .bottom_end = 6 } });
-        _ = c.siv_set_semantics(txn, row, &.{ .role = .list_item, .label = title.ptr, .label_len = title.len, .selected = if (selected) .on else .off, .position = @intCast(i + 1), .set_size = @intCast(n) });
+        _ = c.siv_set_layout(txn, row, &.{
+            .width = ui.fill(),
+            .padding = .{ .start = 10, .end = 10, .top = 6, .bottom = 6 },
+        });
+        _ = c.siv_set_visual(txn, row, &.{
+            .background_token = if (selected) .selection_bg else .none,
+            .radius = .{ .top_start = 6, .top_end = 6, .bottom_start = 6, .bottom_end = 6 },
+        });
+        _ = c.siv_set_semantics(txn, row, &.{
+            .role = .list_item,
+            .label = title.ptr,
+            .label_len = title.len,
+            .selected = if (selected) .on else .off,
+            .position = @intCast(i + 1),
+            .set_size = @intCast(n),
+        });
         const line = c.siv_flex(txn, row, &.{ .axis = .row, .gap = 12, .align_items = .center });
         _ = c.siv_set_layout(txn, line, &.{ .width = ui.fill() });
         const tt = c.siv_text(txn, line, title.ptr, title.len);
         _ = c.siv_set_layout(txn, tt, &.{ .grow = 1, .basis = px(0) });
-        _ = c.siv_set_text_style(txn, tt, &.{ .color_token = if (selected) .selection_fg else .card_fg, .size_role = .body, .weight = .bold, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        _ = c.siv_set_text_style(txn, tt, &.{
+            .color_token = if (selected) .selection_fg else .card_fg,
+            .size_role = .body,
+            .weight = .bold,
+            .flags = .{ .no_wrap = true, .ellipsize = true },
+        });
         switch (t) {
             .running => |e| {
                 const st = taskState(e);
                 const sn = ui.text(txn, line, st, if (e.op.isPaused()) .warning else .accent, .caption);
                 _ = c.siv_set_layout(txn, sn, &.{ .flags = .{ .no_shrink = true } });
-                const bar = c.siv_progress_bar(txn, row, &.{ .label = title.ptr, .label_len = title.len, .min = 0, .max = 100, .value = @floatFromInt(taskPercent(e.op)) });
+                const bar = c.siv_progress_bar(txn, row, &.{
+                    .label = title.ptr,
+                    .label_len = title.len,
+                    .min = 0,
+                    .max = 100,
+                    .value = @floatFromInt(taskPercent(e.op)),
+                });
                 _ = c.siv_set_layout(txn, bar, &.{ .width = ui.fill() });
                 var db: [512]u8 = undefined;
                 var w: Io.Writer = .fixed(&db);
@@ -2107,14 +2366,22 @@ pub fn refreshTasks(self: *Window) void {
                 printCut(&w, "{s}", .{e.op.currentName(&cb)});
                 const detail = w.buffered();
                 const dn = c.siv_text(txn, row, detail.ptr, detail.len);
-                _ = c.siv_set_text_style(txn, dn, &.{ .color_token = if (selected) .selection_fg else .muted_fg, .size_role = .caption, .flags = .{ .no_wrap = true, .ellipsize = true } });
+                _ = c.siv_set_text_style(txn, dn, &.{
+                    .color_token = if (selected) .selection_fg else .muted_fg,
+                    .size_role = .caption,
+                    .flags = .{ .no_wrap = true, .ellipsize = true },
+                });
             },
             .finished => |f| {
                 const label: []const u8 = if (f.failed) "Failed" else if (f.canceled) "Canceled" else "Done";
                 const sn = ui.text(txn, line, label, if (f.failed) .destructive else .muted_fg, .caption);
                 _ = c.siv_set_layout(txn, sn, &.{ .flags = .{ .no_shrink = true } });
                 const dn = c.siv_text(txn, row, f.result.ptr, f.result.len);
-                _ = c.siv_set_text_style(txn, dn, &.{ .color_token = if (f.failed) .destructive else if (selected) .selection_fg else .muted_fg, .size_role = .caption, .flags = .{ .no_wrap = true, .ellipsize = true } });
+                _ = c.siv_set_text_style(txn, dn, &.{
+                    .color_token = if (f.failed) .destructive else if (selected) .selection_fg else .muted_fg,
+                    .size_role = .caption,
+                    .flags = .{ .no_wrap = true, .ellipsize = true },
+                });
             },
         }
     }
@@ -2162,7 +2429,10 @@ fn answerAwait(self: *Window, k: keys.Key) void {
             } else self.notify("No such bookmark", true);
         },
         .bookmark_remove => if (!esc) {
-            if (!self.app.removeBookmark(k.code)) self.notify("No such bookmark", true) else self.notify("Bookmark removed", false);
+            if (!self.app.removeBookmark(k.code))
+                self.notify("No such bookmark", true)
+            else
+                self.notify("Bookmark removed", false);
         },
         .confirm_delete => {
             if (k.code == 'y' or k.code == 'Y') {
@@ -2243,7 +2513,8 @@ pub fn opFinished(self: *Window, op: *fsops.Op, undoable: bool) void {
     if (op.kind == .copy or op.kind == .move) {
         const d = self.curDir();
         if (std.mem.eql(u8, op.dest, d.path)) {
-            const first = op.created.items[0 .. std.mem.findScalar(u8, op.created.items, '\n') orelse op.created.items.len];
+            const first_end = std.mem.findScalar(u8, op.created.items, '\n') orelse op.created.items.len;
+            const first = op.created.items[0..first_end];
             if (first.len != 0) d.selectName(first);
         }
     }
@@ -2277,7 +2548,12 @@ pub fn startPrompt(self: *Window, kind: PromptKind, initial: []const u8, caret: 
         .passphrase => "Passphrase",
         .pick => if (self.picker.kind == .files) "Find a file or folder" else "Jump to a folder",
     };
-    _ = c.siv_set_semantics(txn, self.cmd_editor, &.{ .role = .text_input, .label = sem_label.ptr, .label_len = sem_label.len, .flags = .{ .focusable = true } });
+    _ = c.siv_set_semantics(txn, self.cmd_editor, &.{
+        .role = .text_input,
+        .label = sem_label.ptr,
+        .label_len = sem_label.len,
+        .flags = .{ .focusable = true },
+    });
     self.applyStatus(txn);
     _ = commit(txn);
     _ = c.siv_node_focus(if (kind == .passphrase) self.pass_editor else self.cmd_editor);
@@ -2374,7 +2650,10 @@ fn onPromptChange(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
     const d = self.curDir();
     switch (kind) {
         .search, .search_back => {
-            if (d.findMatch(t, self.prompt_origin, kind == .search_back, true)) |i| self.moveCursor(i) else self.moveCursor(self.prompt_origin);
+            if (d.findMatch(t, self.prompt_origin, kind == .search_back, true)) |i|
+                self.moveCursor(i)
+            else
+                self.moveCursor(self.prompt_origin);
         },
         .find => {
             const matches = d.countMatches(t);
@@ -2473,7 +2752,9 @@ fn submitPrompt(self: *Window, kind: PromptKind) void {
             self.last_search.clearRetainingCapacity();
             self.last_search.appendSlice(self.gpa, t) catch return;
             self.last_search_back = kind == .search_back;
-            if (t.len != 0 and self.curDir().findMatch(t, self.prompt_origin, kind == .search_back, true) == null) self.notify("No match", true);
+            if (t.len != 0 and self.curDir().findMatch(t, self.prompt_origin, kind == .search_back, true) == null) {
+                self.notify("No match", true);
+            }
         },
         .find => {},
         .filter => {},
@@ -2517,10 +2798,19 @@ pub fn showCandidates(self: *Window, cands: []const []const u8) void {
     const shown = @min(cands.len, 60);
     const cols: usize = if (shown > 16) 3 else if (shown > 6) 2 else 1;
     var tracks: [3]siv.Track = .{ .{ .unit = .auto }, .{ .unit = .auto }, .{ .unit = .auto } };
-    const grid = c.siv_grid(txn, self.whichkey, &.{ .columns = &tracks, .columns_count = cols, .column_gap = 18, .row_gap = 2 });
+    const grid = c.siv_grid(txn, self.whichkey, &.{
+        .columns = &tracks,
+        .columns_count = cols,
+        .column_gap = 18,
+        .row_gap = 2,
+    });
     for (cands[0..shown]) |cand| {
         const n = c.siv_text(txn, grid, cand.ptr, cand.len);
-        _ = c.siv_set_text_style(txn, n, &.{ .color_token = .card_fg, .size_role = .body, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        _ = c.siv_set_text_style(txn, n, &.{
+            .color_token = .card_fg,
+            .size_role = .body,
+            .flags = .{ .no_wrap = true, .ellipsize = true },
+        });
         _ = c.siv_set_layout(txn, n, &.{ .max_width = 240 });
     }
     _ = c.siv_set_hidden(txn, self.whichkey, false);
@@ -2538,7 +2828,9 @@ pub fn searchNext(self: *Window, reverse: bool, count: u32) void {
     var n: u32 = 0;
     while (n < @max(count, 1)) : (n += 1) {
         const next = d.findMatch(q, at, back, false) orelse return self.notify("No match", true);
-        if (!self.app.options.wrap_scan and ((back and next > at) or (!back and next < at))) return self.notify("Search hit the end", true);
+        if (!self.app.options.wrap_scan and ((back and next > at) or (!back and next < at))) {
+            return self.notify("Search hit the end", true);
+        }
         at = next;
     }
     self.moveCursor(at);
@@ -2628,7 +2920,9 @@ pub fn unlockFailed(self: *Window, msg: []const u8, block: []const u8, label: []
 /// is encrypted) and goes there.
 pub fn mountDrive(self: *Window, id: []const u8) void {
     const u = self.app.udisks orelse return self.notify("Mounting needs UDisks2", true);
-    for (self.app.places.drives.items, 0..) |d, i| if (std.mem.eql(u8, d.id, id)) return u.mount(self, @intCast(i), false);
+    for (self.app.places.drives.items, 0..) |d, i| {
+        if (std.mem.eql(u8, d.id, id)) return u.mount(self, @intCast(i), false);
+    }
 }
 
 /// A drive is about to be unmounted: tabs on it go up out of it, to
@@ -2678,16 +2972,37 @@ pub fn openWithMenu(self: *Window, paths: []const []const u8) void {
     const txn = self.begin() orelse return state.free();
     const menu = c.siv_menu(txn, self.root, &.{ .label = "Open with", .label_len = 9 });
     const first: usize = @intFromBool(folder);
-    if (folder) _ = c.siv_menu_item(txn, menu, &.{ .label = "Terminal", .label_len = 8, .shortcut = "1", .shortcut_len = 1, .mnemonic = '1', .icon = "utilities-terminal", .icon_len = 18 });
+    if (folder) {
+        _ = c.siv_menu_item(txn, menu, &.{
+            .label = "Terminal",
+            .label_len = 8,
+            .shortcut = "1",
+            .shortcut_len = 1,
+            .mnemonic = '1',
+            .icon = "utilities-terminal",
+            .icon_len = 18,
+        });
+    }
     for (list, first..) |app, i| {
         var sb: [8]u8 = undefined;
         const shortcut = if (i < 9) std.mem.print(&sb, "{d}", .{i + 1}) catch "" else "";
-        _ = c.siv_menu_item(txn, menu, &.{ .label = app.name.ptr, .label_len = app.name.len, .shortcut = shortcut.ptr, .shortcut_len = shortcut.len, .mnemonic = if (i < 9) @intCast('1' + i) else 0, .icon = app.icon.ptr, .icon_len = app.icon.len });
+        _ = c.siv_menu_item(txn, menu, &.{
+            .label = app.name.ptr,
+            .label_len = app.name.len,
+            .shortcut = shortcut.ptr,
+            .shortcut_len = shortcut.len,
+            .mnemonic = if (i < 9) @intCast('1' + i) else 0,
+            .icon = app.icon.ptr,
+            .icon_len = app.icon.len,
+        });
     }
     _ = c.siv_on(txn, menu, .select, OpenWith.onSelect, OpenWith.destroy, state);
     if (!commit(txn)) return;
     const row = c.siv_view_get_row(self.current.view, self.curDir().cursor);
-    if (row != .null) _ = c.siv_menu_open_at(menu, row, 40, Column.row_height) else _ = c.siv_menu_open(menu, self.current.view);
+    if (row != .null)
+        _ = c.siv_menu_open_at(menu, row, 40, Column.row_height)
+    else
+        _ = c.siv_menu_open(menu, self.current.view);
 }
 
 const OpenWith = struct {
@@ -2715,7 +3030,9 @@ const OpenWith = struct {
         const first: usize = @intFromBool(s.terminal);
         if (s.terminal and ev.index == 0) {
             if (s.paths.items.len != 0) s.win.app.openTerminal(s.win, s.paths.items[0]);
-        } else if (ev.index >= first and ev.index - first < s.apps.len) s.win.app.launch(s.win, s.apps[ev.index - first], @ptrCast(s.paths.items));
+        } else if (ev.index >= first and ev.index - first < s.apps.len) {
+            s.win.app.launch(s.win, s.apps[ev.index - first], @ptrCast(s.paths.items));
+        }
         // The menu is done with.
         if (s.win.begin()) |txn| {
             _ = c.siv_remove(txn, menu);
@@ -2756,8 +3073,16 @@ pub fn writeClipboard(self: *Window, paths: []const []const u8, cut: bool) void 
         data.appendSlice(self.gpa, p) catch return;
     }
     lengths[3] = data.items.len - start;
-    const mimes = "text/uri-list\nx-special/gnome-copied-files\napplication/x-kde-cutselection\ntext/plain;charset=utf-8";
-    _ = c.siv_clipboard_write_data(self.window, .clipboard, &.{ .mimes = mimes, .mimes_len = mimes.len, .data = data.items.ptr, .data_count = data.items.len, .lengths = &lengths, .lengths_count = 4 });
+    const mimes = "text/uri-list\nx-special/gnome-copied-files\n" ++
+        "application/x-kde-cutselection\ntext/plain;charset=utf-8";
+    _ = c.siv_clipboard_write_data(self.window, .clipboard, &.{
+        .mimes = mimes,
+        .mimes_len = mimes.len,
+        .data = data.items.ptr,
+        .data_count = data.items.len,
+        .lengths = &lengths,
+        .lengths_count = 4,
+    });
 }
 
 pub fn writeClipboardText(self: *Window, s: []const u8) void {
@@ -2783,7 +3108,10 @@ const Paste = struct {
         if (self.closing) return;
         if (d.result != .ok or d.data == null) return self.pasteRegister(t.dest, t.replace);
         const bytes = d.data.?[0..d.data_count];
-        const g = if (d.index == 0) uri.gnomeCopied(bytes) else @TypeOf(uri.gnomeCopied(bytes)){ .cut = false, .uris = bytes };
+        const g = if (d.index == 0)
+            uri.gnomeCopied(bytes)
+        else
+            @TypeOf(uri.gnomeCopied(bytes)){ .cut = false, .uris = bytes };
         self.transferUris(g.uris, t.dest, if (g.cut) .move else .copy, t.replace);
     }
 };
@@ -2797,21 +3125,33 @@ pub fn paste(self: *Window, dest: []const u8, replace: bool) void {
         return;
     }, .replace = replace };
     const mimes = "x-special/gnome-copied-files\ntext/uri-list";
-    if (c.siv_clipboard_read_data(self.window, .clipboard, mimes, mimes.len, Paste.onData, Paste.destroy, t) != .ok) self.pasteRegister(dest, replace);
+    if (c.siv_clipboard_read_data(self.window, .clipboard, mimes, mimes.len, Paste.onData, Paste.destroy, t) != .ok) {
+        self.pasteRegister(dest, replace);
+    }
 }
 
 /// Without a clipboard: what yy or dd took.
 fn pasteRegister(self: *Window, dest: []const u8, replace: bool) void {
     const reg = self.app.register.items;
     if (reg.len == 0) return self.notify("Nothing to paste", false);
-    self.app.startOpWith(self, if (self.app.register_cut) .move else .copy, @ptrCast(reg), dest, &.{}, true, if (replace) .replace else .none);
+    self.app.startOpWith(
+        self,
+        if (self.app.register_cut) .move else .copy,
+        @ptrCast(reg),
+        dest,
+        &.{},
+        true,
+        if (replace) .replace else .none,
+    );
 }
 
 /// The themed icon names of `path`, an entry of the folder shown, as its
 /// row shows it.
 pub fn iconForPath(self: *Window, path: []const u8, buf: []u8) []const u8 {
     const d = self.curDir();
-    if (std.mem.eql(u8, model.parent(path), d.path)) if (d.indexOf(model.basename(path))) |i| if (d.entryAt(i)) |e| return Column.iconFor(self, e, buf);
+    if (std.mem.eql(u8, model.parent(path), d.path)) {
+        if (d.indexOf(model.basename(path))) |i| if (d.entryAt(i)) |e| return Column.iconFor(self, e, buf);
+    }
     return "text-x-generic";
 }
 

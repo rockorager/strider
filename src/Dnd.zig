@@ -194,7 +194,18 @@ pub fn start(win: *Window, node: Node) void {
     s.icon = drawIcon(win, s, null);
     const lengths = [2]usize{ first, data.items.len - first };
     const mimes = "text/uri-list\ntext/plain;charset=utf-8";
-    if (c.siv_drag_start(node, &.{ .mimes = mimes, .mimes_len = mimes.len, .data = data.items.ptr, .data_count = data.items.len, .lengths = &lengths, .lengths_count = 2, .icon = s.icon, .actions = .{ .copy = true, .move = true }, .hotspot_x = 14, .hotspot_y = 14 }) != .ok) endSource(app);
+    if (c.siv_drag_start(node, &.{
+        .mimes = mimes,
+        .mimes_len = mimes.len,
+        .data = data.items.ptr,
+        .data_count = data.items.len,
+        .lengths = &lengths,
+        .lengths_count = 2,
+        .icon = s.icon,
+        .actions = .{ .copy = true, .move = true },
+        .hotspot_x = 14,
+        .hotspot_y = 14,
+    }) != .ok) endSource(app);
 }
 
 /// The drag ended, dropped or not: forget it everywhere.
@@ -221,30 +232,65 @@ pub fn cancel(win: *Window) bool {
 // The icon ---------------------------------------------------------------------------------
 
 const icon_h: f32 = 28;
-const DrawCtx = struct { win: *Window, s: *Source, action: ?Action, label: []const u8, icon: []const u8, folder: bool, label_w: f32, badge_w: f32 };
+const DrawCtx = struct {
+    win: *Window,
+    s: *Source,
+    action: ?Action,
+    label: []const u8,
+    icon: []const u8,
+    folder: bool,
+    label_w: f32,
+    badge_w: f32,
+};
 
 /// The file's icon and name ("3 items"), with what a drop would do.
 fn drawIcon(win: *Window, s: *Source, action: ?Action) siv.Image {
     var nb: [64]u8 = undefined;
-    const label = if (s.paths.len == 1) model.basename(s.paths[0]) else std.mem.print(&nb, "{d} items", .{s.paths.len}) catch "items";
+    const label = if (s.paths.len == 1)
+        model.basename(s.paths[0])
+    else
+        std.mem.print(&nb, "{d} items", .{s.paths.len}) catch "items";
     var ib: [512]u8 = undefined;
     const one = s.paths.len == 1;
     const folder = one and Window.isDirPath(s.paths[0]);
-    const icon: []const u8 = if (!one) "edit-copy-symbolic\nemblem-documents-symbolic\ntext-x-generic" else if (folder) "folder\nfolder-symbolic" else win.iconForPath(s.paths[0], &ib);
+    const icon: []const u8 = if (!one)
+        "edit-copy-symbolic\nemblem-documents-symbolic\ntext-x-generic"
+    else if (folder)
+        "folder\nfolder-symbolic"
+    else
+        win.iconForPath(s.paths[0], &ib);
     const style: siv.TextStyleDesc = .{ .size_role = .body, .flags = .{ .no_wrap = true } };
     var m: siv.TextMetrics = .{};
     _ = c.siv_app_measure_text(win.app.app, label.ptr, label.len, 0, &style, &m);
     var bm: siv.TextMetrics = .{};
     if (action) |a| {
-        const badge_style: siv.TextStyleDesc = .{ .size_role = .caption, .weight = .bold, .flags = .{ .no_wrap = true } };
+        const badge_style: siv.TextStyleDesc = .{
+            .size_role = .caption,
+            .weight = .bold,
+            .flags = .{ .no_wrap = true },
+        };
         _ = c.siv_app_measure_text(win.app.app, a.word().ptr, a.word().len, 0, &badge_style, &bm);
     }
     const label_w = @min(m.width, 220);
     const badge_w: f32 = if (action != null) bm.width + 12 else 0;
     const width = 8 + 16 + 6 + label_w + (if (action != null) 8 + badge_w else 0) + 10;
-    var ctx: DrawCtx = .{ .win = win, .s = s, .action = action, .label = label, .icon = icon, .folder = folder, .label_w = label_w, .badge_w = badge_w };
+    var ctx: DrawCtx = .{
+        .win = win,
+        .s = s,
+        .action = action,
+        .label = label,
+        .icon = icon,
+        .folder = folder,
+        .label_w = label_w,
+        .badge_w = badge_w,
+    };
     var img: siv.Image = .null;
-    if (c.siv_image_draw(win.window, &.{ .user_data = &ctx, .draw = drawFn, .width = @ceil(width), .height = icon_h }, &img) != .ok) return .null;
+    if (c.siv_image_draw(win.window, &.{
+        .user_data = &ctx,
+        .draw = drawFn,
+        .width = @ceil(width),
+        .height = icon_h,
+    }, &img) != .ok) return .null;
     s.icon_action = action;
     s.icon_width = width;
     return img;
@@ -257,17 +303,37 @@ fn drawFn(ud: ?*anyopaque, _: Node, dr: siv.Draw, width: f32, height: f32) callc
     c.siv_draw_rounded_rect(dr, .{ .x = 0.5, .y = 0.5, .width = width - 1, .height = height - 1 }, r);
     c.siv_draw_fill(dr, &.{ .color = color(win, .card_bg) }, .{ .keep_path = true });
     c.siv_draw_stroke(dr, &.{ .width = 1 }, &.{ .color = color(win, .border) });
-    c.siv_draw_icon(dr, ctx.icon.ptr, ctx.icon.len, .{ .x = 8, .y = (height - 16) / 2, .width = 16, .height = 16 }, color(win, if (ctx.folder) .accent else .card_fg), .{});
-    const style: siv.TextStyleDesc = .{ .color_token = .card_fg, .size_role = .body, .flags = .{ .no_wrap = true, .ellipsize = true } };
+    c.siv_draw_icon(
+        dr,
+        ctx.icon.ptr,
+        ctx.icon.len,
+        .{ .x = 8, .y = (height - 16) / 2, .width = 16, .height = 16 },
+        color(win, if (ctx.folder) .accent else .card_fg),
+        .{},
+    );
+    const style: siv.TextStyleDesc = .{
+        .color_token = .card_fg,
+        .size_role = .body,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    };
     var m: siv.TextMetrics = .{};
     _ = c.siv_app_measure_text(ctx.win.app.app, "Ag", 2, 0, &style, &m);
     c.siv_draw_text(dr, 30, (height - m.height) / 2, ctx.label_w, ctx.label.ptr, ctx.label.len, &style);
     const a = ctx.action orelse return;
     // What a drop would do, as a badge on the accent.
     const bx = 30 + ctx.label_w + 8;
-    c.siv_draw_rounded_rect(dr, .{ .x = bx, .y = 6, .width = ctx.badge_w, .height = height - 12 }, .{ .top_left = 4, .top_right = 4, .bottom_left = 4, .bottom_right = 4 });
+    c.siv_draw_rounded_rect(
+        dr,
+        .{ .x = bx, .y = 6, .width = ctx.badge_w, .height = height - 12 },
+        .{ .top_left = 4, .top_right = 4, .bottom_left = 4, .bottom_right = 4 },
+    );
     c.siv_draw_fill(dr, &.{ .color = color(win, if (a == .move) .accent else .success) }, .{});
-    const bs: siv.TextStyleDesc = .{ .color_token = .accent_fg, .size_role = .caption, .weight = .bold, .flags = .{ .no_wrap = true } };
+    const bs: siv.TextStyleDesc = .{
+        .color_token = .accent_fg,
+        .size_role = .caption,
+        .weight = .bold,
+        .flags = .{ .no_wrap = true },
+    };
     var bm: siv.TextMetrics = .{};
     _ = c.siv_app_measure_text(ctx.win.app.app, a.word().ptr, a.word().len, 0, &bs, &bm);
     c.siv_draw_text(dr, bx + 6, (height - bm.height) / 2, 0, a.word().ptr, a.word().len, &bs);
@@ -331,7 +397,13 @@ pub fn onDrop(d: *Dnd, ev: *const siv.Event, target: Target, dest: []const u8) s
                 win.app.startOp(win, action.kind(), Window.toConst(s.paths), to, &.{}, true);
                 return .handled;
             }
-            win.dropUris(data, to, if (ev.modifiers.ctrl and ev.modifiers.shift) .link else if (ev.action == .move) .move else .copy);
+            const kind: fsops.Kind = if (ev.modifiers.ctrl and ev.modifiers.shift)
+                .link
+            else if (ev.action == .move)
+                .move
+            else
+                .copy;
+            win.dropUris(data, to, kind);
             return .handled;
         },
         else => return .pass,
@@ -396,10 +468,18 @@ pub fn leave(d: *Dnd) void {
 fn setHint(d: *Dnd, action: Action) void {
     const s = d.win.app.drag;
     var nb: [300]u8 = undefined;
-    const what = if (s) |x| (if (x.paths.len == 1) std.mem.print(&nb, "“{s}”", .{model.basename(x.paths[0])}) catch "it" else std.mem.print(&nb, "{d} items", .{x.paths.len}) catch "them") else "the files";
+    const what = if (s) |x| (if (x.paths.len == 1)
+        std.mem.print(&nb, "“{s}”", .{model.basename(x.paths[0])}) catch "it"
+    else
+        std.mem.print(&nb, "{d} items", .{x.paths.len}) catch "them") else "the files";
     const name = if (std.mem.eql(u8, d.dest.items, d.win.app.home)) "~" else model.basename(d.dest.items);
     var hb: [600]u8 = undefined;
-    const text = std.mem.print(&hb, "{s} {s} {s} {s}", .{ action.word(), what, if (action == .link) "in" else "to", if (name.len == 0) "/" else name }) catch return;
+    const text = std.mem.print(&hb, "{s} {s} {s} {s}", .{
+        action.word(),
+        what,
+        if (action == .link) "in" else "to",
+        if (name.len == 0) "/" else name,
+    }) catch return;
     if (std.mem.eql(u8, text, d.hint.items)) return;
     d.hint.clearRetainingCapacity();
     d.hint.appendSlice(d.win.gpa, text) catch return;
@@ -415,9 +495,18 @@ fn highlight(d: *Dnd, on: bool) void {
     const win = d.win;
     const txn = win.begin() orelse return;
     switch (t) {
-        .row => |r| _ = c.siv_set_visual(txn, r.line, if (on) &.{ .border_token = .accent, .border_width = 2, .radius = outline } else &.{}),
+        .row => |r| _ = c.siv_set_visual(txn, r.line, if (on) &.{
+            .border_token = .accent,
+            .border_width = 2,
+            .radius = outline,
+        } else &.{}),
         .column => |col| col.showDropRing(txn, on),
-        .crumb => |n| _ = c.siv_set_visual(txn, n, if (on) &.{ .background_token = .selection_bg, .border_token = .accent, .border_width = 1, .radius = outline } else &.{}),
+        .crumb => |n| _ = c.siv_set_visual(txn, n, if (on) &.{
+            .background_token = .selection_bg,
+            .border_token = .accent,
+            .border_width = 1,
+            .radius = outline,
+        } else &.{}),
         .tab => |i| win.tabDropOutline(txn, i, on),
     }
     _ = c.siv_txn_commit(txn);
@@ -495,7 +584,9 @@ fn onScroll(ud: ?*anyopaque) callconv(.c) void {
         _ = c.siv_view_scroll_to(txn, col.view, @intCast(d.scroll_index));
         _ = c.siv_txn_commit(txn);
     }
-    if (d.scroll_index > 0 and d.scroll_index < n - 1) _ = c.siv_timer_start(d.win.app.app, scroll_ms, onScroll, null, d, &d.scroll);
+    if (d.scroll_index > 0 and d.scroll_index < n - 1) {
+        _ = c.siv_timer_start(d.win.app.app, scroll_ms, onScroll, null, d, &d.scroll);
+    }
 }
 
 fn stopScroll(d: *Dnd) void {

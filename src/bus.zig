@@ -22,12 +22,26 @@ pub fn connect(app: siv.App, bus: siv.DbusBus, address: ?[]const u8) !siv.Dbus {
     return conn;
 }
 
-pub fn newCall(conn: siv.Dbus, destination: []const u8, path: []const u8, interface: []const u8, member: []const u8, interactive: bool) !Message {
+pub fn newCall(
+    conn: siv.Dbus,
+    destination: []const u8,
+    path: []const u8,
+    interface: []const u8,
+    member: []const u8,
+    interactive: bool,
+) !Message {
     return newCallFlags(conn, destination, path, interface, member, .{ .interactive = interactive });
 }
 
 /// With `.secret`, siv wipes the message's memory once it is sent.
-pub fn newCallFlags(conn: siv.Dbus, destination: []const u8, path: []const u8, interface: []const u8, member: []const u8, flags: siv.DbusMessageFlags) !Message {
+pub fn newCallFlags(
+    conn: siv.Dbus,
+    destination: []const u8,
+    path: []const u8,
+    interface: []const u8,
+    member: []const u8,
+    flags: siv.DbusMessageFlags,
+) !Message {
     var m: Message = .null;
     try siv.check(c.siv_dbus_new_call(conn, &.{
         .destination = destination.ptr,

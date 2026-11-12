@@ -173,7 +173,9 @@ pub const Db = struct {
         for (hits) |h| {
             const m = db.magic.get(h.id) orelse continue;
             if (!magicMatches(m.rules, head)) continue;
-            if (best == null or m.priority > best_priority or (m.priority == best_priority and h.weight > best.?.weight)) {
+            if (best == null or m.priority > best_priority or
+                (m.priority == best_priority and h.weight > best.?.weight))
+            {
                 best = h;
                 best_priority = m.priority;
             }
@@ -260,7 +262,20 @@ pub const Db = struct {
         } else {
             const slash = std.mem.findScalar(u8, nm, '/') orelse nm.len;
             const media = nm[0..slash];
-            const generic: []const u8 = if (std.mem.eql(u8, media, "image")) "image-x-generic" else if (std.mem.eql(u8, media, "audio")) "audio-x-generic" else if (std.mem.eql(u8, media, "video")) "video-x-generic" else if (std.mem.eql(u8, media, "text")) "text-x-generic" else if (std.mem.eql(u8, media, "font")) "font-x-generic" else if (id == executable) "application-x-executable" else "application-x-generic";
+            const generic: []const u8 = if (std.mem.eql(u8, media, "image"))
+                "image-x-generic"
+            else if (std.mem.eql(u8, media, "audio"))
+                "audio-x-generic"
+            else if (std.mem.eql(u8, media, "video"))
+                "video-x-generic"
+            else if (std.mem.eql(u8, media, "text"))
+                "text-x-generic"
+            else if (std.mem.eql(u8, media, "font"))
+                "font-x-generic"
+            else if (id == executable)
+                "application-x-executable"
+            else
+                "application-x-generic";
             try w.print("{s}\n", .{generic});
         }
         try w.writeAll("text-x-generic");
@@ -324,7 +339,13 @@ fn unescapeXml(gpa: Allocator, s: []const u8) ![]const u8 {
     var i: usize = 0;
     while (i < s.len) {
         if (s[i] == '&') {
-            const ents = [_]struct { []const u8, u8 }{ .{ "&amp;", '&' }, .{ "&lt;", '<' }, .{ "&gt;", '>' }, .{ "&quot;", '"' }, .{ "&apos;", '\'' } };
+            const ents = [_]struct { []const u8, u8 }{
+                .{ "&amp;", '&' },
+                .{ "&lt;", '<' },
+                .{ "&gt;", '>' },
+                .{ "&quot;", '"' },
+                .{ "&apos;", '\'' },
+            };
             for (ents) |en| if (std.mem.startsWith(u8, s[i..], en[0])) {
                 try out.append(gpa, en[1]);
                 i += en[0].len;
@@ -521,7 +542,9 @@ const MagicReader = struct {
             }
         }
         // Host-order words are stored big-endian: compare in host order.
-        if (word > 1 and builtin.cpu.arch.endian() == .little and len % word == 0) m.value = swapped(r, m.value, word) orelse return null;
+        if (word > 1 and builtin.cpu.arch.endian() == .little and len % word == 0) {
+            m.value = swapped(r, m.value, word) orelse return null;
+        }
         if (m.mask) |mk| if (word > 1 and builtin.cpu.arch.endian() == .little and len % word == 0) {
             m.mask = swapped(r, mk, word) orelse return null;
         };
@@ -693,7 +716,12 @@ fn globLine(db: *Db, line: []const u8) !void {
     var lb: [256]u8 = undefined;
     if (glob.len > lb.len) return;
     const pat = if (cs) glob else std.ascii.lowerString(&lb, glob);
-    try db.complex.append(db.a(), .{ .pattern = try db.a().dupe(u8, pat), .id = id, .weight = weight, .case_sensitive = cs });
+    try db.complex.append(db.a(), .{
+        .pattern = try db.a().dupe(u8, pat),
+        .id = id,
+        .weight = weight,
+        .case_sensitive = cs,
+    });
 }
 
 fn aliasLine(db: *Db, line: []const u8) !void {
@@ -877,7 +905,19 @@ test "database" {
     _ = S.mkdtemp(tmpl.ptr) orelse return error.Unexpected;
     var cmd_buf: [2048]u8 = undefined;
     const cmd = try std.mem.printSentinel(&cmd_buf,
-        \\mkdir -p {0s}/mime/text && printf '50:text/x-csrc:*.c\n50:application/x-compressed-tar:*.tar.gz\n50:application/gzip:*.gz\n50:text/x-makefile:makefile\n50:text/x-c++src:*.C:cs\n10:application/x-sharedlib:*.so.[0-9]*\n' > {0s}/mime/globs2 && printf 'text/x-csrc text/plain\n' > {0s}/mime/subclasses && printf 'application/x-gzip application/gzip\n' > {0s}/mime/aliases && printf '<mime-type><comment>C source code</comment><comment xml:lang="de">C-Quelltext</comment></mime-type>' > {0s}/mime/text/x-csrc.xml
+        \\mkdir -p {0s}/mime/text && printf '50:text/x-csrc:*.c\n50:application/x-compressed-tar:*.tar.gz\n
+    ++
+        \\50:application/gzip:*.gz\n50:text/x-makefile:makefile\n50:text/x-c++src:*.C:cs\n
+    ++
+        \\10:application/x-sharedlib:*.so.[0-9]*\n' > {0s}/mime/globs2
+    ++
+        \\ && printf 'text/x-csrc text/plain\n' > {0s}/mime/subclasses
+    ++
+        \\ && printf 'application/x-gzip application/gzip\n' > {0s}/mime/aliases
+    ++
+        \\ && printf '<mime-type><comment>C source code</comment>
+    ++
+        \\<comment xml:lang="de">C-Quelltext</comment></mime-type>' > {0s}/mime/text/x-csrc.xml
     , .{tmpl}, 0);
     try testing.expectEqual(@as(c_int, 0), S.system(cmd.ptr));
     defer {
@@ -916,7 +956,12 @@ test "names several types claim are settled by content" {
         fn write(dir: []const u8, file: []const u8, bytes: []const u8) !void {
             var pb: [256]u8 = undefined;
             const p = try std.mem.printSentinel(&pb, "{s}/mime/{s}", .{ dir, file }, 0);
-            const rc = linux.openat(linux.AT.FDCWD, p, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
+            const rc = linux.openat(linux.AT.FDCWD, p, .{
+                .ACCMODE = .WRONLY,
+                .CREAT = true,
+                .TRUNC = true,
+                .CLOEXEC = true,
+            }, 0o644);
             if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
             defer _ = linux.close(@intCast(rc));
             if (linux.write(@intCast(rc), bytes.ptr, bytes.len) != bytes.len) return error.Unexpected;
@@ -981,7 +1026,10 @@ test "names several types claim are settled by content" {
     // Two sync bytes are not a stream, but binary is binary.
     stream[376] = 0;
     try testing.expectEqual(mp2t, db.settle(hits, &stream));
-    try testing.expectEqual(linguist, db.settle(hits, "<?xml version=\"1.0\"?>\n<!DOCTYPE TS>\n<TS version=\"2.1\">\n"));
+    try testing.expectEqual(linguist, db.settle(
+        hits,
+        "<?xml version=\"1.0\"?>\n<!DOCTYPE TS>\n<TS version=\"2.1\">\n",
+    ));
     // An older database without TypeScript: plain text.
     try testing.expectEqual(text_plain, db.settle(&.{ hits[0], hits[1] }, "import { a } from './b';\n"));
     const w = db.match("x.w").?.contested.?;

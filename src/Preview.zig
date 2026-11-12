@@ -116,24 +116,55 @@ pub fn build(p: *Preview, txn: Txn, parent: Node) void {
     _ = c.siv_set_layout(txn, p.scroll, &.{ .width = ui.fill(), .height = ui.fill() });
     p.text = c.siv_text(txn, p.scroll, "", 0);
     // Code reads left to right in right-to-left layouts too.
-    _ = c.siv_set_layout(txn, p.text, &.{ .padding = .{ .start = 10, .end = 10, .top = 6, .bottom = 6 }, .direction = .ltr });
+    _ = c.siv_set_layout(txn, p.text, &.{
+        .padding = .{ .start = 10, .end = 10, .top = 6, .bottom = 6 },
+        .direction = .ltr,
+    });
     _ = c.siv_set_semantics(txn, p.text, &.{ .role = .document, .label = "File preview", .label_len = 12 });
 
-    p.image_box = c.siv_flex(txn, p.root, &.{ .axis = .column, .gap = 6, .align_items = .center, .justify = .center });
-    _ = c.siv_set_layout(txn, p.image_box, &.{ .width = ui.fill(), .height = ui.fill(), .padding = .{ .start = 8, .end = 8, .top = 8, .bottom = 8 } });
+    p.image_box = c.siv_flex(txn, p.root, &.{
+        .axis = .column,
+        .gap = 6,
+        .align_items = .center,
+        .justify = .center,
+    });
+    _ = c.siv_set_layout(txn, p.image_box, &.{
+        .width = ui.fill(),
+        .height = ui.fill(),
+        .padding = .{ .start = 8, .end = 8, .top = 8, .bottom = 8 },
+    });
     p.image = c.siv_image_view(txn, p.image_box, &.{ .fit = .contain });
     _ = c.siv_set_layout(txn, p.image, &.{ .grow = 1, .basis = ui.px(0), .width = ui.fill() });
     _ = c.siv_set_semantics(txn, p.image, &.{ .role = .image, .label = "Image preview", .label_len = 13 });
     p.caption = ui.text(txn, p.image_box, "", .muted_fg, .caption);
-    _ = c.siv_set_text_style(txn, p.caption, &.{ .color_token = .muted_fg, .size_role = .caption, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_text_style(txn, p.caption, &.{
+        .color_token = .muted_fg,
+        .size_role = .caption,
+        .direction = .ltr,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
 
     p.info = c.siv_flex(txn, p.root, &.{ .axis = .column, .gap = 6 });
-    _ = c.siv_set_layout(txn, p.info, &.{ .width = ui.fill(), .padding = .{ .start = 14, .end = 14, .top = 14, .bottom = 14 } });
+    _ = c.siv_set_layout(txn, p.info, &.{
+        .width = ui.fill(),
+        .padding = .{ .start = 14, .end = 14, .top = 14, .bottom = 14 },
+    });
     p.info_title = c.siv_text(txn, p.info, "", 0);
-    _ = c.siv_set_text_style(txn, p.info_title, &.{ .color_token = .view_fg, .size_role = .heading, .weight = .bold, .flags = .{ .break_words = true } });
+    _ = c.siv_set_text_style(txn, p.info_title, &.{
+        .color_token = .view_fg,
+        .size_role = .heading,
+        .weight = .bold,
+        .flags = .{ .break_words = true },
+    });
     _ = c.siv_set_semantics(txn, p.info_title, &.{ .role = .heading, .level = 2 });
     p.info_body = c.siv_text(txn, p.info, "", 0);
-    _ = c.siv_set_text_style(txn, p.info_body, &.{ .color_token = .muted_fg, .size_role = .body, .line_spacing = 1.3, .tab_width = 110, .flags = .{ .break_words = true } });
+    _ = c.siv_set_text_style(txn, p.info_body, &.{
+        .color_token = .muted_fg,
+        .size_role = .body,
+        .line_spacing = 1.3,
+        .tab_width = 110,
+        .flags = .{ .break_words = true },
+    });
     p.applyModeTxn(txn, .none);
 }
 
@@ -222,7 +253,9 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
     if (e.kind != .file) return p.showInfo(txn, d, e, path, null);
     const images = app.options.preview_images;
     if (model.thumbnailable(name) and images) {
-        if (e.size > app.options.preview_max_image_bytes) return p.showInfo(txn, d, e, path, "Too large to preview (preview_max_image_bytes)");
+        if (e.size > app.options.preview_max_image_bytes) {
+            return p.showInfo(txn, d, e, path, "Too large to preview (preview_max_image_bytes)");
+        }
         if (p.loadImage(path, e)) {
             p.applyCaption(txn, d, e);
             return;
@@ -249,16 +282,29 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
         }
     }
     if (video and images) {
-        const r: ?Renderer = if (proc.onPath("ffmpegthumbnailer")) .ffmpegthumbnailer else if (proc.onPath("ffmpeg")) .ffmpeg else null;
+        const r: ?Renderer = if (proc.onPath("ffmpegthumbnailer"))
+            .ffmpegthumbnailer
+        else if (proc.onPath("ffmpeg"))
+            .ffmpeg
+        else
+            null;
         if (r) |x| {
             p.applyCaption(txn, d, e);
             return p.startJob(txn, .{ .page = x }, path, e);
         }
         return p.showInfo(txn, d, e, path, "Install ffmpegthumbnailer or ffmpeg to preview videos");
     }
-    if (pdf) return p.showInfo(txn, d, e, path, if (images) "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs" else null);
+    if (pdf) return p.showInfo(
+        txn,
+        d,
+        e,
+        path,
+        if (images) "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs" else null,
+    );
     if (e.size == 0) return p.showInfo(txn, d, e, path, "Empty file");
-    if (texty or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or std.mem.startsWith(u8, type_name, "application/x-unknown")) {
+    if (texty or type_name.len == 0 or std.mem.eql(u8, type_name, "application/octet-stream") or
+        std.mem.startsWith(u8, type_name, "application/x-unknown"))
+    {
         return p.startJob(txn, .text, path, e);
     }
     // Programs, libraries, and other application data with no previewer:
@@ -270,7 +316,19 @@ pub fn showEntry(p: *Preview, txn: Txn, d: *Dir, i: u32) void {
 
 fn isTexty(t: []const u8) bool {
     if (std.mem.startsWith(u8, t, "text/")) return true;
-    const texty = [_][]const u8{ "application/json", "application/xml", "application/javascript", "application/x-shellscript", "application/toml", "application/x-yaml", "application/sql", "application/x-desktop", "inode/x-empty", "application/x-zerosize", "application/x-executable" };
+    const texty = [_][]const u8{
+        "application/json",
+        "application/xml",
+        "application/javascript",
+        "application/x-shellscript",
+        "application/toml",
+        "application/x-yaml",
+        "application/sql",
+        "application/x-desktop",
+        "inode/x-empty",
+        "application/x-zerosize",
+        "application/x-executable",
+    };
     for (texty) |x| if (std.mem.eql(u8, t, x)) return true;
     return std.mem.endsWith(u8, t, "+xml") or std.mem.endsWith(u8, t, "+json");
 }
@@ -294,7 +352,22 @@ fn loadImage(p: *Preview, path: []const u8, _: model.Entry) bool {
     ctx.* = .{ .preview = p, .gpa = p.win.gpa };
     var req: siv.ImageRequest = .null;
     // siv frees the context if the load cannot start.
-    if (c.siv_image_load(p.win.app.app, &.{ .path = path.ptr, .path_len = path.len, .max_width = box.width, .max_height = box.height, .scale = @floatCast(scale), .priority = 10 }, onImage, freeImageCtx, ctx, &req) != .ok) return false;
+    const started = c.siv_image_load(
+        p.win.app.app,
+        &.{
+            .path = path.ptr,
+            .path_len = path.len,
+            .max_width = box.width,
+            .max_height = box.height,
+            .scale = @floatCast(scale),
+            .priority = 10,
+        },
+        onImage,
+        freeImageCtx,
+        ctx,
+        &req,
+    );
+    if (started != .ok) return false;
     p.image_request = req;
     p.image_ctx = ctx;
     return true;
@@ -334,7 +407,11 @@ fn applyCaption(p: *Preview, txn: Txn, d: *Dir, e: model.Entry) void {
     var sbuf: [32]u8 = undefined;
     var tbuf: [32]u8 = undefined;
     const tz = if (p.win.app.opts.reproducible) 0 else p.win.app.tz_offset_s;
-    const cap = std.mem.print(&buf, "{s}  ·  {s}  ·  {s}", .{ d.listing.?.base(e), model.formatSize(&sbuf, e.size), model.formatTime(&tbuf, e.mtime, tz) }) catch "";
+    const cap = std.mem.print(&buf, "{s}  ·  {s}  ·  {s}", .{
+        d.listing.?.base(e),
+        model.formatSize(&sbuf, e.size),
+        model.formatTime(&tbuf, e.mtime, tz),
+    }) catch "";
     _ = c.siv_set_text(txn, p.caption, cap.ptr, cap.len);
 }
 
@@ -403,7 +480,10 @@ fn showDrive(p: *Preview, txn: Txn, row: *const places.DriveRows.Row) void {
     var sbuf: [32]u8 = undefined;
     var buf: [128]u8 = undefined;
     const note = "Not mounted. Opening it mounts it.";
-    const body = if (row.drive.size != 0) std.mem.print(&buf, "Size\t{s}\n\n" ++ note, .{model.formatSize(&sbuf, row.drive.size)}) catch note else note;
+    const body = if (row.drive.size != 0)
+        std.mem.print(&buf, "Size\t{s}\n\n" ++ note, .{model.formatSize(&sbuf, row.drive.size)}) catch note
+    else
+        note;
     p.setInfoText(txn, row.drive.label, body);
     p.applyModeTxn(txn, .info);
     p.applied = .info;
@@ -441,7 +521,14 @@ fn spanFor(class: highlight.Class) siv.TextSpan {
 
 fn showText(p: *Preview, txn: Txn, text: []const u8, spans: ?[]const highlight.Span, kind: TextKind) void {
     _ = c.siv_set_text(txn, p.text, text.ptr, text.len);
-    _ = c.siv_set_text_style(txn, p.text, &.{ .family = "monospace", .family_len = 9, .color_token = .view_fg, .size_role = .caption, .flags = .{ .no_wrap = true }, .direction = .ltr });
+    _ = c.siv_set_text_style(txn, p.text, &.{
+        .family = "monospace",
+        .family_len = 9,
+        .color_token = .view_fg,
+        .size_role = .caption,
+        .flags = .{ .no_wrap = true },
+        .direction = .ltr,
+    });
     if (spans) |list| if (list.len != 0) {
         const gpa = p.win.gpa;
         const out = gpa.alloc(siv.TextSpan, list.len) catch return;
@@ -555,7 +642,12 @@ const Job = struct {
     fn readText(j: *Job) void {
         var zb: [linux.PATH_MAX]u8 = undefined;
         const z = std.mem.printSentinel(&zb, "{s}", .{j.path}, 0) catch return;
-        const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true, .NOCTTY = true }, 0);
+        const rc = linux.openat(
+            linux.AT.FDCWD,
+            z,
+            .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true, .NOCTTY = true },
+            0,
+        );
         if (linux.errno(rc) != .SUCCESS) {
             j.failed = "This file could not be read";
             return;
@@ -606,7 +698,12 @@ const Job = struct {
         var sbuf: [32]u8 = undefined;
         for (l.entries) |e| {
             const size = if (e.dir or e.size == 0) "" else model.formatSize(&sbuf, e.size);
-            j.text.print(j.gpa, "{s}{s}{s}{s}\n", .{ e.name, if (e.dir) "/" else "", if (size.len != 0) "  " else "", size }) catch return;
+            j.text.print(j.gpa, "{s}{s}{s}{s}\n", .{
+                e.name,
+                if (e.dir) "/" else "",
+                if (size.len != 0) "  " else "",
+                size,
+            }) catch return;
         }
         // Out of memory, here and above: the list shows as far as it got, uncolored.
         if (l.truncated) j.text.appendSlice(j.gpa, "…\n") catch return;
@@ -690,21 +787,79 @@ const Job = struct {
             const scale = std.mem.print(&sbuf, "scale={d}:-2", .{w}) catch return;
             const pdf = r == .pdftoppm or r == .mutool;
             const argv: []const []const u8 = switch (r) {
-                .pdftoppm => &.{ "pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to-x", ws, "-scale-to-y", "-1", j.path, prefix },
+                .pdftoppm => &.{
+                    "pdftoppm",
+                    "-f",
+                    "1",
+                    "-l",
+                    "1",
+                    "-singlefile",
+                    "-png",
+                    "-scale-to-x",
+                    ws,
+                    "-scale-to-y",
+                    "-1",
+                    j.path,
+                    prefix,
+                },
                 .mutool => &.{ "mutool", "draw", "-q", "-o", png, "-w", ws, "-F", "png", j.path, "1" },
-                .ffmpegthumbnailer => &.{ "ffmpegthumbnailer", "-i", j.path, "-o", png, "-s", ws, "-c", "png", "-t", "10%" },
+                .ffmpegthumbnailer => &.{
+                    "ffmpegthumbnailer",
+                    "-i",
+                    j.path,
+                    "-o",
+                    png,
+                    "-s",
+                    ws,
+                    "-c",
+                    "png",
+                    "-t",
+                    "10%",
+                },
                 // A few seconds in, past a fade from black; short videos
                 // have no frame there, so then the first.
-                .ffmpeg => &.{ "ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "3", "-i", j.path, "-frames:v", "1", "-vf", scale, png },
+                .ffmpeg => &.{
+                    "ffmpeg",
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-ss",
+                    "3",
+                    "-i",
+                    j.path,
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    scale,
+                    png,
+                },
             };
-            const opts: proc.Options = .{ .max_output = 4096, .cancel = &j.cancelled, .timeout_ms = program_timeout_ms };
+            const opts: proc.Options = .{
+                .max_output = 4096,
+                .cancel = &j.cancelled,
+                .timeout_ms = program_timeout_ms,
+            };
             var res = proc.run(j.gpa, argv, opts) catch {
                 j.failed = if (pdf) "The PDF renderer could not run" else "The video thumbnailer could not run";
                 return;
             };
             res.deinit(j.gpa);
             if (r == .ffmpeg and !nonEmpty(png) and !j.cancelled.load(.acquire)) {
-                var again = proc.run(j.gpa, &.{ "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", j.path, "-frames:v", "1", "-vf", scale, png }, opts) catch return;
+                var again = proc.run(j.gpa, &.{
+                    "ffmpeg",
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-i",
+                    j.path,
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    scale,
+                    png,
+                }, opts) catch return;
                 again.deinit(j.gpa);
             }
             if (j.cancelled.load(.acquire)) return;
@@ -720,7 +875,13 @@ const Job = struct {
         const views = j.gpa.alloc([]const u8, argv.len) catch return;
         defer j.gpa.free(views);
         for (argv, 0..) |a, i| views[i] = a;
-        var r = proc.run(j.gpa, views, .{ .max_output = j.max_bytes, .kill_after = j.max_bytes * 4, .cwd = Io.Dir.path.dirname(j.path), .cancel = &j.cancelled, .timeout_ms = program_timeout_ms }) catch {
+        var r = proc.run(j.gpa, views, .{
+            .max_output = j.max_bytes,
+            .kill_after = j.max_bytes * 4,
+            .cwd = Io.Dir.path.dirname(j.path),
+            .cancel = &j.cancelled,
+            .timeout_ms = program_timeout_ms,
+        }) catch {
             j.failed = "The previewer could not run";
             return;
         };
@@ -860,7 +1021,8 @@ fn launch(p: *Preview, kind: JobKind, path: []const u8, e: model.Entry) void {
     };
     if (kind == .text) {
         const db = app.mimeDb();
-        const known = db != null and e.mime != mime.unknown and !std.mem.eql(u8, db.?.name(e.mime), "application/octet-stream");
+        const known = db != null and e.mime != mime.unknown and
+            !std.mem.eql(u8, db.?.name(e.mime), "application/octet-stream");
         const label = if (!known) "Binary file" else db.?.cachedComment(e.mime) orelse db.?.name(e.mime);
         j.type_label = gpa.dupe(u8, label) catch &.{};
     }

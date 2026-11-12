@@ -51,7 +51,14 @@ pub fn create(app: *App) !*Portal {
 }
 
 fn method(comptime n: []const u8) siv.DbusMethod {
-    return .{ .name = n.ptr, .name_len = n.len, .in_signature = "osssa{sv}", .in_signature_len = 9, .out_signature = "ua{sv}", .out_signature_len = 6 };
+    return .{
+        .name = n.ptr,
+        .name_len = n.len,
+        .in_signature = "osssa{sv}",
+        .in_signature_len = 9,
+        .out_signature = "ua{sv}",
+        .out_signature_len = 6,
+    };
 }
 
 pub fn destroy(self: *Portal) void {
@@ -59,10 +66,20 @@ pub fn destroy(self: *Portal) void {
     self.app.gpa.destroy(self);
 }
 
-fn onCall(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, args: siv.DbusReader, inv: siv.DbusInvocation) callconv(.c) void {
+fn onCall(
+    ud: ?*anyopaque,
+    info: *const siv.DbusMessageInfo,
+    args: siv.DbusReader,
+    inv: siv.DbusInvocation,
+) callconv(.c) void {
     const self: *Portal = @ptrCast(@alignCast(ud.?));
     const member = bus.infoString(info.member, info.member_len);
-    const kind: Chooser.Kind = if (std.mem.eql(u8, member, "SaveFile")) .save else if (std.mem.eql(u8, member, "SaveFiles")) .save_files else .open;
+    const kind: Chooser.Kind = if (std.mem.eql(u8, member, "SaveFile"))
+        .save
+    else if (std.mem.eql(u8, member, "SaveFiles"))
+        .save_files
+    else
+        .open;
     const ch = Chooser.create(self.app, kind, self.conn, inv) catch {
         _ = c.siv_dbus_invocation_reply_error(inv, "org.freedesktop.DBus.Error.NoMemory", 35, "", 0);
         return;
@@ -87,7 +104,12 @@ fn onCall(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, args: siv.DbusReade
 
 /// The caller (or xdg-desktop-portal) gave up on the request: answered
 /// with 2, after this call returns (ending destroys this object).
-fn onClose(ud: ?*anyopaque, _: *const siv.DbusMessageInfo, _: siv.DbusReader, inv: siv.DbusInvocation) callconv(.c) void {
+fn onClose(
+    ud: ?*anyopaque,
+    _: *const siv.DbusMessageInfo,
+    _: siv.DbusReader,
+    inv: siv.DbusInvocation,
+) callconv(.c) void {
     const ch: *Chooser = @ptrCast(@alignCast(ud.?));
     var reply: siv.DbusMessage = .null;
     if (c.siv_dbus_invocation_new_reply(inv, &reply) == .ok) _ = c.siv_dbus_message_send(reply);

@@ -161,7 +161,10 @@ pub fn firstFrame(ch: *const Chooser, commit_ns: u64) void {
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
     const ms = @as(f64, @floatFromInt(commit_ns -| ch.called_ns)) / std.time.ns_per_ms;
-    print("strider: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n", .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) });
+    print(
+        "strider: file chooser: first frame {d:.1} ms after the call (at {d}.{d:0>9})\n",
+        .{ ms, ts.sec, @as(u64, @intCast(ts.nsec)) },
+    );
 }
 
 // Reading the request ---------------------------------------------------------------------
@@ -332,7 +335,9 @@ fn stripMnemonic(al: Allocator, s: []const u8) []const u8 {
 pub fn windowTitle(ch: *const Chooser) []const u8 {
     if (ch.title.len != 0) return ch.title;
     return switch (ch.kind) {
-        .open => if (ch.directory) (if (ch.multiple) "Choose Folders" else "Choose a Folder") else if (ch.multiple) "Open Files" else "Open a File",
+        .open => if (ch.directory)
+            (if (ch.multiple) "Choose Folders" else "Choose a Folder")
+        else if (ch.multiple) "Open Files" else "Open a File",
         .save => "Save a File",
         .save_files => "Choose a Folder to Save In",
     };
@@ -373,17 +378,29 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
     _ = c.siv_set_semantics(txn, ch.bar, &.{ .role = .group, .label = "File chooser", .label_len = 12 });
     const has_filter = ch.filters.len != 0 and !ch.picksFolders();
     if (has_filter or ch.choices.len != 0) {
-        const opts = c.siv_flex(txn, ch.bar, &.{ .axis = .row, .gap = 10, .line_gap = 6, .align_items = .center, .flags = .{ .wrap = true, .line_gap = true } });
+        const opts = c.siv_flex(txn, ch.bar, &.{
+            .axis = .row,
+            .gap = 10,
+            .line_gap = 6,
+            .align_items = .center,
+            .flags = .{ .wrap = true, .line_gap = true },
+        });
         if (has_filter) {
             ch.filter_combo = c.siv_combo_box(txn, opts, &.{ .label = "Filter", .label_len = 6 });
-            for (ch.filters) |f| _ = c.siv_combo_box_item(txn, ch.filter_combo, &.{ .label = f.name.ptr, .label_len = f.name.len });
+            for (ch.filters) |f| {
+                _ = c.siv_combo_box_item(txn, ch.filter_combo, &.{ .label = f.name.ptr, .label_len = f.name.len });
+            }
             _ = c.siv_widget_set_value(txn, ch.filter_combo, @floatFromInt(ch.filter orelse 0));
             _ = c.siv_on(txn, ch.filter_combo, .change, onFilter, null, ch);
             combo(txn, ch.filter_combo);
         }
         for (ch.choices) |*x| {
             if (x.options.len == 0) {
-                x.node = c.siv_check_box(txn, opts, &.{ .label = x.label.ptr, .label_len = x.label.len, .checked = if (std.mem.eql(u8, x.initial, "true")) .on else .off });
+                x.node = c.siv_check_box(txn, opts, &.{
+                    .label = x.label.ptr,
+                    .label_len = x.label.len,
+                    .checked = if (std.mem.eql(u8, x.initial, "true")) .on else .off,
+                });
                 fixed(txn, x.node);
                 continue;
             }
@@ -405,10 +422,18 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
         fixed(txn, ui.text(txn, row, "Name", .window_fg, .body));
         ch.field = c.siv_editor(txn, row, .{});
         ch.styleField(txn);
-        _ = c.siv_set_semantics(txn, ch.field, &.{ .role = .text_input, .label = "Name", .label_len = 4, .flags = .{ .focusable = true } });
+        _ = c.siv_set_semantics(txn, ch.field, &.{
+            .role = .text_input,
+            .label = "Name",
+            .label_len = 4,
+            .flags = .{ .focusable = true },
+        });
         _ = c.siv_set_text(txn, ch.field, ch.current_name.ptr, ch.current_name.len);
         // The name without its extension selected, ready to type over.
-        const stem = if (std.mem.findScalarLast(u8, ch.current_name, '.')) |dot| (if (dot > 0) dot else ch.current_name.len) else ch.current_name.len;
+        const stem = if (std.mem.findScalarLast(u8, ch.current_name, '.')) |dot|
+            (if (dot > 0) dot else ch.current_name.len)
+        else
+            ch.current_name.len;
         _ = c.siv_set_selection(txn, ch.field, @intCast(stem), 0);
         _ = c.siv_on(txn, ch.field, .key, onNameKey, null, ch);
         _ = c.siv_on(txn, ch.field, .focus, onNameFocus, null, ch);
@@ -418,7 +443,12 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
         fixed(txn, ui.text(txn, row, "Path", .window_fg, .body));
         ch.field = c.siv_editor(txn, row, .{});
         ch.styleField(txn);
-        _ = c.siv_set_semantics(txn, ch.field, &.{ .role = .text_input, .label = "Path", .label_len = 4, .flags = .{ .focusable = true } });
+        _ = c.siv_set_semantics(txn, ch.field, &.{
+            .role = .text_input,
+            .label = "Path",
+            .label_len = 4,
+            .flags = .{ .focusable = true },
+        });
         const h = ch.hint();
         _ = c.siv_set_placeholder(txn, ch.field, h.ptr, h.len);
         _ = c.siv_on(txn, ch.field, .key, onNameKey, null, ch);
@@ -435,9 +465,25 @@ pub fn build(ch: *Chooser, txn: Txn, parent: Node) void {
 
 /// The name or path field: it takes what the row has left.
 fn styleField(ch: *Chooser, txn: Txn) void {
-    _ = c.siv_set_layout(txn, ch.field, &.{ .grow = 1, .shrink = 1, .basis = ui.px(0), .min_width = 60, .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 } });
-    _ = c.siv_set_visual(txn, ch.field, &.{ .background_token = .view_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 }, .flags = .{ .clip = true } });
-    _ = c.siv_set_text_style(txn, ch.field, &.{ .color_token = .view_fg, .size_role = .body, .flags = .{ .no_wrap = true } });
+    _ = c.siv_set_layout(txn, ch.field, &.{
+        .grow = 1,
+        .shrink = 1,
+        .basis = ui.px(0),
+        .min_width = 60,
+        .padding = .{ .start = 6, .end = 6, .top = 4, .bottom = 4 },
+    });
+    _ = c.siv_set_visual(txn, ch.field, &.{
+        .background_token = .view_bg,
+        .border_token = .border,
+        .border_width = 1,
+        .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 },
+        .flags = .{ .clip = true },
+    });
+    _ = c.siv_set_text_style(txn, ch.field, &.{
+        .color_token = .view_fg,
+        .size_role = .body,
+        .flags = .{ .no_wrap = true },
+    });
 }
 
 /// A combo box as wide as its options, up to a limit, narrower when the
@@ -455,10 +501,18 @@ fn fixed(txn: Txn, n: Node) void {
 fn hint(ch: *const Chooser) []const u8 {
     return switch (ch.kind) {
         .open => if (ch.directory)
-            (if (ch.multiple) "Enter chooses the folder under the cursor, or the marked ones · Space marks · l goes in · i types a path · Esc cancels" else "Enter chooses the folder under the cursor · l goes in · i types a path · Esc cancels")
-        else if (ch.multiple) "Enter opens the file, or the marked ones · Space marks · i types a path · Esc cancels" else "Enter opens the file · i types a path · Esc cancels",
+            (if (ch.multiple)
+                "Enter chooses the folder under the cursor, or the marked ones · Space marks · l goes in · " ++
+                    "i types a path · Esc cancels"
+            else
+                "Enter chooses the folder under the cursor · l goes in · i types a path · Esc cancels")
+        else if (ch.multiple)
+            "Enter opens the file, or the marked ones · Space marks · i types a path · Esc cancels"
+        else
+            "Enter opens the file · i types a path · Esc cancels",
         .save => "",
-        .save_files => "Enter chooses the folder under the cursor, else this folder · l goes in · i types a path · Esc cancels",
+        .save_files => "Enter chooses the folder under the cursor, else this folder · l goes in · " ++
+            "i types a path · Esc cancels",
     };
 }
 
@@ -542,7 +596,12 @@ pub fn insert(ch: *Chooser, how: Insert) bool {
         const at: usize = switch (how) {
             .clear, .start => 0,
             .keep, .end => name.len,
-            .stem => if (ch.kind != .save) name.len else if (std.mem.findScalarLast(u8, name, '.')) |dot| (if (dot > 0) dot else name.len) else name.len,
+            .stem => if (ch.kind != .save)
+                name.len
+            else if (std.mem.findScalarLast(u8, name, '.')) |dot|
+                (if (dot > 0) dot else name.len)
+            else
+                name.len,
         };
         if (how == .clear) _ = c.siv_set_text(txn, ch.field, "", 0);
         _ = c.siv_set_selection(txn, ch.field, @intCast(at), @intCast(at));
@@ -623,7 +682,13 @@ fn onCancelButton(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) si
 fn onAcceptButton(ud: ?*anyopaque, _: Node, _: *const siv.Event) callconv(.c) siv.EventResult {
     const ch: *Chooser = @ptrCast(@alignCast(ud.?));
     const w = ch.win orelse return .handled;
-    if (ch.kind == .save) ch.saveAs(ch.nameText()) else if (ch.nameText().len != 0) ch.goPath(ch.nameText()) else ch.open(w);
+    if (ch.kind == .save) {
+        ch.saveAs(ch.nameText());
+    } else if (ch.nameText().len != 0) {
+        ch.goPath(ch.nameText());
+    } else {
+        ch.open(w);
+    }
     return .handled;
 }
 
@@ -768,7 +833,11 @@ pub fn saveAs(ch: *Chooser, name: []const u8) void {
     } else blk: {
         if (d.isDrives()) return w.notify("Save in a folder, not Drives", true);
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return w.notify("Not a name for a file", true);
-        break :blk std.mem.print(&pbuf, "{s}/{s}", .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name }) catch return;
+        break :blk std.mem.print(
+            &pbuf,
+            "{s}/{s}",
+            .{ if (std.mem.eql(u8, d.path, "/")) "" else d.path, name },
+        ) catch return;
     };
     const base = model.basename(p);
     switch (pathKind(p)) {
@@ -909,7 +978,12 @@ fn choiceValue(ch: *const Chooser, x: Choice) []const u8 {
     _ = ch;
     var v: f64 = 0;
     const got = x.node != .null and c.siv_widget_get_value(x.node, &v) == .ok;
-    if (x.options.len == 0) return if (got) (if (v >= 0.5) "true" else "false") else (if (std.mem.eql(u8, x.initial, "true")) "true" else "false");
+    if (x.options.len == 0) {
+        return if (got)
+            (if (v >= 0.5) "true" else "false")
+        else
+            (if (std.mem.eql(u8, x.initial, "true")) "true" else "false");
+    }
     if (!got or v < 0) return x.initial;
     const i: usize = @intFromFloat(v);
     return if (i < x.options.len) x.options[i].id else x.initial;

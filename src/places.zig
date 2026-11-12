@@ -116,7 +116,20 @@ pub fn listDrives(gpa: Allocator, rows: *DriveRows) model.ReadError!model.Listin
 /// A mounted file system's size and the space left to its users.
 fn spaceOf(path: []const u8) ?struct { total: u64, free: u64 } {
     // The kernel's struct statfs on 64-bit Linux.
-    const Statfs = extern struct { type: i64, bsize: i64, blocks: u64, bfree: u64, bavail: u64, files: u64, ffree: u64, fsid: [2]i32, namelen: i64, frsize: i64, flags: i64, spare: [4]i64 };
+    const Statfs = extern struct {
+        type: i64,
+        bsize: i64,
+        blocks: u64,
+        bfree: u64,
+        bavail: u64,
+        files: u64,
+        ffree: u64,
+        fsid: [2]i32,
+        namelen: i64,
+        frsize: i64,
+        flags: i64,
+        spare: [4]i64,
+    };
     comptime assert(@sizeOf(usize) == 8);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
     const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return null;
@@ -173,7 +186,9 @@ pub const Places = struct {
 
     /// The place whose path is `path`, if any.
     pub fn find(p: *const Places, path: []const u8) ?usize {
-        for (p.items.items, 0..) |it, i| if (it.kind != .header and it.path.len != 0 and std.mem.eql(u8, it.path, path)) return i;
+        for (p.items.items, 0..) |it, i| {
+            if (it.kind != .header and it.path.len != 0 and std.mem.eql(u8, it.path, path)) return i;
+        }
         return null;
     }
 
@@ -183,9 +198,11 @@ pub const Places = struct {
         var best: ?usize = null;
         var best_len: usize = 0;
         for (p.items.items, 0..) |it, i| {
-            if (it.kind != .drive and it.kind != .root and !(it.kind == .place and std.mem.eql(u8, it.path, p.home))) continue;
+            if (it.kind != .drive and it.kind != .root and
+                !(it.kind == .place and std.mem.eql(u8, it.path, p.home))) continue;
             if (it.path.len == 0) continue;
-            const within = std.mem.eql(u8, it.path, "/") or (std.mem.startsWith(u8, path, it.path) and (path.len == it.path.len or path[it.path.len] == '/'));
+            const within = std.mem.eql(u8, it.path, "/") or
+                (std.mem.startsWith(u8, path, it.path) and (path.len == it.path.len or path[it.path.len] == '/'));
             if (within and it.path.len >= best_len) {
                 best = i;
                 best_len = it.path.len;
@@ -225,7 +242,8 @@ pub const Places = struct {
         for (wanted) |wd| {
             const key, const label, const icon, const default = wd;
             var pbuf: [linux.PATH_MAX]u8 = undefined;
-            const path = userDir(contents, key, env.home, &pbuf) orelse (std.mem.print(&pbuf, "{s}/{s}", .{ env.home, default }) catch continue);
+            const path = userDir(contents, key, env.home, &pbuf) orelse
+                (std.mem.print(&pbuf, "{s}/{s}", .{ env.home, default }) catch continue);
             // XDG says a user directory equal to $HOME is disabled.
             if (std.mem.eql(u8, path, env.home)) continue;
             if (isDir(path) and !p.has(path)) try p.add(.place, label, path, icon);
@@ -394,7 +412,12 @@ fn writeFile(path: []const u8, data: []const u8) !void {
     const tmp = try std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
     const z = try std.mem.printSentinel(&zbuf, "{s}", .{path}, 0);
-    const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
+    const rc = linux.openat(linux.AT.FDCWD, tmp, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+        .CLOEXEC = true,
+    }, 0o644);
     if (linux.errno(rc) != .SUCCESS) return error.AccessDenied;
     const fd: i32 = @intCast(rc);
     _ = linux.write(fd, data.ptr, data.len);

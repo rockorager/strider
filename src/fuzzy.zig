@@ -109,7 +109,8 @@ fn scoreWord(text: []const u8, word: []const u8, exact: bool, pos: *std.ArrayLis
             }
         }
     }
-    const base_at = if (std.mem.findScalarLast(u8, text[0 .. text.len - @intFromBool(text.len > 0 and text[text.len - 1] == '/')], '/')) |s| s + 1 else 0;
+    const without_slash = text[0 .. text.len - @intFromBool(text.len > 0 and text[text.len - 1] == '/')];
+    const base_at = if (std.mem.findScalarLast(u8, without_slash, '/')) |s| s + 1 else 0;
     var total: i32 = 0;
     var prev: ?usize = null;
     var record = gpa;
@@ -119,7 +120,11 @@ fn scoreWord(text: []const u8, word: []const u8, exact: bool, pos: *std.ArrayLis
         if (!eq(text[t], word[w], exact)) continue;
         total += score_match + boundaryBonus(text, t);
         if (prev) |p| {
-            if (p + 1 == t) total += bonus_run else total -= penalty_gap_start + penalty_gap * @as(i32, @intCast(@min(t - p - 2, 20)));
+            if (p + 1 == t) {
+                total += bonus_run;
+            } else {
+                total -= penalty_gap_start + penalty_gap * @as(i32, @intCast(@min(t - p - 2, 20)));
+            }
         }
         if (record) |a| if (pos.items.len < max_positions) pos.append(a, @intCast(t)) catch {
             // Out of memory: the score stands; only the highlight stops here.
@@ -142,7 +147,9 @@ pub fn score(text: []const u8, query: []const u8, pos: ?*std.ArrayList(u16), gpa
     const out = pos orelse &dummy;
     var total: i32 = 0;
     var it = std.mem.tokenizeScalar(u8, query, ' ');
-    while (it.next()) |word| total += scoreWord(text, word, exact, out, if (pos != null) gpa else null) orelse return null;
+    while (it.next()) |word| {
+        total += scoreWord(text, word, exact, out, if (pos != null) gpa else null) orelse return null;
+    }
     return total;
 }
 
@@ -151,12 +158,26 @@ pub const Match = struct { index: u32, score: i32 };
 /// Scores `candidates` (all of `paths`, or the indices given, which must
 /// not be `out`'s) against `query` into `out`, best first; shorter paths win ties, then earlier
 /// ones (the walk is breadth first, so shallower ones).
-pub fn filter(gpa: Allocator, paths: *const Paths, candidates: ?[]const Match, query: []const u8, out: *std.ArrayList(Match)) !void {
+pub fn filter(
+    gpa: Allocator,
+    paths: *const Paths,
+    candidates: ?[]const Match,
+    query: []const u8,
+    out: *std.ArrayList(Match),
+) !void {
     out.clearRetainingCapacity();
     if (candidates) |cs| {
-        for (cs) |m| if (score(paths.get(m.index), query, null, null)) |s| try out.append(gpa, .{ .index = m.index, .score = s });
+        for (cs) |m| {
+            if (score(paths.get(m.index), query, null, null)) |s| {
+                try out.append(gpa, .{ .index = m.index, .score = s });
+            }
+        }
     } else {
-        for (0..paths.len()) |i| if (score(paths.get(i), query, null, null)) |s| try out.append(gpa, .{ .index = @intCast(i), .score = s });
+        for (0..paths.len()) |i| {
+            if (score(paths.get(i), query, null, null)) |s| {
+                try out.append(gpa, .{ .index = @intCast(i), .score = s });
+            }
+        }
     }
     if (query.len == 0) return; // as listed
     const Ctx = struct {
@@ -204,7 +225,11 @@ pub const Walk = struct {
             const rel = queue.items[head];
             var pb: [linux.PATH_MAX]u8 = undefined;
             const abs = std.mem.printSentinel(&pb, "{s}/{s}", .{ w.root, rel }, 0) catch continue;
-            const rc = linux.openat(linux.AT.FDCWD, abs, .{ .ACCMODE = .RDONLY, .DIRECTORY = true, .CLOEXEC = true }, 0);
+            const rc = linux.openat(linux.AT.FDCWD, abs, .{
+                .ACCMODE = .RDONLY,
+                .DIRECTORY = true,
+                .CLOEXEC = true,
+            }, 0);
             if (linux.errno(rc) != .SUCCESS) continue;
             const fd: i32 = @intCast(rc);
             defer _ = linux.close(fd);
@@ -225,7 +250,8 @@ pub const Walk = struct {
                         var st: linux.Statx = undefined;
                         var zb: [256]u8 = undefined;
                         const z = std.mem.printSentinel(&zb, "{s}", .{name}, 0) catch continue;
-                        if (linux.errno(linux.statx(fd, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS)
+                        const stat_rc = linux.statx(fd, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st);
+                        if (linux.errno(stat_rc) == .SUCCESS)
                             dir = st.mode & linux.S.IFMT == linux.S.IFDIR;
                     }
                     var rb: [linux.PATH_MAX]u8 = undefined;
@@ -306,7 +332,15 @@ test "filter ranks, breaks ties by length, and narrows a previous result" {
     const gpa = testing.allocator;
     var paths: Paths = .empty;
     defer paths.deinit(gpa);
-    for ([_][]const u8{ "docs/", "src/", "src/util/", "src/main.zig", "src/util/strings.zig", "docs/manual.md", "README.md" }) |p| try paths.append(gpa, p);
+    for ([_][]const u8{
+        "docs/",
+        "src/",
+        "src/util/",
+        "src/main.zig",
+        "src/util/strings.zig",
+        "docs/manual.md",
+        "README.md",
+    }) |p| try paths.append(gpa, p);
     var out: std.ArrayList(Match) = .empty;
     defer out.deinit(gpa);
     try filter(gpa, &paths, null, "", &out);
@@ -334,7 +368,13 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
     const S = struct {
         extern "c" fn system(c: [*:0]const u8) c_int;
     };
-    _ = S.system((try std.mem.printSentinel(&cmd, "rm -rf {s} && mkdir -p {s}/a/b {s}/.git/objects {s}/.hidden && touch {s}/top {s}/a/mid {s}/a/b/deep {s}/.git/HEAD {s}/.hidden/x {s}/.dotfile", .{ root, root, root, root, root, root, root, root, root, root }, 0)).ptr);
+    _ = S.system((try std.mem.printSentinel(
+        &cmd,
+        "rm -rf {s} && mkdir -p {s}/a/b {s}/.git/objects {s}/.hidden && " ++
+            "touch {s}/top {s}/a/mid {s}/a/b/deep {s}/.git/HEAD {s}/.hidden/x {s}/.dotfile",
+        .{ root, root, root, root, root, root, root, root, root, root },
+        0,
+    )).ptr);
     defer _ = S.system((std.mem.printSentinel(&cmd, "rm -rf {s}", .{root}, 0) catch unreachable).ptr);
     const Sink = struct {
         all: Paths = .empty,
@@ -383,7 +423,9 @@ test "walks breadth first, skipping .git and hidden entries, in batches" {
         while (depth_start < names.items.len) {
             const d = std.mem.count(u8, std.mem.trimEnd(u8, names.items[depth_start], "/"), "/");
             var e = depth_start;
-            while (e < names.items.len and std.mem.count(u8, std.mem.trimEnd(u8, names.items[e], "/"), "/") == d) e += 1;
+            while (e < names.items.len and std.mem.count(u8, std.mem.trimEnd(u8, names.items[e], "/"), "/") == d) {
+                e += 1;
+            }
             std.sort.pdq([]const u8, names.items[depth_start..e], {}, struct {
                 fn lt(_: void, a: []const u8, b: []const u8) bool {
                     return std.mem.lessThan(u8, a, b);

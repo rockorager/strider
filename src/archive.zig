@@ -26,8 +26,48 @@ pub const Listing = struct {
 
 pub const Kind = enum { zip, tar, tar_gz, other };
 
-const zip_exts = [_][]const u8{ ".zip", ".jar", ".apk", ".epub", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".whl", ".xpi", ".cbz", ".vsix", ".aar" };
-const other_exts = [_][]const u8{ ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz", ".7z", ".rar", ".cbr", ".iso", ".xz", ".bz2", ".zst", ".lz", ".lzma", ".cpio", ".deb", ".rpm", ".cab", ".pkg.tar.zst", ".tar.lz", ".tar.lzma" };
+const zip_exts = [_][]const u8{
+    ".zip",
+    ".jar",
+    ".apk",
+    ".epub",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".odt",
+    ".ods",
+    ".odp",
+    ".whl",
+    ".xpi",
+    ".cbz",
+    ".vsix",
+    ".aar",
+};
+const other_exts = [_][]const u8{
+    ".tar.xz",
+    ".txz",
+    ".tar.zst",
+    ".tzst",
+    ".tar.bz2",
+    ".tbz2",
+    ".tbz",
+    ".7z",
+    ".rar",
+    ".cbr",
+    ".iso",
+    ".xz",
+    ".bz2",
+    ".zst",
+    ".lz",
+    ".lzma",
+    ".cpio",
+    ".deb",
+    ".rpm",
+    ".cab",
+    ".pkg.tar.zst",
+    ".tar.lz",
+    ".tar.lzma",
+};
 
 /// The kind of archive a file name says, if any.
 pub fn kindOf(name: []const u8) ?Kind {
@@ -131,7 +171,14 @@ fn listZip(a: Allocator, path: []const u8, out: *std.ArrayList(Entry), limit: us
 /// Reads at most this much of a tarball to list it.
 const max_tar_read = 64 << 20;
 
-fn listTarFile(a: Allocator, path: []const u8, out: *std.ArrayList(Entry), limit: usize, truncated: *bool, gz: bool) !void {
+fn listTarFile(
+    a: Allocator,
+    path: []const u8,
+    out: *std.ArrayList(Entry),
+    limit: usize,
+    truncated: *bool,
+    gz: bool,
+) !void {
     const fd = try openFile(path);
     defer _ = linux.close(fd);
     const size = fileSize(fd);
@@ -233,7 +280,14 @@ fn walkTar(a: Allocator, r: *Io.Reader, out: *std.ArrayList(Entry), limit: usize
     }
 }
 
-fn listBsdtar(a: Allocator, gpa: Allocator, path: []const u8, out: *std.ArrayList(Entry), limit: usize, truncated: *bool) !void {
+fn listBsdtar(
+    a: Allocator,
+    gpa: Allocator,
+    path: []const u8,
+    out: *std.ArrayList(Entry),
+    limit: usize,
+    truncated: *bool,
+) !void {
     if (!proc.onPath("bsdtar")) return error.Unsupported;
     var r = try proc.run(gpa, &.{ "bsdtar", "-tf", path }, .{ .max_output = 1 << 20, .kill_after = 4 << 20 });
     defer r.deinit(gpa);
@@ -281,7 +335,10 @@ test "lists a zip and a tarball made by the system's tools" {
         var rm = proc.run(testing.allocator, &.{ "rm", "-rf", "/tmp/strider-archive-test" }, .{}) catch unreachable;
         rm.deinit(testing.allocator);
     }
-    for ([_]struct { []const u8, Kind }{ .{ "/tmp/strider-archive-test/t.tar.gz", .tar_gz }, .{ "/tmp/strider-archive-test/t.tar", .tar } }) |t| {
+    for ([_]struct { []const u8, Kind }{
+        .{ "/tmp/strider-archive-test/t.tar.gz", .tar_gz },
+        .{ "/tmp/strider-archive-test/t.tar", .tar },
+    }) |t| {
         var l = try list(testing.allocator, t[0], t[1], 100);
         defer l.deinit();
         var found_a = false;

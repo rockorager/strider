@@ -22,7 +22,10 @@ pub fn main(init: std.process.Init) !void {
     const cwd_len = std.os.linux.getcwd(&cwd_buf, cwd_buf.len);
     const cwd = if (std.os.linux.errno(cwd_len) == .SUCCESS) std.mem.sliceTo(&cwd_buf, 0) else "/";
     const trimmed = std.mem.trimEnd(u8, prefix, "/");
-    const abs = if (std.mem.startsWith(u8, trimmed, "/")) trimmed else try arena.print("{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
+    const abs = if (std.mem.startsWith(u8, trimmed, "/"))
+        trimmed
+    else
+        try arena.print("{s}/{s}", .{ cwd, std.mem.trimStart(u8, trimmed, "./") });
     const bin = try arena.print("{s}/bin/strider", .{abs});
     const files = [_]struct { []const u8, []const u8 }{
         .{

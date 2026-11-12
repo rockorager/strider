@@ -211,8 +211,26 @@ pub fn parseSortKey(t: []const u8) ?model.SortKey {
 }
 
 /// Options fields that are booleans and numbers under their own names.
-const bool_fields = .{ "icons", "fit_parent", "preview", "preview_images", "syntax", "wrap_scan", "find_auto_accept", "confirm_delete", "show_size", "editor_in_terminal" };
-const number_fields = .{ "narrow_width", "preview_max_bytes", "preview_max_image_bytes", "which_key_delay", "scroll_off", "stale_ms" };
+const bool_fields = .{
+    "icons",
+    "fit_parent",
+    "preview",
+    "preview_images",
+    "syntax",
+    "wrap_scan",
+    "find_auto_accept",
+    "confirm_delete",
+    "show_size",
+    "editor_in_terminal",
+};
+const number_fields = .{
+    "narrow_width",
+    "preview_max_bytes",
+    "preview_max_image_bytes",
+    "which_key_delay",
+    "scroll_off",
+    "stale_ms",
+};
 
 pub fn getBool(o: *const Options, name: []const u8) ?bool {
     if (std.mem.eql(u8, name, "hidden")) return o.show_hidden;

@@ -78,7 +78,9 @@ pub const Db = struct {
         for (types.ancestry(type_id, &buf)) |t| {
             const nm = types.name(t);
             if (db.added.get(nm)) |ids| for (ids) |id| if (db.get(id)) |app| try appendUnique(gpa, &out, app);
-            for (db.apps.items) |*app| if (app.shown and handles(app, nm) and !db.isRemoved(nm, app.id)) try appendUnique(gpa, &out, app);
+            for (db.apps.items) |*app| {
+                if (app.shown and handles(app, nm) and !db.isRemoved(nm, app.id)) try appendUnique(gpa, &out, app);
+            }
         }
         return out.toOwnedSlice(gpa);
     }
@@ -120,7 +122,10 @@ pub const Db = struct {
                     wrote = true;
                 }
                 section = line;
-            } else if (std.mem.eql(u8, section, "[Default Applications]") and std.mem.startsWith(u8, line, type_name) and line.len > type_name.len and line[type_name.len] == '=') {
+            } else if (std.mem.eql(u8, section, "[Default Applications]") and
+                std.mem.startsWith(u8, line, type_name) and
+                line.len > type_name.len and line[type_name.len] == '=')
+            {
                 continue;
             }
             if (line.len == 0 and it.peek() == null) break;
@@ -128,7 +133,9 @@ pub const Db = struct {
             try out.append(gpa, '\n');
         }
         if (!wrote) {
-            if (!std.mem.eql(u8, section, "[Default Applications]")) try out.appendSlice(gpa, "[Default Applications]\n");
+            if (!std.mem.eql(u8, section, "[Default Applications]")) {
+                try out.appendSlice(gpa, "[Default Applications]\n");
+            }
             try out.print(gpa, "{s}={s};\n", .{ type_name, app_id });
         }
         try writeAll(db.user_list, out.items);
@@ -259,7 +266,16 @@ fn scanApps(db: *Db, gpa: Allocator, dir: []const u8, prefix: []const u8) !void 
 /// Parses a desktop entry; null for entries that are not applications or
 /// are hidden.
 pub fn parseEntry(arena: Allocator, data: []const u8) !?App {
-    var app: App = .{ .id = "", .name = "", .exec = "", .icon = "", .path = "", .terminal = false, .shown = true, .mime_types = &.{} };
+    var app: App = .{
+        .id = "",
+        .name = "",
+        .exec = "",
+        .icon = "",
+        .path = "",
+        .terminal = false,
+        .shown = true,
+        .mime_types = &.{},
+    };
     var in_entry = false;
     var is_app = false;
     var it = std.mem.splitScalar(u8, data, '\n');
@@ -333,7 +349,14 @@ fn readMimeApps(db: *Db, gpa: Allocator, path: []const u8) !void {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0 or line[0] == '#') continue;
         if (line[0] == '[') {
-            section = if (std.mem.eql(u8, line, "[Default Applications]")) .defaults else if (std.mem.eql(u8, line, "[Added Associations]")) .added else if (std.mem.eql(u8, line, "[Removed Associations]")) .removed else .none;
+            section = if (std.mem.eql(u8, line, "[Default Applications]"))
+                .defaults
+            else if (std.mem.eql(u8, line, "[Added Associations]"))
+                .added
+            else if (std.mem.eql(u8, line, "[Removed Associations]"))
+                .removed
+            else
+                .none;
             continue;
         }
         const eq = std.mem.findScalar(u8, line, '=') orelse continue;
@@ -376,7 +399,12 @@ fn writeAll(path: []const u8, data: []const u8) !void {
     const tmp = try std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0);
     var zbuf: [linux.PATH_MAX]u8 = undefined;
     const z = try std.mem.printSentinel(&zbuf, "{s}", .{path}, 0);
-    const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
+    const rc = linux.openat(linux.AT.FDCWD, tmp, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+        .CLOEXEC = true,
+    }, 0o644);
     if (linux.errno(rc) != .SUCCESS) return error.AccessDenied;
     const fd: i32 = @intCast(rc);
     var off: usize = 0;
@@ -491,7 +519,8 @@ pub fn terminalAlone(arena: Allocator, option: []const u8) ![]const []const u8 {
     if (given.len != 0) {
         for (try splitExec(arena, given)) |x| {
             // What follows is the command it would run.
-            if (std.mem.eql(u8, x, "--") or std.mem.eql(u8, x, "-e") or std.mem.eql(u8, x, "-x") or std.mem.eql(u8, x, "start")) break;
+            if (std.mem.eql(u8, x, "--") or std.mem.eql(u8, x, "-e") or
+                std.mem.eql(u8, x, "-x") or std.mem.eql(u8, x, "start")) break;
             try out.append(arena, try arena.dupe(u8, x));
         }
         if (out.items.len != 0) return out.items;
@@ -606,7 +635,11 @@ fn fileUri(arena: Allocator, path: []const u8) ![]const u8 {
 
 extern "c" fn fork() c_int;
 extern "c" fn setsid() c_int;
-extern "c" fn execvpe(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
+extern "c" fn execvpe(
+    file: [*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+) c_int;
 extern "c" fn _exit(code: c_int) noreturn;
 extern "c" fn waitpid(pid: c_int, status: ?*c_int, options: c_int) c_int;
 extern "c" fn chdir(path: [*:0]const u8) c_int;
@@ -627,7 +660,8 @@ pub fn spawn(gpa: Allocator, argv: []const []const u8, cwd: []const u8, token: [
     var i: usize = 0;
     while (environ[i]) |e| : (i += 1) {
         const s = std.mem.span(e);
-        if (std.mem.startsWith(u8, s, "XDG_ACTIVATION_TOKEN=") or std.mem.startsWith(u8, s, "DESKTOP_STARTUP_ID=")) continue;
+        if (std.mem.startsWith(u8, s, "XDG_ACTIVATION_TOKEN=") or
+            std.mem.startsWith(u8, s, "DESKTOP_STARTUP_ID=")) continue;
         try env.append(arena, e);
     }
     if (token.len != 0) {
@@ -661,11 +695,29 @@ test "exec lines" {
     try testing.expectEqual(@as(usize, 5), args.len);
     try testing.expectEqualStrings("A B", args[1]);
     try testing.expectEqualStrings("--flag=x\"y", args[3]);
-    const app: App = .{ .id = "x.desktop", .name = "X", .exec = "x --new %f", .icon = "x", .path = "/a/x.desktop", .terminal = false, .shown = true, .mime_types = &.{} };
+    const app: App = .{
+        .id = "x.desktop",
+        .name = "X",
+        .exec = "x --new %f",
+        .icon = "x",
+        .path = "/a/x.desktop",
+        .terminal = false,
+        .shown = true,
+        .mime_types = &.{},
+    };
     const lines = try commandLines(a, &app, &.{ "/a b", "/c" });
     try testing.expectEqual(@as(usize, 2), lines.len);
     try testing.expectEqualStrings("/a b", lines[0][2]);
-    const app2: App = .{ .id = "y.desktop", .name = "Y", .exec = "y %U %i", .icon = "yi", .path = "", .terminal = false, .shown = true, .mime_types = &.{} };
+    const app2: App = .{
+        .id = "y.desktop",
+        .name = "Y",
+        .exec = "y %U %i",
+        .icon = "yi",
+        .path = "",
+        .terminal = false,
+        .shown = true,
+        .mime_types = &.{},
+    };
     const l2 = try commandLines(a, &app2, &.{ "/a b", "/c" });
     try testing.expectEqual(@as(usize, 1), l2.len);
     try testing.expectEqualStrings("file:///a%20b", l2[0][1]);
@@ -677,7 +729,17 @@ test "exec lines" {
 test "desktop entries" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
-    const e = (try parseEntry(arena.allocator(), "[Desktop Entry]\nType=Application\nName=Text Editor\nName[de]=Texteditor\nExec=te %F\nMimeType=text/plain;text/x-csrc;\n[Desktop Action new]\nExec=other\n")).?;
+    const e = (try parseEntry(arena.allocator(),
+        \\[Desktop Entry]
+        \\Type=Application
+        \\Name=Text Editor
+        \\Name[de]=Texteditor
+        \\Exec=te %F
+        \\MimeType=text/plain;text/x-csrc;
+        \\[Desktop Action new]
+        \\Exec=other
+        \\
+    )).?;
     try testing.expectEqualStrings("Text Editor", e.name);
     try testing.expectEqualStrings("te %F", e.exec);
     try testing.expectEqual(@as(usize, 2), e.mime_types.len);

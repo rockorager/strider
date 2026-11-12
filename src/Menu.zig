@@ -83,11 +83,21 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
         if (mp.len != 0) list.appendSlice(a, &.{
             .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
             .{ .label = "Open in a new tab", .command = a.print("tab-new {s}", .{mp}) catch return },
-            .{ .label = "Open terminal here", .command = a.print("terminal {s}", .{mp}) catch return, .icon = "utilities-terminal-symbolic" },
-        }) catch return else list.append(a, .{ .label = "Mount", .command = "enter", .icon = "folder-open-symbolic" }) catch return;
+            .{
+                .label = "Open terminal here",
+                .command = a.print("terminal {s}", .{mp}) catch return,
+                .icon = "utilities-terminal-symbolic",
+            },
+        }) catch return else list.append(a, .{
+            .label = "Mount",
+            .command = "enter",
+            .icon = "folder-open-symbolic",
+        }) catch return;
         if (row.drive.can_unmount or row.drive.can_eject) list.append(a, sep) catch return;
         if (row.drive.can_unmount) list.append(a, .{ .label = "Unmount", .command = "unmount" }) catch return;
-        if (row.drive.can_eject) list.append(a, .{ .label = "Eject", .command = "eject", .icon = "media-eject-symbolic" }) catch return;
+        if (row.drive.can_eject) {
+            list.append(a, .{ .label = "Eject", .command = "eject", .icon = "media-eject-symbolic" }) catch return;
+        }
     } else if (d.isDrives()) {
         list.append(a, .{ .label = "Reload", .command = "reload", .icon = "view-refresh-symbolic" }) catch return;
     } else switch (ctx) {
@@ -102,7 +112,11 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
                 list.appendSlice(a, &.{
                     .{ .label = "Open", .command = "enter", .icon = "folder-open-symbolic" },
                     .{ .label = "Open in a new tab", .command = a.print("tab-new {s}", .{paths[0]}) catch return },
-                    .{ .label = "Open terminal here", .command = a.print("terminal {s}", .{paths[0]}) catch return, .icon = "utilities-terminal-symbolic" },
+                    .{
+                        .label = "Open terminal here",
+                        .command = a.print("terminal {s}", .{paths[0]}) catch return,
+                        .icon = "utilities-terminal-symbolic",
+                    },
                     .{ .label = "Open with…", .command = "open-with" },
                 }) catch return;
             } else list.appendSlice(a, &.{
@@ -116,13 +130,20 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
                 .{ .label = "Paste here", .command = "paste", .disabled = !paste_ok, .icon = "edit-paste-symbolic" },
                 .{ .label = if (one) "Copy the path" else "Copy the paths", .command = "yank-path" },
                 sep,
-                if (one) .{ .label = "Rename…", .command = "rename" } else .{ .label = "Rename in the editor…", .command = "bulk-rename" },
+                if (one)
+                    .{ .label = "Rename…", .command = "rename" }
+                else
+                    .{ .label = "Rename in the editor…", .command = "bulk-rename" },
                 .{ .label = "Properties…", .command = "properties", .icon = "document-properties-symbolic" },
                 sep,
             }) catch return;
             if (d.isTrash()) {
                 list.append(a, .{ .label = "Restore", .command = "restore" }) catch return;
-            } else list.append(a, .{ .label = "Move to the trash", .command = "trash", .icon = "user-trash-symbolic" }) catch return;
+            } else list.append(a, .{
+                .label = "Move to the trash",
+                .command = "trash",
+                .icon = "user-trash-symbolic",
+            }) catch return;
             list.appendSlice(a, &.{
                 .{ .label = "Delete permanently…", .command = "delete", .icon = "edit-delete-symbolic" },
                 sep,
@@ -164,7 +185,9 @@ pub fn open(m: *Menu, ctx: Context, anchor: Node, x: f32, y: f32) void {
     // init.lua's commands.
     if (app.lua) |l| if (l.user_commands.items.len != 0) {
         var more: std.ArrayList(Entry) = .empty;
-        for (l.user_commands.items) |u| more.append(a, .{ .label = if (u.desc.len != 0) u.desc else u.name, .command = u.name }) catch return;
+        for (l.user_commands.items) |u| {
+            more.append(a, .{ .label = if (u.desc.len != 0) u.desc else u.name, .command = u.name }) catch return;
+        }
         list.appendSlice(a, &.{ sep, .{ .label = "From init.lua", .sub = more.items } }) catch return;
     };
 
@@ -205,7 +228,11 @@ fn fill(m: *Menu, txn: siv.Txn, menu: Node, entries: []const Entry) !void {
             .icon = e.icon.ptr,
             .icon_len = e.icon.len,
             .submenu = sub,
-            .flags = .{ .disabled = e.disabled, .checkable = e.checked != null and !e.checked.?, .checked = e.checked orelse false },
+            .flags = .{
+                .disabled = e.disabled,
+                .checkable = e.checked != null and !e.checked.?,
+                .checked = e.checked orelse false,
+            },
         });
         try m.items.append(gpa, .{ .menu = menu, .command = if (sub == .null) try gpa.dupe(u8, e.command) else null });
     }

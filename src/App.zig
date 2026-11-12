@@ -201,7 +201,11 @@ pub fn create(sapp: siv.App, opts: Options) !*App {
     errdefer gpa.destroy(self);
     const home = try gpa.dupe(u8, opts.home);
     errdefer gpa.free(home);
-    var places = try places_mod.load(gpa, .{ .home = opts.home, .config_home = opts.config_home, .data_home = opts.data_home });
+    var places = try places_mod.load(gpa, .{
+        .home = opts.home,
+        .config_home = opts.config_home,
+        .data_home = opts.data_home,
+    });
     errdefer places.deinit();
     self.* = .{
         .gpa = gpa,
@@ -500,7 +504,11 @@ const AppsLoad = struct {
     fn work(ud: ?*anyopaque) callconv(.c) void {
         const l: *AppsLoad = @ptrCast(@alignCast(ud.?));
         _ = l.app.loadMimeDb();
-        l.db = apps.load(l.app.gpa, .{ .data = l.app.opts.data_dirs, .config = l.app.opts.config_dirs, .desktops = l.app.opts.desktops }) catch null;
+        l.db = apps.load(l.app.gpa, .{
+            .data = l.app.opts.data_dirs,
+            .config = l.app.opts.config_dirs,
+            .desktops = l.app.opts.desktops,
+        }) catch null;
     }
 
     fn done(ud: ?*anyopaque) callconv(.c) void {
@@ -538,7 +546,9 @@ pub fn loadApps(self: *App) void {
     const l = self.gpa.create(AppsLoad) catch return;
     l.* = .{ .app = self };
     self.apps_loading = true;
-    if (c.siv_job_start(self.app, .{}, AppsLoad.work, AppsLoad.done, AppsLoad.destroy, l) != .ok) self.apps_loading = false;
+    if (c.siv_job_start(self.app, .{}, AppsLoad.work, AppsLoad.done, AppsLoad.destroy, l) != .ok) {
+        self.apps_loading = false;
+    }
 }
 
 /// Queues an open until the application database is loaded; true if it
@@ -620,7 +630,10 @@ const Launch = struct {
         for (l.lines) |argv| apps.spawn(l.app.gpa, argv, l.cwd, token) catch {
             if (l.app.lastWindow()) |w| {
                 var buf: [256]u8 = undefined;
-                w.notify(std.mem.print(&buf, "Could not start {s}", .{l.name}) catch "Could not start the application", true);
+                w.notify(
+                    std.mem.print(&buf, "Could not start {s}", .{l.name}) catch "Could not start the application",
+                    true,
+                );
             }
         };
     }
@@ -700,7 +713,11 @@ pub fn refreshMountDrives(self: *App) void {
 
 /// New drives (from UDisks2 or the mount table).
 pub fn setDrives(self: *App, drives: []const places_mod.Drive) void {
-    self.places.rebuild(.{ .home = self.opts.home, .config_home = self.opts.config_home, .data_home = self.opts.data_home }, drives) catch return;
+    self.places.rebuild(.{
+        .home = self.opts.home,
+        .config_home = self.opts.config_home,
+        .data_home = self.opts.data_home,
+    }, drives) catch return;
     self.cache.drives = self.places.drives.items;
     self.cache.invalidate(model.drives_path);
     for (self.windows.items) |w| w.drivesChanged();
@@ -774,7 +791,10 @@ const ProgramJob = struct {
 
     fn work(ud: ?*anyopaque) callconv(.c) void {
         const j: *ProgramJob = @ptrCast(@alignCast(ud.?));
-        const r = proc.run(j.gpa, @ptrCast(j.argv.items), .{ .max_output = 1 << 20, .timeout_ms = 10_000 }) catch return;
+        const r = proc.run(j.gpa, @ptrCast(j.argv.items), .{
+            .max_output = 1 << 20,
+            .timeout_ms = 10_000,
+        }) catch return;
         j.status = r.status;
         j.output = r.output;
     }
@@ -897,7 +917,12 @@ fn loadBookmarks(self: *App) void {
         const ok = if (k) |x| line.len > x.len + 1 and line[x.len] == ':' and line[x.len + 1] == '/' else false;
         if (!ok) {
             var mb: [160]u8 = undefined;
-            self.logMessage(std.mem.print(&mb, "Skipped line {d} of the bookmarks file: not a key, a colon, and an absolute path", .{n}) catch "Skipped a line of the bookmarks file", true);
+            const msg = std.mem.print(
+                &mb,
+                "Skipped line {d} of the bookmarks file: not a key, a colon, and an absolute path",
+                .{n},
+            ) catch "Skipped a line of the bookmarks file";
+            self.logMessage(msg, true);
             continue;
         }
         const key = k.?.cp;
@@ -1020,7 +1045,12 @@ fn writeAll(dir: []const u8, path: []const u8, data: []const u8) void {
     }
     var tbuf: [linux.PATH_MAX]u8 = undefined;
     const tmp = std.mem.printSentinel(&tbuf, "{s}.tmp", .{path}, 0) catch return;
-    const rc = linux.openat(linux.AT.FDCWD, tmp, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o600);
+    const rc = linux.openat(linux.AT.FDCWD, tmp, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+        .CLOEXEC = true,
+    }, 0o600);
     if (linux.errno(rc) != .SUCCESS) return;
     const fd: i32 = @intCast(rc);
     var off: usize = 0;
@@ -1118,13 +1148,33 @@ pub const OpEntry = struct {
 
 /// Runs a file operation on the worker pool, with progress in every
 /// window's status line.
-pub fn startOp(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const []const u8, dest: []const u8, targets: []const []const u8, undoable: bool) void {
+pub fn startOp(
+    self: *App,
+    win: ?*Window,
+    kind: fsops.Kind,
+    sources: []const []const u8,
+    dest: []const u8,
+    targets: []const []const u8,
+    undoable: bool,
+) void {
     self.startOpWith(win, kind, sources, dest, targets, undoable, .none);
 }
 
-pub fn startOpWith(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const []const u8, dest: []const u8, targets: []const []const u8, undoable: bool, policy: fsops.Resolution) void {
+pub fn startOpWith(
+    self: *App,
+    win: ?*Window,
+    kind: fsops.Kind,
+    sources: []const []const u8,
+    dest: []const u8,
+    targets: []const []const u8,
+    undoable: bool,
+    policy: fsops.Resolution,
+) void {
     const gpa = self.gpa;
-    const op = (if (targets.len != 0) fsops.Op.createTargeted(gpa, kind, sources, targets) else fsops.Op.create(gpa, kind, sources, dest)) catch return;
+    const op = (if (targets.len != 0)
+        fsops.Op.createTargeted(gpa, kind, sources, targets)
+    else
+        fsops.Op.create(gpa, kind, sources, dest)) catch return;
     op.home_trash = gpa.dupe(u8, self.places.trash_dir) catch &.{};
     op.policy = policy;
     self.launchOp(win, op, undoable);
@@ -1132,7 +1182,16 @@ pub fn startOpWith(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const
 
 /// chmod (`spec`, as chmod(1) takes it) or chown (`uid` and `gid`) on
 /// `sources`, into folders when `recursive`.
-pub fn startAttrOp(self: *App, win: ?*Window, kind: fsops.Kind, sources: []const []const u8, spec: []const u8, uid: ?u32, gid: ?u32, recursive: bool) void {
+pub fn startAttrOp(
+    self: *App,
+    win: ?*Window,
+    kind: fsops.Kind,
+    sources: []const []const u8,
+    spec: []const u8,
+    uid: ?u32,
+    gid: ?u32,
+    recursive: bool,
+) void {
     const gpa = self.gpa;
     const op = fsops.Op.create(gpa, kind, sources, "") catch return;
     op.mode_spec = gpa.dupe(u8, spec) catch {
@@ -1249,7 +1308,12 @@ pub fn renameOne(self: *App, win: *Window, old_path: []const u8, new_name: []con
     }
     fsops.renamePath(old_path, new_path) catch |err| {
         var mbuf: [512]u8 = undefined;
-        win.notify(std.mem.print(&mbuf, "Could not rename “{s}”: {s}", .{ model.basename(old_path), fsops.describe(err) }) catch "Could not rename", true);
+        const msg = std.mem.print(
+            &mbuf,
+            "Could not rename “{s}”: {s}",
+            .{ model.basename(old_path), fsops.describe(err) },
+        ) catch "Could not rename";
+        win.notify(msg, true);
         return false;
     };
     self.undo.pushRenames(&.{.{ old_path, new_path }});
@@ -1285,7 +1349,11 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
     for (pairs, 0..) |p, i| {
         if (std.mem.eql(u8, p[0], p[1])) continue;
         var tb: [linux.PATH_MAX]u8 = undefined;
-        const tmp = std.mem.print(&tb, "{s}/." ++ program ++ "-rename-{d}-{d}", .{ model.parent(p[0]), linux.getpid(), i }) catch continue;
+        const tmp = std.mem.print(
+            &tb,
+            "{s}/." ++ program ++ "-rename-{d}-{d}",
+            .{ model.parent(p[0]), linux.getpid(), i },
+        ) catch continue;
         const owned = self.gpa.dupe(u8, tmp) catch {
             failed += 1;
             continue;
@@ -1333,7 +1401,10 @@ pub fn renameMany(self: *App, win: *Window, pairs: []const [2][]const u8) usize 
         const msg = "{d} items are left under temporary names; :messages says where";
         win.notify(std.mem.print(&buf, msg, .{stranded}) catch "Some items are left under temporary names", true);
     } else if (failed != 0) {
-        win.notify(std.mem.print(&buf, "{d} items could not be renamed", .{failed}) catch "Some items could not be renamed", true);
+        win.notify(
+            std.mem.print(&buf, "{d} items could not be renamed", .{failed}) catch "Some items could not be renamed",
+            true,
+        );
     } else if (effective.len != 0) {
         win.notify(std.mem.print(&buf, "Renamed {d} items", .{effective.len}) catch "Renamed", false);
     }
@@ -1360,7 +1431,10 @@ pub fn undoLast(self: *App, win: *Window) void {
         .created => {
             fsops.removeEmpty(step.pairs[0].from) catch |err| {
                 var buf: [256]u8 = undefined;
-                win.notify(std.mem.print(&buf, "Could not undo: {s}", .{fsops.describe(err)}) catch "Could not undo", true);
+                win.notify(
+                    std.mem.print(&buf, "Could not undo: {s}", .{fsops.describe(err)}) catch "Could not undo",
+                    true,
+                );
                 return;
             };
             self.cache.invalidate(model.parent(step.pairs[0].from));

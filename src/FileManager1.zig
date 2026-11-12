@@ -45,7 +45,16 @@ pub fn create(app: *App) !*FileManager1 {
         .on_call = onCall,
     }, &object));
     var request: siv.DbusName = .null;
-    try siv.check(c.siv_dbus_own_name(conn, name, name.len, .{ .allow_replacement = true }, null, null, null, &request));
+    try siv.check(c.siv_dbus_own_name(
+        conn,
+        name,
+        name.len,
+        .{ .allow_replacement = true },
+        null,
+        null,
+        null,
+        &request,
+    ));
     return self;
 }
 
@@ -59,7 +68,12 @@ pub fn destroy(self: *FileManager1) void {
     self.app.gpa.destroy(self);
 }
 
-fn onCall(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, args: siv.DbusReader, inv: siv.DbusInvocation) callconv(.c) void {
+fn onCall(
+    ud: ?*anyopaque,
+    info: *const siv.DbusMessageInfo,
+    args: siv.DbusReader,
+    inv: siv.DbusInvocation,
+) callconv(.c) void {
     const self: *FileManager1 = @ptrCast(@alignCast(ud.?));
     var arena: std.heap.ArenaAllocator = .init(self.app.gpa);
     defer arena.deinit();

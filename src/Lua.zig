@@ -144,7 +144,12 @@ pub fn runFile(self: *Lua, path: []const u8) void {
     const dir = Io.Dir.path.dirname(path) orelse ".";
     _ = lc.lua_getglobal(state, "package");
     var pb: [linux.PATH_MAX * 3]u8 = undefined;
-    const pp = std.mem.printSentinel(&pb, "{s}/?.lua;{s}/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua", .{ dir, dir, dir, dir }, 0) catch "";
+    const pp = std.mem.printSentinel(
+        &pb,
+        "{s}/?.lua;{s}/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua",
+        .{ dir, dir, dir, dir },
+        0,
+    ) catch "";
     _ = lc.lua_pushstring(state, pp.ptr);
     lc.lua_setfield(state, -2, "path");
     lh.pop(state, 1);
@@ -415,7 +420,12 @@ fn setOption(state: *State, self: *Lua, name: []const u8, vi: c_int) void {
             if (n < 0) lh.argError(state, vi, "a number of zero or more", .{});
             Config.setNumber(o, name, @intCast(@min(n, std.math.maxInt(u32))));
         },
-        .string => Config.setString(o, &self.app.strings, name, checkString(state, vi)) catch lh.raise(state, "out of memory", .{}),
+        .string => Config.setString(
+            o,
+            &self.app.strings,
+            name,
+            checkString(state, vi),
+        ) catch lh.raise(state, "out of memory", .{}),
         .sort => {
             const s = checkString(state, vi);
             o.sort.key = Config.parseSortKey(s) orelse lh.raise(state, "unknown sort '{s}'", .{s});
@@ -437,7 +447,9 @@ fn setOption(state: *State, self: *Lua, name: []const u8, vi: c_int) void {
                 _ = lc.lua_rawgeti(state, vi, @intCast(k));
                 const n = lc.luaL_checkinteger(state, -1);
                 lh.pop(state, 1);
-                if (n < (if (k == 1) @as(i64, 200) else 150)) lh.argError(state, vi, "a width of 200 or more and a height of 150 or more", .{});
+                if (n < (if (k == 1) @as(i64, 200) else 150)) {
+                    lh.argError(state, vi, "a width of 200 or more and a height of 150 or more", .{});
+                }
                 x.* = @intCast(@min(n, 100_000));
             }
             o.chooser_size = sz;
@@ -520,7 +532,11 @@ fn striderCommand(state_opt: ?*State) callconv(.c) c_int {
     };
     const n = self.gpa.dupe(u8, name) catch lh.raise(state, "out of memory", .{});
     const d = self.gpa.dupe(u8, desc) catch lh.raise(state, "out of memory", .{});
-    self.user_commands.append(self.gpa, .{ .name = n, .desc = d, .ref = ref }) catch lh.raise(state, "out of memory", .{});
+    self.user_commands.append(self.gpa, .{
+        .name = n,
+        .desc = d,
+        .ref = ref,
+    }) catch lh.raise(state, "out of memory", .{});
     return 0;
 }
 
@@ -609,11 +625,19 @@ fn striderPreviewer(state_opt: ?*State) callconv(.c) c_int {
     lc.luaL_checktype(state, 1, lh.ttable);
     var p: Previewer = .{};
     errdefer freePreviewer(self.gpa, p);
-    if (lc.lua_getfield(state, 1, "name") == lh.tstring) p.name = self.gpa.dupe(u8, lh.toString(state, -1).?) catch null;
+    if (lc.lua_getfield(state, 1, "name") == lh.tstring) {
+        p.name = self.gpa.dupe(u8, lh.toString(state, -1).?) catch null;
+    }
     lh.pop(state, 1);
-    if (lc.lua_getfield(state, 1, "mime") == lh.tstring) p.mime = self.gpa.dupe(u8, lh.toString(state, -1).?) catch null;
+    if (lc.lua_getfield(state, 1, "mime") == lh.tstring) {
+        p.mime = self.gpa.dupe(u8, lh.toString(state, -1).?) catch null;
+    }
     lh.pop(state, 1);
-    if (lc.lua_getfield(state, 1, "match") == lh.tfunction) p.match = lc.luaL_ref(state, lh.registry) else lh.pop(state, 1);
+    if (lc.lua_getfield(state, 1, "match") == lh.tfunction) {
+        p.match = lc.luaL_ref(state, lh.registry);
+    } else {
+        lh.pop(state, 1);
+    }
     if (lc.lua_getfield(state, 1, "run") == lh.tfunction) p.run = lc.luaL_ref(state, lh.registry) else lh.pop(state, 1);
     if (lc.lua_getfield(state, 1, "cmd") == lh.ttable) {
         const n: usize = @intCast(lc.luaL_len(state, -1));

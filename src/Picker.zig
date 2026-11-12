@@ -93,7 +93,12 @@ pub fn build(p: *Picker, txn: Txn, parent: Node) void {
         .padding = .{ .start = 10, .end = 10, .top = 8, .bottom = 8 },
         .flags = .{ .inset_start = true, .inset_end = true, .inset_bottom = true },
     });
-    _ = c.siv_set_visual(txn, p.panel, &.{ .background_token = .card_bg, .border_token = .border, .border_width = 1, .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 } });
+    _ = c.siv_set_visual(txn, p.panel, &.{
+        .background_token = .card_bg,
+        .border_token = .border,
+        .border_width = 1,
+        .radius = .{ .top_start = 8, .top_end = 8, .bottom_start = 8, .bottom_end = 8 },
+    });
     _ = c.siv_set_semantics(txn, p.panel, &.{ .role = .list, .label = "Results", .label_len = 7 });
     _ = c.siv_set_hidden(txn, p.panel, true);
 }
@@ -123,7 +128,15 @@ pub fn start(p: *Picker, kind: Kind, root: []const u8, hidden: bool) void {
     p.selected = 0;
     p.loading = true;
     const s = gpa.create(Source) catch return;
-    s.* = .{ .gpa = gpa, .gen = p.gen, .sapp = p.win.app.app, .kind = kind, .root = gpa.dupe(u8, root) catch "", .hidden = hidden, .picker = p };
+    s.* = .{
+        .gpa = gpa,
+        .gen = p.gen,
+        .sapp = p.win.app.app,
+        .kind = kind,
+        .root = gpa.dupe(u8, root) catch "",
+        .hidden = hidden,
+        .picker = p,
+    };
     p.source = s;
     // The destroy-notify runs if the job cannot start.
     if (c.siv_job_start(p.win.app.app, .{}, Source.work, null, Source.destroy, s) != .ok) p.source = null;
@@ -194,7 +207,10 @@ pub fn chosen(p: *const Picker, buf: []u8) ?[]const u8 {
     if (p.selected >= p.matches.items.len) return null;
     const rel = p.paths.get(p.matches.items[p.selected].index);
     return switch (p.kind) {
-        .files => std.mem.print(buf, "{s}/{s}", .{ if (std.mem.eql(u8, p.root.items, "/")) "" else p.root.items, rel }) catch null,
+        .files => std.mem.print(buf, "{s}/{s}", .{
+            if (std.mem.eql(u8, p.root.items, "/")) "" else p.root.items,
+            rel,
+        }) catch null,
         .folders => std.mem.print(buf, "{s}/", .{rel}) catch null,
     };
 }
@@ -214,10 +230,20 @@ fn render(p: *Picker) void {
         .files => "files and folders",
         .folders => "folders zoxide knows",
     };
-    const head = std.mem.print(&hb, "{s} of {s} {s}{s}", .{ grouped(&nb1, p.matches.items.len), grouped(&nb2, p.paths.len()), what, if (p.loading) " (reading…)" else "" }) catch "";
+    const head = std.mem.print(&hb, "{s} of {s} {s}{s}", .{
+        grouped(&nb1, p.matches.items.len),
+        grouped(&nb2, p.paths.len()),
+        what,
+        if (p.loading) " (reading…)" else "",
+    }) catch "";
     _ = ui.text(txn, p.panel, head, .muted_fg, .caption);
     if (p.matches.items.len == 0) {
-        const none: []const u8 = if (p.loading) "Reading…" else if (p.kind == .folders and p.paths.len() == 0) "zoxide knows no folders yet" else "Nothing matches";
+        const none: []const u8 = if (p.loading)
+            "Reading…"
+        else if (p.kind == .folders and p.paths.len() == 0)
+            "zoxide knows no folders yet"
+        else
+            "Nothing matches";
         _ = ui.text(txn, p.panel, none, .muted_fg, .body);
         return;
     }
@@ -231,19 +257,43 @@ fn render(p: *Picker) void {
         const text = p.paths.get(m.index);
         const selected = i == p.selected;
         const row = c.siv_flex(txn, p.panel, &.{ .axis = .row });
-        _ = c.siv_set_layout(txn, row, &.{ .width = ui.fill(), .padding = .{ .start = 6, .end = 6, .top = 2, .bottom = 2 } });
-        _ = c.siv_set_visual(txn, row, &.{ .background_token = if (selected) .selection_bg else .none, .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 } });
-        _ = c.siv_set_semantics(txn, row, &.{ .role = .list_item, .label = text.ptr, .label_len = text.len, .selected = if (selected) .on else .off, .position = @intCast(i + 1), .set_size = @intCast(p.matches.items.len) });
+        _ = c.siv_set_layout(txn, row, &.{
+            .width = ui.fill(),
+            .padding = .{ .start = 6, .end = 6, .top = 2, .bottom = 2 },
+        });
+        _ = c.siv_set_visual(txn, row, &.{
+            .background_token = if (selected) .selection_bg else .none,
+            .radius = .{ .top_start = 4, .top_end = 4, .bottom_start = 4, .bottom_end = 4 },
+        });
+        _ = c.siv_set_semantics(txn, row, &.{
+            .role = .list_item,
+            .label = text.ptr,
+            .label_len = text.len,
+            .selected = if (selected) .on else .off,
+            .position = @intCast(i + 1),
+            .set_size = @intCast(p.matches.items.len),
+        });
         const t = c.siv_text(txn, row, text.ptr, text.len);
         const dir = std.mem.endsWith(u8, text, "/") or p.kind == .folders;
-        _ = c.siv_set_text_style(txn, t, &.{ .color_token = if (selected) .selection_fg else if (dir) .accent else .card_fg, .size_role = .body, .direction = .ltr, .flags = .{ .no_wrap = true, .ellipsize = true } });
+        _ = c.siv_set_text_style(txn, t, &.{
+            .color_token = if (selected) .selection_fg else if (dir) .accent else .card_fg,
+            .size_role = .body,
+            .direction = .ltr,
+            .flags = .{ .no_wrap = true, .ellipsize = true },
+        });
         // The matched characters stand out.
         pos.clearRetainingCapacity();
         _ = fuzzy.score(text, p.query.items, &pos, gpa);
         if (pos.items.len != 0) {
             const spans = gpa.alloc(siv.TextSpan, pos.items.len) catch continue;
             defer gpa.free(spans);
-            for (pos.items, spans) |at, *s| s.* = .{ .start = at, .end = at + 1, .flags = .{ .color = true, .weight = true }, .color_token = if (selected) .selection_fg else .accent, .weight = .bold };
+            for (pos.items, spans) |at, *s| s.* = .{
+                .start = at,
+                .end = at + 1,
+                .flags = .{ .color = true, .weight = true },
+                .color_token = if (selected) .selection_fg else .accent,
+                .weight = .bold,
+            };
             _ = c.siv_set_text_spans(txn, t, &.{ .spans = spans.ptr, .spans_count = spans.len });
         }
     }
@@ -286,7 +336,11 @@ const Source = struct {
                 const batch = s.gpa.create(fuzzy.Paths) catch return;
                 batch.* = .empty;
                 // zoxide leaves out the folder it is asked from.
-                var r = proc.run(s.gpa, &.{ "zoxide", "query", "--list", "--exclude", s.root }, .{ .max_output = 4 << 20, .cancel = &s.cancel, .timeout_ms = 10_000 }) catch null;
+                var r = proc.run(s.gpa, &.{ "zoxide", "query", "--list", "--exclude", s.root }, .{
+                    .max_output = 4 << 20,
+                    .cancel = &s.cancel,
+                    .timeout_ms = 10_000,
+                }) catch null;
                 if (r) |*res| {
                     defer res.deinit(s.gpa);
                     if (res.status == 0) {

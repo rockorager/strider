@@ -23,7 +23,11 @@ pub fn fill() siv.Dimension {
 /// One line of text, cut short with an ellipsis when it does not fit.
 pub fn text(txn: Txn, parent: Node, s: []const u8, token: siv.ColorToken, role: siv.SizeRole) Node {
     const n = c.siv_text(txn, parent, s.ptr, s.len);
-    _ = c.siv_set_text_style(txn, n, &.{ .color_token = token, .size_role = role, .flags = .{ .no_wrap = true, .ellipsize = true } });
+    _ = c.siv_set_text_style(txn, n, &.{
+        .color_token = token,
+        .size_role = role,
+        .flags = .{ .no_wrap = true, .ellipsize = true },
+    });
     return n;
 }
 
@@ -38,14 +42,24 @@ pub fn paragraph(txn: Txn, parent: Node, s: []const u8, token: siv.ColorToken, r
 /// their text.
 pub fn iconView(txn: Txn, parent: Node, size: f32) Node {
     const n = c.siv_image_view(txn, parent, &.{ .icon_size = size });
-    _ = c.siv_set_layout(txn, n, &.{ .width = px(size), .height = px(size), .flags = .{ .no_shrink = true }, .align_y = .center });
+    _ = c.siv_set_layout(txn, n, &.{
+        .width = px(size),
+        .height = px(size),
+        .flags = .{ .no_shrink = true },
+        .align_y = .center,
+    });
     _ = c.siv_set_semantics(txn, n, &.{ .role = .none });
     return n;
 }
 
 pub fn icon(txn: Txn, parent: Node, name: []const u8, size: f32, token: siv.ColorToken) Node {
     const n = iconView(txn, parent, size);
-    _ = c.siv_set_image_view(txn, n, &.{ .icon = name.ptr, .icon_len = name.len, .icon_size = size, .color_token = token });
+    _ = c.siv_set_image_view(txn, n, &.{
+        .icon = name.ptr,
+        .icon_len = name.len,
+        .icon_size = size,
+        .color_token = token,
+    });
     return n;
 }
 
@@ -72,7 +86,14 @@ pub fn button(txn: Txn, parent: Node, label: []const u8, style: siv.ButtonStyle)
 }
 
 pub fn iconButton(txn: Txn, parent: Node, label: []const u8, icon_name: []const u8) Node {
-    return c.siv_push_button(txn, parent, &.{ .label = label.ptr, .label_len = label.len, .style = .flat, .icon = icon_name.ptr, .icon_len = icon_name.len, .flags = .{ .icon_only = true } });
+    return c.siv_push_button(txn, parent, &.{
+        .label = label.ptr,
+        .label_len = label.len,
+        .style = .flat,
+        .icon = icon_name.ptr,
+        .icon_len = icon_name.len,
+        .flags = .{ .icon_only = true },
+    });
 }
 
 /// Removes every child of `node`.

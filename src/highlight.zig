@@ -23,27 +23,123 @@ pub const Lang = struct {
     kind: enum { code, markdown, diff, ini },
 };
 
-const c_keywords = [_][]const u8{ "auto", "break", "case", "const", "continue", "default", "do", "else", "enum", "extern", "for", "goto", "if", "inline", "register", "restrict", "return", "sizeof", "static", "struct", "switch", "typedef", "union", "volatile", "while", "#include", "#define", "#if", "#ifdef", "#ifndef", "#endif", "#else", "#elif", "#pragma", "class", "namespace", "template", "typename", "public", "private", "protected", "virtual", "override", "new", "delete", "try", "catch", "throw", "using", "nullptr", "true", "false", "NULL" };
-const c_types = [_][]const u8{ "void", "char", "short", "int", "long", "float", "double", "signed", "unsigned", "bool", "size_t", "ssize_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t", "auto" };
-const zig_keywords = [_][]const u8{ "const", "var", "fn", "pub", "return", "if", "else", "while", "for", "switch", "break", "continue", "defer", "errdefer", "try", "catch", "orelse", "and", "or", "struct", "enum", "union", "error", "test", "comptime", "inline", "extern", "export", "packed", "align", "callconv", "noreturn", "unreachable", "undefined", "null", "true", "false", "usingnamespace", "threadlocal", "volatile", "allowzero", "anytype", "opaque", "suspend", "resume", "nosuspend", "async", "await", "linksection", "noalias" };
-const zig_types = [_][]const u8{ "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize", "f16", "f32", "f64", "f80", "f128", "bool", "void", "type", "anyerror", "anyopaque", "c_int", "c_uint", "c_long", "c_char", "comptime_int", "comptime_float" };
-const rust_keywords = [_][]const u8{ "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while" };
-const rust_types = [_][]const u8{ "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize", "f32", "f64", "bool", "char", "str", "String", "Vec", "Option", "Result", "Box" };
-const go_keywords = [_][]const u8{ "break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var", "nil", "true", "false" };
-const go_types = [_][]const u8{ "bool", "byte", "complex64", "complex128", "error", "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "any" };
-const py_keywords = [_][]const u8{ "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "None", "True", "False", "self" };
+const c_keywords = [_][]const u8{
+    "auto",      "break",    "case",     "const",  "continue", "default",   "do",
+    "else",      "enum",     "extern",   "for",    "goto",     "if",        "inline",
+    "register",  "restrict", "return",   "sizeof", "static",   "struct",    "switch",
+    "typedef",   "union",    "volatile", "while",  "#include", "#define",   "#if",
+    "#ifdef",    "#ifndef",  "#endif",   "#else",  "#elif",    "#pragma",   "class",
+    "namespace", "template", "typename", "public", "private",  "protected", "virtual",
+    "override",  "new",      "delete",   "try",    "catch",    "throw",     "using",
+    "nullptr",   "true",     "false",    "NULL",
+};
+const c_types = [_][]const u8{
+    "void",     "char",    "short",   "int",     "long",    "float",    "double",   "signed",
+    "unsigned", "bool",    "size_t",  "ssize_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "int8_t",   "int16_t", "int32_t", "int64_t", "auto",
+};
+const zig_keywords = [_][]const u8{
+    "const",       "var",            "fn",          "pub",       "return",    "if",
+    "else",        "while",          "for",         "switch",    "break",     "continue",
+    "defer",       "errdefer",       "try",         "catch",     "orelse",    "and",
+    "or",          "struct",         "enum",        "union",     "error",     "test",
+    "comptime",    "inline",         "extern",      "export",    "packed",    "align",
+    "callconv",    "noreturn",       "unreachable", "undefined", "null",      "true",
+    "false",       "usingnamespace", "threadlocal", "volatile",  "allowzero", "anytype",
+    "opaque",      "suspend",        "resume",      "nosuspend", "async",     "await",
+    "linksection", "noalias",
+};
+const zig_types = [_][]const u8{
+    "u8",        "u16",   "u32",    "u64",    "u128",   "usize",        "i8",
+    "i16",       "i32",   "i64",    "i128",   "isize",  "f16",          "f32",
+    "f64",       "f80",   "f128",   "bool",   "void",   "type",         "anyerror",
+    "anyopaque", "c_int", "c_uint", "c_long", "c_char", "comptime_int", "comptime_float",
+};
+const rust_keywords = [_][]const u8{
+    "as",     "async", "await", "break", "const",  "continue", "crate", "dyn",   "else",   "enum",
+    "extern", "false", "fn",    "for",   "if",     "impl",     "in",    "let",   "loop",   "match",
+    "mod",    "move",  "mut",   "pub",   "ref",    "return",   "self",  "Self",  "static", "struct",
+    "super",  "trait", "true",  "type",  "unsafe", "use",      "where", "while",
+};
+const rust_types = [_][]const u8{
+    "u8",    "u16", "u32", "u64",  "u128", "usize", "i8",     "i16", "i32",    "i64",    "i128",
+    "isize", "f32", "f64", "bool", "char", "str",   "String", "Vec", "Option", "Result", "Box",
+};
+const go_keywords = [_][]const u8{
+    "break",       "case",    "chan",  "const",  "continue", "default", "defer",  "else",
+    "fallthrough", "for",     "func",  "go",     "goto",     "if",      "import", "interface",
+    "map",         "package", "range", "return", "select",   "struct",  "switch", "type",
+    "var",         "nil",     "true",  "false",
+};
+const go_types = [_][]const u8{
+    "bool",   "byte",   "complex64", "complex128", "error", "float32", "float64", "int",
+    "int8",   "int16",  "int32",     "int64",      "rune",  "string",  "uint",    "uint8",
+    "uint16", "uint32", "uint64",    "uintptr",    "any",
+};
+const py_keywords = [_][]const u8{
+    "and",    "as",   "assert", "async",  "await",    "break", "class", "continue", "def",
+    "del",    "elif", "else",   "except", "finally",  "for",   "from",  "global",   "if",
+    "import", "in",   "is",     "lambda", "nonlocal", "not",   "or",    "pass",     "raise",
+    "return", "try",  "while",  "with",   "yield",    "None",  "True",  "False",    "self",
+};
 const py_types = [_][]const u8{ "int", "float", "str", "bool", "list", "dict", "set", "tuple", "bytes", "object" };
-const js_keywords = [_][]const u8{ "async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "from", "function", "if", "import", "in", "instanceof", "let", "new", "of", "return", "static", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield", "null", "undefined", "true", "false", "interface", "type", "enum", "implements", "private", "public", "protected", "readonly" };
-const js_types = [_][]const u8{ "string", "number", "boolean", "any", "unknown", "never", "object", "bigint", "symbol" };
-const lua_keywords = [_][]const u8{ "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while" };
-const sh_keywords = [_][]const u8{ "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until", "do", "done", "in", "function", "return", "local", "export", "readonly", "set", "unset", "shift", "exit", "echo", "cd", "source", "alias", "trap", "eval", "exec", "true", "false" };
+const js_keywords = [_][]const u8{
+    "async",     "await",     "break",    "case",      "catch",  "class",  "const",      "continue",
+    "debugger",  "default",   "delete",   "do",        "else",   "export", "extends",    "finally",
+    "for",       "from",      "function", "if",        "import", "in",     "instanceof", "let",
+    "new",       "of",        "return",   "static",    "super",  "switch", "this",       "throw",
+    "try",       "typeof",    "var",      "void",      "while",  "with",   "yield",      "null",
+    "undefined", "true",      "false",    "interface", "type",   "enum",   "implements", "private",
+    "public",    "protected", "readonly",
+};
+const js_types = [_][]const u8{
+    "string", "number", "boolean", "any",    "unknown",
+    "never",  "object", "bigint",  "symbol",
+};
+const lua_keywords = [_][]const u8{
+    "and",   "break", "do",    "else", "elseif", "end", "false",  "for",    "function", "goto",
+    "if",    "in",    "local", "nil",  "not",    "or",  "repeat", "return", "then",     "true",
+    "until", "while",
+};
+const sh_keywords = [_][]const u8{
+    "if",    "then", "else", "elif",     "fi",     "case",  "esac",   "for",      "while", "until",
+    "do",    "done", "in",   "function", "return", "local", "export", "readonly", "set",   "unset",
+    "shift", "exit", "echo", "cd",       "source", "alias", "trap",   "eval",     "exec",  "true",
+    "false",
+};
 const json_keywords = [_][]const u8{ "true", "false", "null" };
 const toml_keywords = [_][]const u8{ "true", "false" };
-const java_keywords = [_][]const u8{ "abstract", "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "final", "finally", "for", "goto", "if", "implements", "import", "instanceof", "interface", "native", "new", "package", "private", "protected", "public", "return", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws", "transient", "try", "volatile", "while", "true", "false", "null", "val", "var", "fun", "object", "when", "override" };
-const java_types = [_][]const u8{ "boolean", "byte", "char", "double", "float", "int", "long", "short", "void", "String" };
-const rb_keywords = [_][]const u8{ "alias", "and", "begin", "break", "case", "class", "def", "defined?", "do", "else", "elsif", "end", "ensure", "false", "for", "if", "in", "module", "next", "nil", "not", "or", "redo", "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until", "when", "while", "yield", "require" };
+const java_keywords = [_][]const u8{
+    "abstract",  "assert",  "break",     "case",    "catch",      "class",        "const",
+    "continue",  "default", "do",        "else",    "enum",       "extends",      "final",
+    "finally",   "for",     "goto",      "if",      "implements", "import",       "instanceof",
+    "interface", "native",  "new",       "package", "private",    "protected",    "public",
+    "return",    "static",  "strictfp",  "super",   "switch",     "synchronized", "this",
+    "throw",     "throws",  "transient", "try",     "volatile",   "while",        "true",
+    "false",     "null",    "val",       "var",     "fun",        "object",       "when",
+    "override",
+};
+const java_types = [_][]const u8{
+    "boolean", "byte", "char",  "double", "float",
+    "int",     "long", "short", "void",   "String",
+};
+const rb_keywords = [_][]const u8{
+    "alias", "and",    "begin",  "break",  "case",  "class",  "def",     "defined?", "do",   "else",
+    "elsif", "end",    "ensure", "false",  "for",   "if",     "in",      "module",   "next", "nil",
+    "not",   "or",     "redo",   "rescue", "retry", "return", "self",    "super",    "then", "true",
+    "undef", "unless", "until",  "when",   "while", "yield",  "require",
+};
 const css_keywords = [_][]const u8{ "important", "inherit", "initial", "none", "auto" };
-const sql_keywords = [_][]const u8{ "select", "from", "where", "insert", "into", "values", "update", "set", "delete", "create", "table", "drop", "alter", "index", "join", "left", "right", "inner", "outer", "on", "and", "or", "not", "null", "as", "order", "by", "group", "having", "limit", "primary", "key", "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "INDEX", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON", "AND", "OR", "NOT", "NULL", "AS", "ORDER", "BY", "GROUP", "HAVING", "LIMIT", "PRIMARY", "KEY" };
+const sql_keywords = [_][]const u8{
+    "select", "from",   "where",  "insert",  "into",   "values", "update", "set",   "delete",
+    "create", "table",  "drop",   "alter",   "index",  "join",   "left",   "right", "inner",
+    "outer",  "on",     "and",    "or",      "not",    "null",   "as",     "order", "by",
+    "group",  "having", "limit",  "primary", "key",    "SELECT", "FROM",   "WHERE", "INSERT",
+    "INTO",   "VALUES", "UPDATE", "SET",     "DELETE", "CREATE", "TABLE",  "DROP",  "ALTER",
+    "INDEX",  "JOIN",   "LEFT",   "RIGHT",   "INNER",  "OUTER",  "ON",     "AND",   "OR",
+    "NOT",    "NULL",   "AS",     "ORDER",   "BY",     "GROUP",  "HAVING", "LIMIT", "PRIMARY",
+    "KEY",
+};
 
 pub const langs = struct {
     pub const c: Lang = .{
@@ -268,8 +364,16 @@ const by_ext = [_]ByExt{
 /// The language of a file by its name, or null for plain text.
 pub fn detect(name: []const u8, head: []const u8) ?*const Lang {
     const base = if (std.mem.findScalarLast(u8, name, '/')) |i| name[i + 1 ..] else name;
-    if (std.mem.eql(u8, base, "Makefile") or std.mem.eql(u8, base, "makefile") or std.mem.eql(u8, base, "GNUmakefile")) return &langs.make;
-    if (std.mem.eql(u8, base, "PKGBUILD") or std.mem.startsWith(u8, base, ".bash") or std.mem.eql(u8, base, ".profile") or std.mem.eql(u8, base, ".zshrc")) return &langs.sh;
+    if (std.mem.eql(u8, base, "Makefile") or std.mem.eql(u8, base, "makefile") or
+        std.mem.eql(u8, base, "GNUmakefile"))
+    {
+        return &langs.make;
+    }
+    if (std.mem.eql(u8, base, "PKGBUILD") or std.mem.startsWith(u8, base, ".bash") or
+        std.mem.eql(u8, base, ".profile") or std.mem.eql(u8, base, ".zshrc"))
+    {
+        return &langs.sh;
+    }
     if (std.mem.eql(u8, base, "CMakeLists.txt")) return &langs.sh;
     if (std.mem.findScalarLast(u8, base, '.')) |dot| if (dot > 0) {
         var buf: [16]u8 = undefined;
@@ -409,7 +513,9 @@ fn code(gpa: Allocator, out: *std.ArrayList(Span), lang: *const Lang, text: []co
                 try add(gpa, out, i, j, .keyword);
             } else if (contains(lang.keywords, word)) {
                 try add(gpa, out, i, j, .keyword);
-            } else if (contains(lang.types, word) or (lang.capital_types and std.ascii.isUpper(word[0]) and word.len > 1 and hasLower(word))) {
+            } else if (contains(lang.types, word) or
+                (lang.capital_types and std.ascii.isUpper(word[0]) and word.len > 1 and hasLower(word)))
+            {
                 try add(gpa, out, i, j, .type);
             }
             i = j;
@@ -496,7 +602,9 @@ fn diff(gpa: Allocator, out: *std.ArrayList(Span), text: []const u8) !void {
     while (it.next()) |line| {
         const start = @intFromPtr(line.ptr) - @intFromPtr(text.ptr);
         const end = start + line.len;
-        if (std.mem.startsWith(u8, line, "+++") or std.mem.startsWith(u8, line, "---") or std.mem.startsWith(u8, line, "diff ") or std.mem.startsWith(u8, line, "index ")) {
+        if (std.mem.startsWith(u8, line, "+++") or std.mem.startsWith(u8, line, "---") or
+            std.mem.startsWith(u8, line, "diff ") or std.mem.startsWith(u8, line, "index "))
+        {
             try add(gpa, out, start, end, .heading);
         } else if (std.mem.startsWith(u8, line, "@@")) {
             try add(gpa, out, start, end, .type);

@@ -29,7 +29,12 @@ const Daemon = struct {
         var cmd: [512]u8 = undefined;
         // Beside the fixture, not in it, so captures do not show it.
         const out = try std.mem.print(&d.address, "{s}.bus", .{dir});
-        const z = try std.mem.printSentinel(&cmd, "dbus-daemon --session --fork --print-address=1 --print-pid=1 > '{s}' 2>/dev/null", .{out}, 0);
+        const z = try std.mem.printSentinel(
+            &cmd,
+            "dbus-daemon --session --fork --print-address=1 --print-pid=1 > '{s}' 2>/dev/null",
+            .{out},
+            0,
+        );
         if (system(z.ptr) != 0) return error.SkipZigTest;
         var buf: [512]u8 = undefined;
         var zpath: [256]u8 = undefined;
@@ -107,7 +112,11 @@ const FakeUDisks = struct {
     const drive = prefix ++ "drives/Stick";
 
     fn start(u: *FakeUDisks, app: siv.App, address: []const u8) !void {
-        try siv.check(c.siv_dbus_connect(app, &.{ .bus = .address, .address = address.ptr, .address_len = address.len }, &u.conn));
+        try siv.check(c.siv_dbus_connect(app, &.{
+            .bus = .address,
+            .address = address.ptr,
+            .address_len = address.len,
+        }, &u.conn));
         const om = [_]siv.DbusMethod{method("GetManagedObjects", "", "a{oa{sa{sv}}}")};
         const fs = [_]siv.DbusMethod{ method("Mount", "a{sv}", "s"), method("Unmount", "a{sv}", "") };
         const enc = [_]siv.DbusMethod{ method("Unlock", "sa{sv}", "o"), method("Lock", "a{sv}", "") };
@@ -137,7 +146,14 @@ const FakeUDisks = struct {
     }
 
     fn method(comptime n: []const u8, comptime in: []const u8, comptime out: []const u8) siv.DbusMethod {
-        return .{ .name = n.ptr, .name_len = n.len, .in_signature = in.ptr, .in_signature_len = in.len, .out_signature = out.ptr, .out_signature_len = out.len };
+        return .{
+            .name = n.ptr,
+            .name_len = n.len,
+            .in_signature = in.ptr,
+            .in_signature_len = in.len,
+            .out_signature = out.ptr,
+            .out_signature_len = out.len,
+        };
     }
 
     fn deinit(u: *FakeUDisks) void {
@@ -151,7 +167,12 @@ const FakeUDisks = struct {
         return false;
     }
 
-    fn onCall(ud: ?*anyopaque, info: *const siv.DbusMessageInfo, args: siv.DbusReader, inv: siv.DbusInvocation) callconv(.c) void {
+    fn onCall(
+        ud: ?*anyopaque,
+        info: *const siv.DbusMessageInfo,
+        args: siv.DbusReader,
+        inv: siv.DbusInvocation,
+    ) callconv(.c) void {
         const u: *FakeUDisks = @ptrCast(@alignCast(ud.?));
         const member = str(info.member, info.member_len);
         const path = str(info.path, info.path_len);
@@ -174,7 +195,8 @@ const FakeUDisks = struct {
             _ = c.siv_dbus_reader_read_string(args, &buf, buf.len, &len);
             if (!eql(u8, buf[0..@min(len, buf.len)], "hunter2")) {
                 const e = "org.freedesktop.UDisks2.Error.Failed";
-                const msg = "Error unlocking /dev/sdc1: Failed to activate device: Operation not permitted (Incorrect passphrase?)";
+                const msg = "Error unlocking /dev/sdc1: Failed to activate device: " ++
+                    "Operation not permitted (Incorrect passphrase?)";
                 _ = c.siv_dbus_invocation_reply_error(inv, e, e.len, msg, msg.len);
                 return;
             }
@@ -296,7 +318,14 @@ const FakeUDisks = struct {
     fn changed(u: *FakeUDisks, path: []const u8) void {
         var m: siv.DbusMessage = .null;
         const props = "org.freedesktop.DBus.Properties";
-        siv.check(c.siv_dbus_new_signal(u.conn, &.{ .path = path.ptr, .path_len = path.len, .interface = props, .interface_len = props.len, .member = "PropertiesChanged", .member_len = 17 }, &m)) catch return;
+        siv.check(c.siv_dbus_new_signal(u.conn, &.{
+            .path = path.ptr,
+            .path_len = path.len,
+            .interface = props,
+            .interface_len = props.len,
+            .member = "PropertiesChanged",
+            .member_len = 17,
+        }, &m)) catch return;
         writeStr(m, 's', "org.freedesktop.UDisks2.Filesystem");
         open(m, 'a', "{sv}");
         close(m);
@@ -323,7 +352,11 @@ fn inDir(h: *Harness, suffix: []const u8, n: u32) bool {
 
 test "drives from UDisks2: mount, browse, unmount and power off" {
     var f: Fixture = .empty;
-    try f.create("udisks", &.{ .{ .name = "home", .dir = true }, .{ .name = "Stick", .dir = true }, .{ .name = "Stick/on-the-stick.txt", .size = 10 } });
+    try f.create("udisks", &.{
+        .{ .name = "home", .dir = true },
+        .{ .name = "Stick", .dir = true },
+        .{ .name = "Stick/on-the-stick.txt", .size = 10 },
+    });
     defer f.remove();
     try f.touch("Stick", 1_791_900_300);
     var d: Daemon = .{};
@@ -380,7 +413,8 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
         }
     }.ok);
     // Mounted, it shows its space, and the preview shows its files.
-    try testing.expect(h.win.?.preview.column.dir != null and std.mem.endsWith(u8, h.win.?.preview.column.dir.?.path, "/Stick"));
+    try testing.expect(h.win.?.preview.column.dir != null and
+        std.mem.endsWith(u8, h.win.?.preview.column.dir.?.path, "/Stick"));
     // Drives is a top, as "/" is.
     try h.typeText("h");
     try testing.expect(h.dir().isDrives());
@@ -413,7 +447,11 @@ test "drives from UDisks2: mount, browse, unmount and power off" {
 
 test "encrypted volumes: a passphrase unlocks and mounts; eject locks" {
     var f: Fixture = .empty;
-    try f.create("udisks-luks", &.{ .{ .name = "home", .dir = true }, .{ .name = "Secret", .dir = true }, .{ .name = "Secret/diary.txt", .size = 20 } });
+    try f.create("udisks-luks", &.{
+        .{ .name = "home", .dir = true },
+        .{ .name = "Secret", .dir = true },
+        .{ .name = "Secret/diary.txt", .size = 20 },
+    });
     defer f.remove();
     try f.touch("Secret", 1_791_900_300);
     var d: Daemon = .{};
@@ -440,7 +478,8 @@ test "encrypted volumes: a passphrase unlocks and mounts; eject locks" {
     try h.typeText("wrong\n");
     try h.waitFor(&h, struct {
         fn ok(x: *Harness) bool {
-            return x.win.?.prompt != null and std.mem.eql(u8, x.win.?.message.items, "Wrong passphrase. Try again. Unlock “SECRET”");
+            return x.win.?.prompt != null and
+                std.mem.eql(u8, x.win.?.message.items, "Wrong passphrase. Try again. Unlock “SECRET”");
         }
     }.ok);
     try testing.expect(!u.unlocked);
@@ -495,7 +534,16 @@ fn callFileManager(h: *Harness, conn: siv.Dbus, member: []const u8, uri: []const
     const fm = "org.freedesktop.FileManager1";
     const path = "/org/freedesktop/FileManager1";
     var m: siv.DbusMessage = .null;
-    try siv.check(c.siv_dbus_new_call(conn, &.{ .destination = fm, .destination_len = fm.len, .path = path, .path_len = path.len, .interface = fm, .interface_len = fm.len, .member = member.ptr, .member_len = member.len }, &m));
+    try siv.check(c.siv_dbus_new_call(conn, &.{
+        .destination = fm,
+        .destination_len = fm.len,
+        .path = path,
+        .path_len = path.len,
+        .interface = fm,
+        .interface_len = fm.len,
+        .member = member.ptr,
+        .member_len = member.len,
+    }, &m));
     open(m, 'a', "s");
     writeStr(m, 's', uri);
     close(m);
@@ -512,7 +560,12 @@ fn callFileManager(h: *Harness, conn: siv.Dbus, member: []const u8, uri: []const
 
 test "FileManager1: show items, folders, and properties for other applications" {
     var f: Fixture = .empty;
-    try f.create("fm1", &.{ .{ .name = "home", .dir = true }, .{ .name = "Projects", .dir = true }, .{ .name = "Projects/siv", .dir = true }, .{ .name = "notes.txt", .size = 3 } });
+    try f.create("fm1", &.{
+        .{ .name = "home", .dir = true },
+        .{ .name = "Projects", .dir = true },
+        .{ .name = "Projects/siv", .dir = true },
+        .{ .name = "notes.txt", .size = 3 },
+    });
     defer f.remove();
     var d: Daemon = .{};
     try d.start(f.path);
@@ -522,7 +575,11 @@ test "FileManager1: show items, folders, and properties for other applications" 
     var hbuf: [256]u8 = undefined;
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     const win = h.win.?;
     // ShowItems: a folder is shown under the cursor in its parent, not
     // opened, in a new tab.
@@ -547,7 +604,16 @@ test "FileManager1: show items, folders, and properties for other applications" 
     var state: Owned = .{};
     var name: siv.DbusName = .null;
     const fm = "org.freedesktop.FileManager1";
-    try siv.check(c.siv_dbus_own_name(client, fm, fm.len, .{ .replace_existing = true, .do_not_queue = true }, Owned.onState, null, &state, &name));
+    try siv.check(c.siv_dbus_own_name(
+        client,
+        fm,
+        fm.len,
+        .{ .replace_existing = true, .do_not_queue = true },
+        Owned.onState,
+        null,
+        &state,
+        &name,
+    ));
     try h.waitFor(&state, struct {
         fn ok(x: *Owned) bool {
             return x.state != null;
@@ -589,7 +655,11 @@ const Chosen = struct {
     }
 
     fn choice(x: *const Chosen, id: []const u8) []const u8 {
-        for (0..x.n_choices) |i| if (std.mem.eql(u8, x.choices[i][0][0..x.choice_lens[i][0]], id)) return x.choices[i][1][0..x.choice_lens[i][1]];
+        for (0..x.n_choices) |i| {
+            if (std.mem.eql(u8, x.choices[i][0][0..x.choice_lens[i][0]], id)) {
+                return x.choices[i][1][0..x.choice_lens[i][1]];
+            }
+        }
         return "";
     }
 
@@ -623,7 +693,9 @@ const Chosen = struct {
             _ = c.siv_dbus_reader_read_enter(r); // the variant
             if (std.mem.eql(u8, key, "uris")) {
                 _ = c.siv_dbus_reader_read_enter(r);
-                while (next(r) == 's' and x.n_uris < x.uris.len) : (x.n_uris += 1) x.uri_lens[x.n_uris] = readStr(r, &x.uris[x.n_uris]);
+                while (next(r) == 's' and x.n_uris < x.uris.len) : (x.n_uris += 1) {
+                    x.uri_lens[x.n_uris] = readStr(r, &x.uris[x.n_uris]);
+                }
                 _ = c.siv_dbus_reader_read_exit(r);
             } else if (std.mem.eql(u8, key, "choices")) {
                 _ = c.siv_dbus_reader_read_enter(r);
@@ -673,13 +745,33 @@ var handle_buf: [128]u8 = undefined;
 
 /// Calls `member` on the portal backend and returns at once; `out` gets
 /// the answer. The request's handle is in `handle_buf`.
-fn callChooser(conn: siv.Dbus, member: []const u8, f: *const Fixture, title: []const u8, opts: Options, out: *Chosen) ![]const u8 {
+fn callChooser(
+    conn: siv.Dbus,
+    member: []const u8,
+    f: *const Fixture,
+    title: []const u8,
+    opts: Options,
+    out: *Chosen,
+) ![]const u8 {
     request_serial += 1;
-    const handle = try std.mem.print(&handle_buf, "/org/freedesktop/portal/desktop/request/1_42/t{d}", .{request_serial});
+    const handle = try std.mem.print(
+        &handle_buf,
+        "/org/freedesktop/portal/desktop/request/1_42/t{d}",
+        .{request_serial},
+    );
     const path = "/org/freedesktop/portal/desktop";
     const iface = "org.freedesktop.impl.portal.FileChooser";
     var m: siv.DbusMessage = .null;
-    try siv.check(c.siv_dbus_new_call(conn, &.{ .destination = portal_name, .destination_len = portal_name.len, .path = path, .path_len = path.len, .interface = iface, .interface_len = iface.len, .member = member.ptr, .member_len = member.len }, &m));
+    try siv.check(c.siv_dbus_new_call(conn, &.{
+        .destination = portal_name,
+        .destination_len = portal_name.len,
+        .path = path,
+        .path_len = path.len,
+        .interface = iface,
+        .interface_len = iface.len,
+        .member = member.ptr,
+        .member_len = member.len,
+    }, &m));
     writeStr(m, 'o', handle);
     writeStr(m, 's', "org.example.Editor");
     writeStr(m, 's', "wayland:caller-handle");
@@ -749,7 +841,11 @@ test "FileChooser: open one file and several, choose folders, by keys and by dou
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     var ub: [512]u8 = undefined;
 
     // One file: the folder asked for, the accept label without its
@@ -839,7 +935,11 @@ test "FileChooser: filters hide other files but not folders; choices come back" 
     try h.start(.{ .path = f.sub(&hbuf, "work"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     var ub: [512]u8 = undefined;
     var x: Chosen = .{};
     _ = try callChooser(client, "OpenFile", &f, "", struct {
@@ -938,7 +1038,11 @@ test "FileChooser: save with a name, asking before replacing; save several into 
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     var ub: [512]u8 = undefined;
 
     // A new name: the name field has the keys, its stem selected.
@@ -1023,7 +1127,11 @@ test "FileChooser: Escape and q cancel; the caller's Close ends it" {
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     const none = struct {
         fn w(_: siv.DbusMessage, _: *const Fixture) void {}
     }.w;
@@ -1052,7 +1160,16 @@ test "FileChooser: Escape and q cancel; the caller's Close ends it" {
     _ = try chooserWindow(&h);
     var m: siv.DbusMessage = .null;
     const iface = "org.freedesktop.impl.portal.Request";
-    try siv.check(c.siv_dbus_new_call(client, &.{ .destination = portal_name, .destination_len = portal_name.len, .path = handle.ptr, .path_len = handle.len, .interface = iface, .interface_len = iface.len, .member = "Close", .member_len = 5 }, &m));
+    try siv.check(c.siv_dbus_new_call(client, &.{
+        .destination = portal_name,
+        .destination_len = portal_name.len,
+        .path = handle.ptr,
+        .path_len = handle.len,
+        .interface = iface,
+        .interface_len = iface.len,
+        .member = "Close",
+        .member_len = 5,
+    }, &m));
     var close_reply: Called = .{};
     try siv.check(c.siv_dbus_message_call(m, 0, Called.onReply, null, &close_reply));
     try answered(&h, main, &closed);
@@ -1074,7 +1191,12 @@ fn firefoxSave(m: siv.DbusMessage, fx: *const Fixture) void {
     endEntry(m);
     entry(m, "filters", "a(sa(us))");
     open(m, 'a', "(sa(us))");
-    for ([_][2][]const u8{ .{ "Web Page, complete", "*.html" }, .{ "Web Page, HTML only", "*.htm" }, .{ "Text Files", "*.txt" }, .{ "All Files", "*" } }) |f| {
+    for ([_][2][]const u8{
+        .{ "Web Page, complete", "*.html" },
+        .{ "Web Page, HTML only", "*.htm" },
+        .{ "Text Files", "*.txt" },
+        .{ "All Files", "*" },
+    }) |f| {
         open(m, 'r', "");
         writeStr(m, 's', f[0]);
         open(m, 'a', "(us)");
@@ -1110,7 +1232,11 @@ test "FileChooser: Save has vim's modes: insert in the name, normal in the colum
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     var ub: [512]u8 = undefined;
 
     var saved: Chosen = .{};
@@ -1195,7 +1321,11 @@ test "FileChooser: Open and folder choosers type a path in insert mode" {
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr() });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
     var ub: [512]u8 = undefined;
 
     // Normal mode first, the path field empty (its placeholder the keys);
@@ -1294,6 +1424,7 @@ test "FileChooser: Open and folder choosers type a path in insert mode" {
     try testing.expectEqual(@as(u32, 1), twice.response);
 }
 
+// ziglint-ignore: Z024 -- a test's name is one string literal, which cannot be split.
 test "FileChooser: a narrow window keeps its buttons; Escape twice from the name and closing the window cancel; the size is kept" {
     var f: Fixture = .empty;
     try chooserFixture(&f, "chooser-narrow");
@@ -1307,7 +1438,11 @@ test "FileChooser: a narrow window keeps its buttons; Escape twice from the name
     try h.start(.{ .path = f.sub(&hbuf, "home"), .bus = d.addr(), .state = true });
     const main = h.win.?;
     var client: siv.Dbus = .null;
-    try siv.check(c.siv_dbus_connect(h.sapp, &.{ .bus = .address, .address = d.address[0..].ptr, .address_len = d.address_len }, &client));
+    try siv.check(c.siv_dbus_connect(h.sapp, &.{
+        .bus = .address,
+        .address = d.address[0..].ptr,
+        .address_len = d.address_len,
+    }, &client));
 
     // Narrower than its least size (a tiling layout can do that), and
     // half of a 1920x1080 screen: the buttons stay on screen.

@@ -92,7 +92,8 @@ pub fn check(gpa: Allocator, paths: []const []const u8, new_names: []const []con
         var buf: [linux.PATH_MAX]u8 = undefined;
         const target = std.mem.printSentinel(&buf, "{s}/{s}", .{ model.parent(p), n }, 0) catch continue;
         var st: linux.Statx = undefined;
-        if (linux.errno(linux.statx(linux.AT.FDCWD, target, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) == .SUCCESS) return "A new name is taken by another file";
+        const rc = linux.statx(linux.AT.FDCWD, target, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st);
+        if (linux.errno(rc) == .SUCCESS) return "A new name is taken by another file";
     }
     return null;
 }
@@ -116,7 +117,10 @@ test "templates and replacing" {
 
 test "batch checks" {
     const gpa = testing.allocator;
-    try testing.expectEqualStrings("Two items would get the same name", check(gpa, &.{ "/nonexistent/a", "/nonexistent/b" }, &.{ "x", "x" }).?);
+    try testing.expectEqualStrings(
+        "Two items would get the same name",
+        check(gpa, &.{ "/nonexistent/a", "/nonexistent/b" }, &.{ "x", "x" }).?,
+    );
     try testing.expect(check(gpa, &.{ "/nonexistent/a", "/nonexistent/b" }, &.{ "b", "a" }) == null);
     try testing.expect(check(gpa, &.{"/nonexistent/a"}, &.{"a/b"}) != null);
 }

@@ -75,7 +75,13 @@ pub fn listAll(gpa: Allocator, home_trash: []const u8, db: ?*mime.Db, info: *Inf
 /// Lists every trash: a listing rooted at "/" whose names are the trashed
 /// files' paths without the leading slash (so `pathOf` gives where they
 /// are now), with `info` saying where they were. Blocking.
-pub fn list(gpa: Allocator, home_trash: []const u8, mount_points: []const []const u8, db: ?*mime.Db, info: *Info) model.ReadError!model.Listing {
+pub fn list(
+    gpa: Allocator,
+    home_trash: []const u8,
+    mount_points: []const []const u8,
+    db: ?*mime.Db,
+    info: *Info,
+) model.ReadError!model.Listing {
     const dirs = trashDirs(gpa, home_trash, mount_points) catch return error.OutOfMemory;
     defer {
         for (dirs) |d| gpa.free(d);
@@ -225,7 +231,11 @@ pub fn originalPath(buf: []u8, trashed: []const u8) ?[]const u8 {
     const files_dir = model.parent(trashed);
     const dir = model.parent(files_dir);
     var ibuf: [linux.PATH_MAX]u8 = undefined;
-    const info_path = std.mem.print(&ibuf, "{s}/info/{s}.trashinfo", .{ dir, model.basename(trashed) }) catch return null;
+    const info_path = std.mem.print(
+        &ibuf,
+        "{s}/info/{s}.trashinfo",
+        .{ dir, model.basename(trashed) },
+    ) catch return null;
     var contents: [8192]u8 = undefined;
     const body = readSmall(info_path, &contents) orelse return null;
     const parsed = parseInfo(body);
@@ -263,7 +273,8 @@ fn isDir(path: []const u8) bool {
     var zbuf: [linux.PATH_MAX]u8 = undefined;
     const z = std.mem.printSentinel(&zbuf, "{s}", .{path}, 0) catch return false;
     var st: linux.Statx = undefined;
-    if (linux.errno(linux.statx(linux.AT.FDCWD, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st)) != .SUCCESS) return false;
+    const rc = linux.statx(linux.AT.FDCWD, z, linux.AT.SYMLINK_NOFOLLOW, .{ .TYPE = true }, &st);
+    if (linux.errno(rc) != .SUCCESS) return false;
     return st.mode & linux.S.IFMT == linux.S.IFDIR;
 }
 

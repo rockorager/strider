@@ -61,9 +61,26 @@ fn fixture(f: *Fixture, name: []const u8) !void {
     };
     for (items) |it| try f.add(it);
     try f.writeFile("work/src/main.zig", zig_source);
-    try f.writeFile("work/README.md", "# Work\n\nNotes about **the project**, with `code` and a [link](https://example.org).\n\n- one\n- two\n");
+    try f.writeFile("work/README.md",
+        \\# Work
+        \\
+        \\Notes about **the project**, with `code` and a [link](https://example.org).
+        \\
+        \\- one
+        \\- two
+        \\
+    );
     // Adding children changed the folders' times: set them again.
-    for ([_][]const u8{ "work/assets", "work/src", "work/docs", "work/src/util", "Desktop", "Documents", "Music", "work" }) |d| try f.touch(d, 1_791_900_300);
+    for ([_][]const u8{
+        "work/assets",
+        "work/src",
+        "work/docs",
+        "work/src/util",
+        "Desktop",
+        "Documents",
+        "Music",
+        "work",
+    }) |d| try f.touch(d, 1_791_900_300);
     try f.touch("work/src/main.zig", 1_791_900_300);
     try f.touch("work/README.md", 1_790_000_000);
 }
@@ -289,7 +306,10 @@ test "chmod and chown on the targets, into folders with -R" {
     if (uid != 0) {
         try h.typeText(":chown 0\n");
         try h.waitFor(&h, opsDone);
-        try testing.expectEqualStrings("Could not change the owner of “assets”: Permission denied", h.win.?.message.items);
+        try testing.expectEqualStrings(
+            "Could not change the owner of “assets”: Permission denied",
+            h.win.?.message.items,
+        );
     }
 }
 
@@ -385,7 +405,8 @@ test "visual operators act at once, as in vim; two-key forms still work; unbound
     try h.typeText("vjD");
     try testing.expectEqual(App.keys.Mode.normal, w.mode);
     try testing.expect(!f.exists("work/backup.tar.gz") and !f.exists("work/build.zig"));
-    try testing.expect(f.exists(".local/share/Trash/files/backup.tar.gz") and f.exists(".local/share/Trash/files/build.zig"));
+    try testing.expect(f.exists(".local/share/Trash/files/backup.tar.gz") and
+        f.exists(".local/share/Trash/files/build.zig"));
     try h.typeText("u");
     try testing.expect(f.exists("work/backup.tar.gz") and f.exists("work/build.zig"));
     // vd cuts the range; p in docs moves it there.
@@ -562,7 +583,10 @@ test "bookmarks: ':' and multi-byte keys round-trip; malformed lines are skipped
     // colon, invalid UTF-8, a truncated sequence, a relative path, and a
     // key of several bytes.
     var bb: [512]u8 = undefined;
-    try f.writeFile(".local/state/strider/bookmarks", try std.mem.print(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}));
+    try f.writeFile(
+        ".local/state/strider/bookmarks",
+        try std.mem.print(&bb, "::/tmp/x\n\n:\n\xff:/bad\n\xc3\n" ++ "a:relative\né:{s}/work/docs\n", .{f.path}),
+    );
     var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .state = true });
@@ -712,7 +736,14 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     }
     // A tarball made by tar.
     var cmd: [512]u8 = undefined;
-    const z = try std.mem.printSentinel(&cmd, "cd '{s}/work' && mkdir -p pkg/lib && printf 'hello' > pkg/lib/a.txt && printf 'x' > pkg/b.txt && tar --mtime=@1791900300 --owner=0 --group=0 --numeric-owner --sort=name -cf - pkg | gzip -n > backup.tar.gz && rm -rf pkg", .{f.path}, 0);
+    const z = try std.mem.printSentinel(
+        &cmd,
+        "cd '{s}/work' && mkdir -p pkg/lib && printf 'hello' > pkg/lib/a.txt && printf 'x' > pkg/b.txt && " ++
+            "tar --mtime=@1791900300 --owner=0 --group=0 --numeric-owner --sort=name -cf - pkg | " ++
+            "gzip -n > backup.tar.gz && rm -rf pkg",
+        .{f.path},
+        0,
+    );
     try testing.expectEqual(@as(c_int, 0), system(z.ptr));
     try writePdf(&f, "work/report.pdf");
     try f.writeFile("work/data.bin", "\x00\x01\x02binary\x00");
@@ -741,7 +772,10 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try testing.expectEqual(@TypeOf(p.text_kind).binary, p.text_kind);
     {
         var tb: [256]u8 = undefined;
-        try testing.expectEqualStrings("Binary file, 10 bytes\n\n00000000  00 01 02 62 69 6e 61 72  79 00                    |...binary.|\n", App.ui.getText(p.text, &tb));
+        try testing.expectEqualStrings(
+            "Binary file, 10 bytes\n\n00000000  00 01 02 62 69 6e 61 72  79 00                    |...binary.|\n",
+            App.ui.getText(p.text, &tb),
+        );
     }
     try h.expectGolden(h.window(), "preview-hex");
     // Images past the size limit show their details.
@@ -749,7 +783,11 @@ test "previews: images at the size shown, archives, PDFs, text, binary files" {
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
     {
         var tb: [512]u8 = undefined;
-        try testing.expect(std.mem.endsWith(u8, App.ui.getText(p.info_body, &tb), "Too large to preview (preview_max_image_bytes)"));
+        try testing.expect(std.mem.endsWith(
+            u8,
+            App.ui.getText(p.info_body, &tb),
+            "Too large to preview (preview_max_image_bytes)",
+        ));
     }
     try h.typeText(":set preview_max_image_bytes 67108864\n");
     try h.typeText("fR");
@@ -776,7 +814,16 @@ test "*.ts: TypeScript shows as highlighted source, a transport stream as video"
     defer f.remove();
     // The test database lists *.ts as Linguist and MPEG-TS at weight 50,
     // and TypeScript at 40, as shared-mime-info 2.5 does.
-    try f.writeFile("work/app.ts", "import { readFile } from \"node:fs/promises\";\n\n/** Reads a config. */\nexport async function load(path: string): Promise<number> {\n    const text = await readFile(path, \"utf8\");\n    return text.length; // bytes, roughly\n}\n");
+    try f.writeFile("work/app.ts",
+        \\import { readFile } from "node:fs/promises";
+        \\
+        \\/** Reads a config. */
+        \\export async function load(path: string): Promise<number> {
+        \\    const text = await readFile(path, "utf8");
+        \\    return text.length; // bytes, roughly
+        \\}
+        \\
+    );
     var stream: [188 * 5]u8 = @splat(0xff);
     for (0..5) |k| stream[k * 188] = 0x47;
     try f.writeFile("work/clip.ts", &stream);
@@ -811,7 +858,9 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     try fixture(&f, "fallbacks");
     defer f.remove();
     try writePdf(&f, "work/report.pdf");
-    for ([_][]const u8{ "work/clip1.mp4", "work/clip2.mp4", "work/clip3.mp4" }) |n| try f.writeFile(n, "not really a video");
+    for ([_][]const u8{ "work/clip1.mp4", "work/clip2.mp4", "work/clip3.mp4" }) |n| {
+        try f.writeFile(n, "not really a video");
+    }
     try f.add(.{ .name = "work/slow", .dir = true });
     for ([_][]const u8{ "a", "b", "c", "d", "e", "f" }) |n| {
         var nb: [64]u8 = undefined;
@@ -844,7 +893,11 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     _ = setenv("PATH", (try std.mem.printSentinel(&bin_buf, "{s}/bin", .{f.path}, 0)).ptr, 1);
 
     var cbuf: [512]u8 = undefined;
-    try f.writeFile("init.lua", "local strider = require('strider')\nstrider.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }\n");
+    try f.writeFile("init.lua",
+        \\local strider = require('strider')
+        \\strider.previewer { name = '*.slow', cmd = { '/bin/sh', '-c', '/bin/sleep 30', '%s' } }
+        \\
+    );
     var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
@@ -857,17 +910,35 @@ test "previews without poppler, of videos, and of links; slow previewers never h
     // install.
     try h.typeText("fclip1");
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
-    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "cd '{s}/bin' && /bin/rm mutool ffmpegthumbnailer && /bin/mv ffmpeg.off ffmpeg", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(
+        &cmd,
+        "cd '{s}/bin' && /bin/rm mutool ffmpegthumbnailer && /bin/mv ffmpeg.off ffmpeg",
+        .{f.path},
+        0,
+    )).ptr));
     try h.typeText("fclip2");
     try testing.expectEqual(App.Window.PreviewMode.image, p.applied);
-    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "/bin/rm '{s}/bin/ffmpeg'", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(
+        &cmd,
+        "/bin/rm '{s}/bin/ffmpeg'",
+        .{f.path},
+        0,
+    )).ptr));
     try h.typeText("fclip3");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
-    try testing.expect(std.mem.endsWith(u8, infoText(&h, &tb), "Install ffmpegthumbnailer or ffmpeg to preview videos"));
+    try testing.expect(std.mem.endsWith(
+        u8,
+        infoText(&h, &tb),
+        "Install ffmpegthumbnailer or ffmpeg to preview videos",
+    ));
     // And a PDF with no renderer at all.
     try h.typeText("frep");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
-    try testing.expect(std.mem.endsWith(u8, infoText(&h, &tb), "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs"));
+    try testing.expect(std.mem.endsWith(
+        u8,
+        infoText(&h, &tb),
+        "Install poppler (pdftoppm) or MuPDF (mutool) to preview PDFs",
+    ));
     // A link's details say where it goes (read in a job).
     try h.typeText("fdan");
     try testing.expectEqual(App.Window.PreviewMode.info, p.applied);
@@ -1061,7 +1132,12 @@ test "the tasks view: progress, pause, resume, cancel, and finished tasks" {
     defer f.remove();
     var cmd: [512]u8 = undefined;
     // 256 MiB: 64 of the copy's 4 MiB chunks, so a pause lands mid-copy.
-    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(&cmd, "truncate -s 256M '{s}/work/big.bin'", .{f.path}, 0)).ptr));
+    try testing.expectEqual(@as(c_int, 0), system((try std.mem.printSentinel(
+        &cmd,
+        "truncate -s 256M '{s}/work/big.bin'",
+        .{f.path},
+        0,
+    )).ptr));
     var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work") });
@@ -1265,7 +1341,11 @@ test "context menus: entries, the selection, empty space, the Menu key, and init
     try fixture(&f, "menus");
     defer f.remove();
     var cbuf: [512]u8 = undefined;
-    try f.writeFile("init.lua", "local strider = require('strider')\nstrider.command('hello', function() strider.notify('hi from init.lua') end, 'Say hello')\n");
+    try f.writeFile("init.lua",
+        \\local strider = require('strider')
+        \\strider.command('hello', function() strider.notify('hi from init.lua') end, 'Say hello')
+        \\
+    );
     var h: Harness = .init;
     defer h.deinit();
     try h.start(.{ .path = f.sub(&path_buf, "work"), .config = f.sub(&cbuf, "init.lua") });
@@ -1480,7 +1560,15 @@ test "the mouse: clicks in each column, double clicks, and drops" {
     var ubuf: [600]u8 = undefined;
     const u = try std.mem.print(&ubuf, "file://{s}/notes.txt\r\n", .{f.path});
     const list = try h.expect(.list, "Files");
-    try siv.check(c.siv_test_drop(h.window(), list.bounds.x + 100, list.bounds.y + 200, "text/uri-list", 13, u.ptr, u.len));
+    try siv.check(c.siv_test_drop(
+        h.window(),
+        list.bounds.x + 100,
+        list.bounds.y + 200,
+        "text/uri-list",
+        13,
+        u.ptr,
+        u.len,
+    ));
     try h.settle();
     try testing.expect(f.exists("work/docs/notes.txt"));
     try testing.expect(f.exists("notes.txt"));
@@ -1517,13 +1605,38 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     // when the activation token arrives, after the keys' paths are freed.
     try f.add(.{ .name = "bin", .dir = true });
     try f.add(.{ .name = "bin/record-args", .mode = 0o755 });
-    try f.writeFile("bin/record-args", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    try f.writeFile("bin/record-args",
+        \\#!/bin/sh
+        \\d=$(dirname "$0")
+        \\{ pwd -P; for a in "$@"; do printf '%s\n' "$a"; done; } > "$d/out.tmp" && mv "$d/out.tmp" "$d/out"
+        \\
+    );
     for ([_][]const u8{ ".local", ".local/share", ".local/share/applications", ".config" }) |d| {
         if (!f.exists(d)) try f.add(.{ .name = d, .dir = true });
     }
-    try f.writeFile(".local/share/applications/org.example.Imv.desktop", "[Desktop Entry]\nType=Application\nName=imv\nExec=record-args %F\nMimeType=image/png;\n");
-    try f.writeFile(".local/share/applications/org.example.Nvim.desktop", "[Desktop Entry]\nType=Application\nName=Neovim\nExec=record-args %F\nTerminal=true\nMimeType=text/plain;\n");
-    try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\ntext/plain=org.example.Nvim.desktop\n");
+    try f.writeFile(".local/share/applications/org.example.Imv.desktop",
+        \\[Desktop Entry]
+        \\Type=Application
+        \\Name=imv
+        \\Exec=record-args %F
+        \\MimeType=image/png;
+        \\
+    );
+    try f.writeFile(".local/share/applications/org.example.Nvim.desktop",
+        \\[Desktop Entry]
+        \\Type=Application
+        \\Name=Neovim
+        \\Exec=record-args %F
+        \\Terminal=true
+        \\MimeType=text/plain;
+        \\
+    );
+    try f.writeFile(".config/mimeapps.list",
+        \\[Default Applications]
+        \\image/png=org.example.Imv.desktop
+        \\text/plain=org.example.Nvim.desktop
+        \\
+    );
     try f.add(.{ .name = "work/shot.png", .size = 10 });
     var cmd: [512]u8 = undefined;
     const ln = try std.mem.printSentinel(&cmd, "ln -s src '{s}/work/linked'", .{f.path}, 0);
@@ -1544,14 +1657,27 @@ test "opening: %F applications like imv and nvim get the paths, in a terminal, t
     var eb: [2048]u8 = undefined;
     // Text in nvim's terminal, in the file's folder.
     try h.typeText("fa-\n");
-    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work\n-e\nrecord-args\n{0s}/work/a-very-long-file-name-that-does-not-fit-in-its-column.txt\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(
+        try std.mem.print(
+            &eb,
+            "{0s}/work\n-e\nrecord-args\n{0s}/work/a-very-long-file-name-that-does-not-fit-in-its-column.txt\n",
+            .{f.path},
+        ),
+        try recorded(&h, &f, &rb),
+    );
     // Through a symlinked folder: the path as browsed.
     try h.typeText("flil");
     try h.typeText("fAp\n");
-    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work/src\n-e\nrecord-args\n{0s}/work/linked/App.zig\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(
+        try std.mem.print(&eb, "{0s}/work/src\n-e\nrecord-args\n{0s}/work/linked/App.zig\n", .{f.path}),
+        try recorded(&h, &f, &rb),
+    );
     // Both images at once, with imv's %F.
     try h.typeText("hfph fsho \n");
-    try testing.expectEqualStrings(try std.mem.print(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}), try recorded(&h, &f, &rb));
+    try testing.expectEqualStrings(
+        try std.mem.print(&eb, "{0s}/work\n{0s}/work/photo.png\n{0s}/work/shot.png\n", .{f.path}),
+        try recorded(&h, &f, &rb),
+    );
 }
 
 test "terminals in folders: S, :terminal, o on a folder, and the menus, with a token" {
@@ -1562,7 +1688,11 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     // was given, and its arguments.
     try f.add(.{ .name = "bin", .dir = true });
     try f.add(.{ .name = "bin/fake-term", .mode = 0o755 });
-    try f.writeFile("bin/fake-term", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; printf 'token=%s\\n' \"$XDG_ACTIVATION_TOKEN\"; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    try f.writeFile(
+        "bin/fake-term",
+        "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; printf 'token=%s\\n' \"$XDG_ACTIVATION_TOKEN\"; " ++
+            "for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n",
+    );
     const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
     var saved: [4096]u8 = undefined;
     const saved_path = try std.mem.printSentinel(&saved, "{s}", .{old_path}, 0);
@@ -1581,36 +1711,59 @@ test "terminals in folders: S, :terminal, o on a folder, and the menus, with a t
     // S: in the folder shown, with a token so that it takes focus.
     try h.typeText("S");
     const out = try recorded(&h, &f, &rb);
-    try testing.expectEqualStrings(try std.mem.print(&eb, "{s}/work\n", .{f.path}), out[0 .. std.mem.findScalar(u8, out, '\n').? + 1]);
+    try testing.expectEqualStrings(
+        try std.mem.print(&eb, "{s}/work\n", .{f.path}),
+        out[0 .. std.mem.findScalar(u8, out, '\n').? + 1],
+    );
     try testing.expect(std.mem.find(u8, out, "\ntoken=headless-token-") != null);
     try testing.expect(std.mem.endsWith(u8, out, "\n--title\nx\n"));
     // :terminal with a folder, relative to this one.
     try h.typeText(":terminal docs\n");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/docs\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(
+        u8,
+        try recorded(&h, &f, &rb),
+        try std.mem.print(&eb, "{s}/work/docs\n", .{f.path}),
+    ));
     // o on a folder: the terminal comes first, as 1.
     try h.typeText("fsr");
     try testing.expectEqualStrings("src", h.hovered());
     try h.typeText("o");
     try testing.expect(menuHas(&h, "Terminal"));
     try h.typeText("1");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/src\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(
+        u8,
+        try recorded(&h, &f, &rb),
+        try std.mem.print(&eb, "{s}/work/src\n", .{f.path}),
+    ));
     try testing.expectEqualStrings("work", model.basename(h.dir().path));
     // The right-click menus: on a folder, in it; on empty space, here.
     try rightClick(&h, h.window(), try h.expect(.list_item, "docs"));
     try choose(&h, "Open terminal here");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work/docs\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(
+        u8,
+        try recorded(&h, &f, &rb),
+        try std.mem.print(&eb, "{s}/work/docs\n", .{f.path}),
+    ));
     const files = try h.expect(.list, "Files");
     var below = files;
     below.bounds.y = files.bounds.y + files.bounds.height - 40;
     below.bounds.height = 20;
     try rightClick(&h, h.window(), below);
     try choose(&h, "Open terminal here");
-    try testing.expect(std.mem.startsWith(u8, try recorded(&h, &f, &rb), try std.mem.print(&eb, "{s}/work\n", .{f.path})));
+    try testing.expect(std.mem.startsWith(
+        u8,
+        try recorded(&h, &f, &rb),
+        try std.mem.print(&eb, "{s}/work\n", .{f.path}),
+    ));
 }
 
 /// Moves the pointer to the middle of node `n`.
 fn hover(h: *Harness, n: siv.TestNode) !void {
-    try siv.check(c.siv_test_pointer_move(h.window(), n.bounds.x + n.bounds.width / 2, n.bounds.y + n.bounds.height / 2));
+    try siv.check(c.siv_test_pointer_move(
+        h.window(),
+        n.bounds.x + n.bounds.width / 2,
+        n.bounds.y + n.bounds.height / 2,
+    ));
     try h.settle();
 }
 
@@ -1696,7 +1849,11 @@ fn dragOver(h: *Harness, from: siv.TestNode, to: siv.TestNode) !void {
 }
 
 fn moveOver(h: *Harness, to: siv.TestNode) !void {
-    try siv.check(c.siv_test_pointer_move(h.window(), to.bounds.x + @min(to.bounds.width / 2, 40), to.bounds.y + to.bounds.height / 2));
+    try siv.check(c.siv_test_pointer_move(
+        h.window(),
+        to.bounds.x + @min(to.bounds.width / 2, 40),
+        to.bounds.y + to.bounds.height / 2,
+    ));
     try h.settle();
 }
 
@@ -1844,11 +2001,23 @@ test "clicks on the empty space below the rows open nothing and go nowhere" {
     // Opening photo.png would run the recorder, as imv.
     try f.add(.{ .name = "bin", .dir = true });
     try f.add(.{ .name = "bin/record-args", .mode = 0o755 });
-    try f.writeFile("bin/record-args", "#!/bin/sh\nd=$(dirname \"$0\")\n{ pwd -P; for a in \"$@\"; do printf '%s\\n' \"$a\"; done; } > \"$d/out.tmp\" && mv \"$d/out.tmp\" \"$d/out\"\n");
+    try f.writeFile("bin/record-args",
+        \\#!/bin/sh
+        \\d=$(dirname "$0")
+        \\{ pwd -P; for a in "$@"; do printf '%s\n' "$a"; done; } > "$d/out.tmp" && mv "$d/out.tmp" "$d/out"
+        \\
+    );
     for ([_][]const u8{ ".local", ".local/share", ".local/share/applications", ".config" }) |d| {
         if (!f.exists(d)) try f.add(.{ .name = d, .dir = true });
     }
-    try f.writeFile(".local/share/applications/org.example.Imv.desktop", "[Desktop Entry]\nType=Application\nName=imv\nExec=record-args %F\nMimeType=image/png;\n");
+    try f.writeFile(".local/share/applications/org.example.Imv.desktop",
+        \\[Desktop Entry]
+        \\Type=Application
+        \\Name=imv
+        \\Exec=record-args %F
+        \\MimeType=image/png;
+        \\
+    );
     try f.writeFile(".config/mimeapps.list", "[Default Applications]\nimage/png=org.example.Imv.desktop\n");
     const old_path = std.mem.span(getenv("PATH") orelse "/usr/bin:/bin");
     var saved: [4096]u8 = undefined;
@@ -1906,7 +2075,8 @@ test "folders follow changes on disk: the current one, its parent, and the previ
             const w = x.win.?;
             const pd = w.parent_col.dir orelse return false;
             const prev = w.preview.column.dir orelse return false;
-            return x.dir().indexOf("fresh.txt") != null and pd.indexOf("Pictures") != null and prev.indexOf("logo.svg") != null;
+            return x.dir().indexOf("fresh.txt") != null and pd.indexOf("Pictures") != null and
+                prev.indexOf("logo.svg") != null;
         }
     };
     try h.waitFor(&h, Cond.ok);

@@ -99,7 +99,12 @@ pub const Builder = struct {
         errdefer b.gpa.free(owned_path);
         const owned_names = try b.names.toOwnedSlice(b.gpa);
         errdefer b.gpa.free(owned_names);
-        return .{ .gpa = b.gpa, .path = owned_path, .names = owned_names, .entries = try b.entries.toOwnedSlice(b.gpa) };
+        return .{
+            .gpa = b.gpa,
+            .path = owned_path,
+            .names = owned_names,
+            .entries = try b.entries.toOwnedSlice(b.gpa),
+        };
     }
 };
 
@@ -197,7 +202,12 @@ pub fn classify(db: *mime.Db, dirfd: i32, zname: [*:0]const u8, nm: []const u8, 
 }
 
 fn readHead(dirfd: i32, zname: [*:0]const u8, buf: []u8) []const u8 {
-    const rc = linux.openat(dirfd, zname, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true, .NOCTTY = true }, 0);
+    const rc = linux.openat(dirfd, zname, .{
+        .ACCMODE = .RDONLY,
+        .CLOEXEC = true,
+        .NONBLOCK = true,
+        .NOCTTY = true,
+    }, 0);
     if (linux.errno(rc) != .SUCCESS) return buf[0..0];
     const fd: i32 = @intCast(rc);
     defer _ = linux.close(fd);
@@ -256,7 +266,9 @@ pub fn thumbnailable(nm: []const u8) bool {
     const ext_raw = nm[dot + 1 ..];
     if (ext_raw.len > ext_buf.len) return false;
     const ext = std.ascii.lowerString(&ext_buf, ext_raw);
-    for ([_][]const u8{ "png", "jpg", "jpeg", "gif", "webp", "avif", "jxl", "svg" }) |x| if (std.mem.eql(u8, ext, x)) return true;
+    for ([_][]const u8{ "png", "jpg", "jpeg", "gif", "webp", "avif", "jxl", "svg" }) |x| {
+        if (std.mem.eql(u8, ext, x)) return true;
+    }
     return false;
 }
 
@@ -367,7 +379,15 @@ pub fn naturalOrder(a_in: []const u8, b_in: []const u8) std.math.Order {
 /// Copies the indices of `order` whose entries match into `out` and
 /// returns how many: hidden entries only with `show_hidden`, and with a
 /// query, names containing it case-insensitively.
-pub fn filter(l: *const Listing, order: []const u32, out: []u32, query: []const u8, show_hidden: bool, types: ?*const TypeFilter, db: ?*mime.Db) usize {
+pub fn filter(
+    l: *const Listing,
+    order: []const u32,
+    out: []u32,
+    query: []const u8,
+    show_hidden: bool,
+    types: ?*const TypeFilter,
+    db: ?*mime.Db,
+) usize {
     var n: usize = 0;
     for (order) |i| {
         const e = l.entries[i];
@@ -428,7 +448,9 @@ pub fn matches(nm: []const u8, query: []const u8) bool {
 
 /// "1.2 MB" (decimal units, as GNOME and the SI do), "512 bytes".
 pub fn formatSize(buf: []u8, size: u64) []const u8 {
-    if (size < 1000) return std.mem.print(buf, "{d} {s}", .{ size, if (size == 1) "byte" else "bytes" }) catch buf[0..0];
+    if (size < 1000) {
+        return std.mem.print(buf, "{d} {s}", .{ size, if (size == 1) "byte" else "bytes" }) catch buf[0..0];
+    }
     const units = [_][]const u8{ "kB", "MB", "GB", "TB", "PB" };
     var v: f64 = @floatFromInt(size);
     var u: usize = 0;
