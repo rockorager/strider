@@ -18,7 +18,7 @@ use std::time::Duration;
 use keywork::desktop::watch::{DirWatcher, WatchId};
 use keywork::prelude::*;
 use keywork::theme::{
-    Appearance, ColorRole, Corner, Len, Paint, Palette as Scale, Seeds, Theme, contrast_ratio,
+    Appearance, ColorRole, Paint, Palette as Scale, Seeds, Theme, contrast_ratio,
 };
 use keywork::{FontFamily, Instant, Timer};
 use strider_core::omarchy::{Key, Mode, Palette, Rgba, mix, theme_dirs};
@@ -556,8 +556,7 @@ fn desktop_accent(theme: &Theme) -> Option<keywork::Color> {
 }
 
 /// What the window does to every theme it gets: text in monospace, or the family
-/// Fontconfig names for it since the configuration changed, Strider's tones, and the column
-/// lists' rows square and edge to edge. Without an Omarchy theme, siv's palette in the
+/// Fontconfig names for it since the configuration changed, and Strider's tones. Without an Omarchy theme, siv's palette in the
 /// desktop's light or dark, with its accent. Under an Omarchy theme, its mode, whatever the
 /// desktop prefers. In higher contrast, siv's high-contrast palette, an Omarchy theme's mode
 /// kept, as siv had it: Omarchy's themes have no high-contrast variant, and theirs would undo
@@ -584,8 +583,6 @@ pub fn map(
             None => theme,
         };
         theme.fonts.ui = family;
-        theme.styles.list.inset = Len::Px(0.0);
-        theme.styles.list.corner = Corner::Square;
         // The picker's, the tasks', and the which-key popup's cards, in siv's border.
         theme.styles.surface.card.border = Some(ColorRole::Border.paint());
         match tones {
@@ -883,8 +880,7 @@ mod tests {
 
     // Without Omarchy, the colors the Zig build's goldens show, siv's built-in palette, in
     // light, dark, and higher contrast in each: the three column tones, the chrome, the
-    // cursor's row and its text, folders' accent, and the dividers. The column lists' rows
-    // are square and edge to edge in each.
+    // cursor's row and its text, folders' accent, and the dividers.
     #[test]
     fn without_omarchy_strider_wears_siv_s_palette() {
         let hex = |c: u32| Color::hex(c).to_srgba8();
@@ -937,8 +933,6 @@ mod tests {
                     "{desktop:?} {paint:?}"
                 );
             }
-            assert_eq!(t.styles.list.inset, Len::Px(0.0));
-            assert_eq!(t.styles.list.corner, Corner::Square);
         }
         // The cursor's row reads on the selection: dark text on light blue, white on the
         // solid accent in higher contrast.
@@ -1003,9 +997,6 @@ mod tests {
         }
         let t = theme(&mut h);
         assert_eq!(t.appearance, Appearance::Light);
-        // The column lists' rows stay square and edge to edge through the switch.
-        assert_eq!(t.styles.list.inset, Len::Px(0.0));
-        assert_eq!(t.styles.list.corner, Corner::Square);
         assert_eq!(
             t.color(Tone::Preview.paint()).to_srgba8(),
             Color::hex(0xeff1f5).to_srgba8()
