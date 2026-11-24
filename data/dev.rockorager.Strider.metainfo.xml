@@ -10,12 +10,11 @@
     <dbus type="user">org.freedesktop.FileManager1</dbus>
   </provides>
   <description>
-    <p>A ranger- and yazi-style file manager for Wayland, built on siv:
-    the parent folder, the current one, and a live preview side by side;
-    vim keys with counts, search, marks, visual selection, bookmarks, and
-    tabs; a command line with completion; and copy, move, trash, and
-    delete with undo. Keymaps, options, previewers, and commands are
-    configured in Lua.</p>
+    <p>A ranger- and yazi-style file manager for Wayland: the parent
+    folder, the current one, and a live preview side by side; vim keys
+    with counts, search, marks, visual selection, bookmarks, and tabs; a
+    command line with completion; and copy, move, trash, and delete with
+    undo. Keys, options, and bookmarks are configured in a JSON file.</p>
   </description>
   <categories>
     <category>System</category>

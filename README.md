@@ -3,12 +3,13 @@
 # Strider
 
 A fully keyboard-driven file manager for Linux on Wayland in the style of
-ranger and yazi, built on [siv](https://github.com/rockorager/siv): the
-parent folder, the current folder, and a live preview of the entry under
-the cursor, side by side; vim keys; a command line; and Lua for
-configuration. The mouse works, but nothing needs it.
+ranger and yazi, in Rust on
+[Keywork](https://tangled.org/rockorager.dev/keywork): the parent folder,
+the current folder, and a live preview of the entry under the cursor, side
+by side; vim keys; a command line; and a JSON file for configuration. The
+mouse works, but nothing needs it.
 
-![The three columns: the parent folder, src, and main.zig previewed with syntax coloring](tests/golden/strider-light.png)
+![The three columns: the parent folder, src, and main.zig previewed with syntax coloring](docs/screenshots/light.png)
 
 Strider is Aragorn's name as a ranger. The program is `strider`, the
 app id `dev.rockorager.Strider`.
@@ -17,66 +18,64 @@ app id `dev.rockorager.Strider`.
 
 The best of the terminal with the affordances of a GUI. From the
 terminal: keyboard first, modal, scriptable (every action is a named
-command, configured in Lua), dense, and fast. From the GUI: what a
+command, bound to keys in `config.json`), dense, and fast. From the GUI: what a
 window can offer that a terminal cannot, where it helps, such as column
 boundaries you can drag, a resize cursor that says so, and surfaces that
 tell the columns apart. Neither half gives way to the other: everything
 the mouse or a visual cue does has a key and a command, and the keys
 never wait for the pointer.
 
-On sway (headless, 1280×800, driven with wtype): an image previewed at
-its displayed size, an archive listing, the which-key popup after `g`,
-the dark style with a syntax-colored README, the fuzzy finder (`gf`), a
-copy paused in the tasks view (`w`), a program in hex, the context menu
-(Menu key), the properties dialog (Alt+Enter), and the default light
-view with a surface per column. Last, Omarchy's tokyo-night and
-catppuccin-latte themes, which it follows live (headless captures).
+Rendered headless from the scenes the tests share, at 1280×800: an image
+previewed at its displayed size, an archive listing, the which-key popup
+after `g`, the dark style in a visual range, the fuzzy finder (`gf`), the
+tasks view (`w`), a binary file in hex, the context menu (Menu key), the
+properties dialog (Alt+Enter), and the default light view with a surface
+per column. Last, Omarchy's tokyo-night and catppuccin-latte themes, which
+it follows live.
 
-|                                                                                     |                                                                                        |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| ![landscape.png previewed](docs/screenshots/image-preview.png)                      | ![assets.tar.gz listed](docs/screenshots/archive-preview.png)                          |
-| ![The keys after g](docs/screenshots/which-key.png)                                 | ![The dark style](docs/screenshots/dark-text.png)                                      |
-| ![gf: files below, ranked as you type](docs/screenshots/picker.png)                 | ![w: a copy paused in the tasks view](docs/screenshots/tasks.png)                      |
-| ![A program's start in hex](docs/screenshots/hex.png)                               | ![The context menu, its keys beside each command](docs/screenshots/menu.png)           |
-| ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png)            |
-| ![Omarchy's tokyo-night theme](tests/golden/strider-omarchy-tokyo-night.png)        | ![Omarchy's catppuccin-latte theme](tests/golden/strider-omarchy-catppuccin-latte.png) |
+|                                                                                     |                                                                                    |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| ![photo.png previewed](docs/screenshots/image-preview.png)                          | ![backup.tar.gz listed](docs/screenshots/archive-preview.png)                      |
+| ![The keys after g](docs/screenshots/which-key.png)                                 | ![The dark style](docs/screenshots/dark-text.png)                                  |
+| ![gf: files below, ranked as you type](docs/screenshots/picker.png)                 | ![w: copies in the tasks view](docs/screenshots/tasks.png)                         |
+| ![A binary file in hex](docs/screenshots/hex.png)                                   | ![The context menu, its keys beside each command](docs/screenshots/menu.png)       |
+| ![Properties: the mode typed or ticked, the owner](docs/screenshots/properties.png) | ![The default light view: a surface per column](docs/screenshots/light.png)        |
+| ![Omarchy's tokyo-night theme](docs/screenshots/omarchy-tokyo-night.png)            | ![Omarchy's catppuccin-latte theme](docs/screenshots/omarchy-catppuccin-latte.png) |
 
 ## Install
 
-You need Zig 0.17 and the development files of libwayland-client,
-xkbcommon, Fontconfig, and the Vulkan headers. On Arch:
+You need Rust, at the version `rust-toolchain.toml` names (rustup
+installs it when Cargo first runs), and [just](https://just.systems). The
+program links nothing but libc; at run time it needs Fontconfig and
+shared-mime-info, and D-Bus for its single instance and services. On Arch:
 
 ```sh
-sudo pacman -S --needed zig wayland libxkbcommon fontconfig vulkan-headers shared-mime-info
-sudo pacman -S --needed udisks2 poppler   # optional: drives, PDF previews
+sudo pacman -S --needed rustup just fontconfig shared-mime-info
+sudo pacman -S --needed udisks2 poppler libarchive ffmpeg   # optional: drives, PDF, archive, and video previews
 ```
-
-(If your distribution's Zig is not 0.17, take it from ziglang.org, or
-let [mise](https://mise.jdx.dev) install the one `mise.toml` pins.
-libarchive's `bsdtar`, which lists archives other than zip and tar.gz,
-comes with pacman.) The build fetches siv and its other Zig packages,
-pinned in `build.zig.zon`, on first use:
 
 ```sh
 git clone https://github.com/rockorager/strider
 cd strider
-zig build run                         # try it from zig-out
-zig build install --prefix ~/.local   # install for yourself
+just run                    # try it
+just install                # a release build, in ~/.local
+just install /usr/local     # or under another prefix
 ```
 
-`zig build install --prefix ~/.local` installs `bin/strider` (one
-program: libsiv and its Lua binding are linked in), the desktop file
-`share/applications/dev.rockorager.Strider.desktop`, the icon, AppStream
-metadata, a D-Bus service file for `dev.rockorager.Strider`, and an example
-configuration in `share/doc/strider/init.lua`. `-Dfilemanager1=true`
-also installs a service file for `org.freedesktop.FileManager1`, so other
-applications' "Show in folder" starts it (only one file manager should).
-`xdg-mime default dev.rockorager.Strider.desktop inode/directory` makes it the
-default for folders.
+`just install` installs `bin/strider`, the desktop file
+`share/applications/dev.rockorager.Strider.desktop` (and the file
+chooser's, hidden from launchers), the icon, AppStream metadata, D-Bus
+service files for `dev.rockorager.Strider` and the file chooser portal,
+and `share/xdg-desktop-portal/portals/strider.portal`. `just install
+~/.local true` also installs a service file for
+`org.freedesktop.FileManager1`, so other applications' "Show in folder"
+starts it (only one file manager should). `just fetch` installs the newest
+release's build instead, without compiling. `xdg-mime default
+dev.rockorager.Strider.desktop inode/directory` makes it the default for
+folders.
 
 ```
-strider [FOLDER or FILE ...] [--new-window] [--hidden]
-            [--dark | --light] [--rtl] [--clean] [--config FILE]
+strider [FOLDER or FILE ...] [--new-window] [--hidden] [--dark | --light]
 ```
 
 One instance serves every window: running it again opens its folders as
@@ -177,7 +176,7 @@ with what came of them. In it, `j` and `k` move, `p` or Space pauses and
 resumes (the operation stops at its next file or 4 MiB chunk), `x` or
 `dd` cancels a running one or takes a finished one off the list, and
 Esc, `q`, or `w` closes it. Its keys are a keymap mode of their own
-(`t` in `strider.map`), and `:task-pause` and `:task-cancel` act on the first
+(`t` in `config.json`'s keys and `:map`), and `:task-pause` and `:task-cancel` act on the first
 running operation with the view closed.
 
 The path in the header is a breadcrumb: hovering a folder in it
@@ -191,8 +190,7 @@ click switches to them.
 Right-clicking an entry, the selection, or a column's empty space (or
 pressing the Menu key or Shift+F10 for the cursor's row) opens a menu of
 what applies, each item a command with its keys beside it, so the menu
-teaches the keymap; commands from init.lua are in a submenu of their
-own. A right click outside the selection moves the cursor and drops the
+teaches the keymap. A right click outside the selection moves the cursor and drops the
 marks, as in other file managers.
 
 Dialogs come up where a dialog beats the status line, and work from the
@@ -218,8 +216,7 @@ the last 200 in the preview column, newest first.
 
 Folders show their entries; text files their start with syntax coloring
 (Zig, C and C++, Rust, Go, Python, JavaScript and TypeScript, Lua, shell,
-JSON, TOML, YAML, Markdown, diffs, and more); images decode on siv's
-workers at the size the column shows them; archives list their entries
+JSON, TOML, YAML, Markdown, diffs, and more); images decode on workers at the size the column shows them; archives list their entries
 (zip and its relatives, tar and tar.gz directly, others with `bsdtar`);
 PDFs show their first page (poppler's `pdftoppm`, else MuPDF's `mutool`,
 else a thumbnail another program cached); videos a frame
@@ -230,7 +227,7 @@ target. When a program is missing the details say what to install.
 
 Limits: text previews read `preview_max_bytes` (128 KiB); images larger
 than `preview_max_image_bytes` (64 MiB) show their details; programs a
-preview runs (renderers, thumbnailers, Lua previewers) are killed after
+preview runs (renderers and thumbnailers) are killed after
 15 seconds or as soon as the cursor moves on. Pipes, sockets, and devices
 are never opened.
 
@@ -244,49 +241,60 @@ read folders.
 
 ## Configuration
 
-`$XDG_CONFIG_HOME/strider/init.lua` (`~/.config/strider/init.lua`)
-runs at startup in Lua 5.5, through siv's Lua binding. Nothing is
-required; [data/init.lua](data/init.lua) is an annotated example.
+`$XDG_CONFIG_HOME/strider/config.json` (`~/.config/strider/config.json`)
+is read at startup. Nothing is required, and every section is optional:
 
-```lua
-local strider = require("strider")
-
-strider.set { hidden = true, ratio = { 1, 3, 4 }, sort = "modified", sort_reverse = true }
-strider.opt.scroll_off = 5
-
-strider.map("n", "gp", "cd ~/Projects", "Projects")          -- keys run commands…
-strider.map({ "n", "v" }, "<C-c>", "yank", "Copy")
-strider.map("n", "gi", function(count)                         -- …or Lua functions
-	strider.notify(#strider.selected() .. " targets")
-end, "Count the targets")
-strider.unmap("n", "dD")
-
-strider.command("archive", function(args, count)               -- :archive name.tar.gz
-	strider.exec("shell tar -czf " .. ("%q"):format(args) .. ' "$@"')
-end, "Pack the targets")
-
-strider.previewer { name = "*.csv", run = function(path, mime) return "…" end }
-strider.previewer { mime = "video/*", cmd = { "mediainfo", "%s" } }
-
-strider.on("cd", function(path) end)
-strider.bookmark("p", os.getenv("HOME") .. "/Projects")
-
--- siv itself: timers, jobs, notifications, D-Bus…, on the running app.
-local app = strider.siv_app()
-app:timer_start(1000, function() strider.notify("a second later") end)
+```json
+{
+  "options": {
+    "hidden": true,
+    "ratio": [1, 3, 4],
+    "sort": "modified",
+    "sort_reverse": true,
+    "scroll_off": 5
+  },
+  "keys": {
+    "n": {
+      "gp": "cd ~/Projects",
+      "gs": { "cmd": "cd ~/Pictures/Screenshots", "desc": "Screenshots" },
+      "<C-c>": "yank"
+    },
+    "v": { "<C-c>": "yank" },
+    "t": { "<Del>": "task-cancel" }
+  },
+  "unmap": { "n": ["dD"] },
+  "bookmarks": { "p": "~/Projects", "t": "/tmp" }
+}
 ```
 
-Modes for `strider.map` and `:map` are `n` (normal), `v` (visual), and `t`
-(the tasks view). `strider` also has `get`, `cwd`, `hovered`, `selected`, `cd`, `exec` (any
-command line), `notify`, and `siv_window`. Every option is also `:set
-name value` while running (`:set hidden!` toggles); `:map` and `:unmap`
-bind keys, `:lua` runs Lua. Options: `hidden`, `sort`, `sort_reverse`,
-`dirs_first` (on by default), `ratio`, `fit_parent`, `narrow_width`, `icons`, `preview`, `preview_images`,
-`preview_max_bytes`, `syntax`, `which_key_delay`, `scroll_off`,
+- `options`: any option below, by name, as JSON: `true` or `false`,
+  numbers, strings, `ratio` as three shares, `chooser_size` as width and
+  height.
+- `keys`: bindings over the defaults, by mode: `n` (normal), `v`
+  (visual), and `t` (the tasks view). Keys are in vim's notation (`gp`,
+  `<C-c>`, `<A-CR>`, `<S-Tab>`, `<F2>`). Each runs a command line, the
+  same as typed after `:`, given as a string, or as `{ "cmd": ...,
+  "desc": ... }`, whose description the which-key popup and `g?` show.
+- `unmap`: default bindings to remove, by mode.
+- `bookmarks`: one character each, to an absolute path or one under
+  `~`, as `m` sets them.
+
+A mistake costs only the entry it is in: the rest still applies, and
+Strider names what it skipped on stderr (and a bad binding in the first
+window's status line). The Zig build's `init.lua` is no longer read;
+Strider says so once while one is there without a `config.json`.
+
+Every option is also `:set name value` while running (`:set hidden!`
+toggles); `:map [mode] keys command` and `:unmap [mode] keys` bind keys
+for the session. Options: `hidden`, `sort` (`name`, `size`, `modified`,
+`type`, `extension`), `sort_reverse`, `dirs_first` (on by default),
+`ratio`, `fit_parent`, `narrow_width`, `chooser_size`, `icons`,
+`preview`, `preview_images`, `preview_max_bytes`,
+`preview_max_image_bytes`, `syntax`, `which_key_delay`, `scroll_off`,
 `wrap_scan`, `find_auto_accept`, `confirm_delete`, `show_size`,
-`terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms` (how
-old a folder that cannot be watched, such as the trash, may be before
-it is read again; watched folders follow changes on disk at once).
+`terminal`, `editor`, `editor_in_terminal`, `shell`, `stale_ms` (how old a
+folder that cannot be watched, such as the trash, may be before it is
+read again; watched folders follow changes on disk at once).
 
 Drag the boundary between two columns to resize them (the pointer turns
 into a resize arrow over it), or press `>` and `<` (32 px, counts
@@ -309,23 +317,16 @@ Bookmarks and the command history persist in
 ## Desktop integration
 
 - Light, dark, and high-contrast styles and the accent follow the desktop
-  (every color is a siv theme token, syntax colors included); right to
-  left layouts mirror the columns.
-- Themes follow the user's, live, as every siv application does:
-  Omarchy's current theme (switch it with `omarchy theme set` and the
-  open windows change), or `~/.config/siv/theme.toml`, siv's own format
-  (color tokens by name, with `[light]` and `[dark]` tables; see siv's
-  theming chapter). The columns take the theme's surfaces, folders its
-  accent, executables and syntax its named colors; high contrast stays
-  siv's. Folder icons come from the icon theme, else a bundled symbolic
-  folder in the folder color. `SIV_THEME=none` turns user themes off. `--dark` and `--light`
-  pick a variant, and a theme for the other one gives way to siv's.
+  (through the settings portal); `--dark` and `--light` pick a variant.
+- Omarchy's current theme is followed live: switch it with `omarchy theme
+  set` and the open windows change. The columns take the theme's
+  surfaces, folders its accent, executables and syntax its named colors.
+  Icons come from the icon theme, and change with it.
 - Fonts come from Fontconfig: all of Strider's text is in `monospace`,
-  so `omarchy font set` (or any fonts.conf change) applies live. On GNOME
-  and KDE the desktop's monospace font applies instead.
+  so `omarchy font set` (or any fonts.conf change) applies live.
 - Screen readers: the columns are lists whose focused row is the cursor,
   marked entries say so, the status line is a live region, prompts are
-  labeled text fields (AT-SPI, through siv).
+  labeled text fields (AT-SPI, through Keywork).
 - Types come from shared-mime-info: globs, and the file's first bytes
   (magic rules, then text or binary) where several types claim a name,
   as `*.ts` (TypeScript or an MPEG transport stream).
@@ -391,7 +392,7 @@ The chooser is the same three columns, with every key, preview, search,
   over it. A name with slashes saves in that folder, as Emacs takes one
   (`../notes.txt`, `~/Documents/a.pdf`). A file that exists asks first
   (a dialog). Saving several files picks a folder. `:insert [stem|start|end|clear]`
-  is the same, for init.lua, in every chooser.
+  is the same, for key bindings, in every chooser.
 - The application's filters are a combo box in the bar: they hide other
   files in the folder shown, never folders. Its choices are check boxes
   and combo boxes; their values go back with the answer.
@@ -402,8 +403,8 @@ The chooser is the same three columns, with every key, preview, search,
   carries the application's label, and the window its title.
 - It starts in the folder the application suggests, else where the last
   chooser picked, else home.
-- Its window asks for `chooser_size` (960x640; `strider.set("chooser_size",
-  {1100, 700})` or `:set chooser_size 1100 700`) until you resize one:
+- Its window asks for `chooser_size` (960x640; `"chooser_size": [1100, 700]`
+  in `config.json`'s options, or `:set chooser_size 1100 700`) until you resize one:
   the size you give a chooser is the next one's. The bar fits any width
   (the buttons always show; filters and choices wrap onto a row above),
   and a narrow chooser keeps the parent column longer than the preview.
@@ -416,7 +417,7 @@ The chooser is the same three columns, with every key, preview, search,
   match:class dev.rockorager.Strider.Chooser` (older Hyprland: `windowrule =
   size 960 640, class:^(dev\.rockorager\.Strider\.Chooser)$`).
 
-Set it up once, after `zig build install --prefix ~/.local` (which puts
+Set it up once, after `just install` (which puts
 `strider.portal` in `~/.local/share/xdg-desktop-portal/portals` and
 its D-Bus service in `~/.local/share/dbus-1/services`):
 
@@ -443,7 +444,7 @@ xdg-desktop-portal 1.20.3 and later (Arch has 1.22) find portals in
 `~/.local/share`. With an older one, copy the portal file where it
 looks: `sudo install -Dm644 ~/.local/share/xdg-desktop-portal/portals/strider.portal
 /usr/share/xdg-desktop-portal/portals/strider.portal`, or install
-system-wide with `--prefix /usr`. The bus starts Strider with its
+system-wide with `just install /usr`. The bus starts Strider with its
 activation environment, which needs `WAYLAND_DISPLAY`: Omarchy, GNOME,
 and KDE set it; under other compositors run `dbus-update-activation-environment
 --systemd WAYLAND_DISPLAY` at login. `/usr/lib/xdg-desktop-portal -r -v`
@@ -452,87 +453,27 @@ quits 30 seconds after its last window.
 
 ## Develop
 
-[mise](https://mise.jdx.dev) installs the toolchain, including
-[bs](https://github.com/baskingspot/bs), the Debug-mode compiler used for
-development builds, which also lints: `mise install`, then `just setup`
-for the baskingspot lint rules. `just --list` shows the recipes, and `just ci` builds Strider and
-runs the tests and lint. [`AGENTS.md`](AGENTS.md) has the conventions.
+[mise](https://mise.jdx.dev) installs the tools besides Rust (`mise
+install`: just, shellcheck, shfmt, oxfmt), and rustup the Rust that
+`rust-toolchain.toml` names. `just --list` shows the recipes, and `just ci`
+builds Strider and runs the tests and lint (clippy, rustfmt, shellcheck,
+shfmt, oxfmt, and `just --fmt`). [`AGENTS.md`](AGENTS.md) has the
+conventions.
 
 ```sh
-zig build test                        # unit tests, and the app on siv's headless backend
-SIV_UPDATE_GOLDEN=1 zig build test    # accept new golden images (tests/golden)
-zig build bench                       # startup, memory, and navigating 100 000 entries
+just test                   # unit, statechart, and UI tests on Keywork's headless backend
+target/debug/strider --keywork-list-scenes
+target/debug/strider --keywork-snap "$PWD/out.png" --keywork-scene columns --keywork-size 1000x560
 ```
 
-The headless tests drive the application through siv's public test API
-— keys typed as a user types them, settling, captures compared with
-golden images, and the semantics tree a screen reader reads — with the
-test fonts in `tests/fonts` and the MIME and application data in
-`tests/data`.
-
-`build.zig.zon` pins siv to a commit of its main branch. To move to a
-newer siv, pin its commit, run the tests, and commit `build.zig.zon`:
-
-```sh
-zig fetch --save git+https://github.com/rockorager/siv#COMMIT
-zig build test -j16
-```
-
-To develop against changes in a local siv checkout without pinning
-them, build with `zig build test --fork=../siv` (any step takes it; the
-path is the checkout). Things siv could do better, and decisions left
-to its author, are in [FRICTION.md](FRICTION.md).
-
-## Performance
-
-`zig build bench` (ReleaseSafe, siv's headless backend with the system's
-fonts, warm caches; a 4-core 2.6 GHz Xeon orb, October 2026):
-
-| Measurement                                                              | Result                                                                                |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Startup to the first frame showing a 40-entry folder (its rows included) | 23 ms (UI thread CPU 12 ms)                                                           |
-| The same with the example `data/init.lua` loaded                         | 18 ms                                                                                 |
-| Resident memory with that window open                                    | 36 MiB (heap in use 19.8 MiB)                                                         |
-| Idle for 2 s                                                             | no wakeups                                                                            |
-| A 100 100-entry folder: read, typed, and sorted                          | 248 ms, rows shown at 252 ms; the first frame at 18 ms                                |
-| Memory for those entries                                                 | 8.3 MiB of heap (87 bytes each); 64 MiB resident in all                               |
-| `j`, 300 times, each frame presented and the preview updated             | 1.0 ms UI thread CPU per key (4.0 ms worst, a hex view), each on the next 60 Hz frame |
-| 100 `j`s queued at once (a held key)                                     | 19 ms UI thread CPU in all                                                            |
-| `G`, `gg`                                                                | 1.7 ms each                                                                           |
-| `Ctrl+f` (a page)                                                        | 1.3 ms (1.7 ms worst)                                                                 |
-| `/file-99999` typed, every keystroke searching all names                 | 23 ms for the eleven keystrokes                                                       |
-| `n` (the next match, wrapping around)                                    | 11 ms                                                                                 |
-| `h` to the parent and `l` back in (both folders cached and watched)      | 4.2 ms                                                                                |
-| `Ctrl+a` marking all 100 100                                             | 1.6 ms                                                                                |
-| `sS` (by size, largest first, the cursor kept on its entry), `sn`        | 68 ms, 86 ms                                                                          |
-| `zf-12` typed (filtering as you type)                                    | 22 ms for the three keystrokes                                                        |
-| `gf`: the picker, every one of the 100 100 entries walked                | 52 ms (17 ms UI thread CPU)                                                           |
-| `f9999` typed in it, every keystroke scoring the candidates              | 30 ms for the five keystrokes                                                         |
-| Peak memory                                                              | 86 MiB                                                                                |
-
-Rows are virtualized by siv's views, so a frame costs what is on screen,
-not what is in the folder.
-
-Against GNOME Files (Nautilus 50.3, list view), measured from outside
-both on a laptop's panel under sway (Radeon 760M, Vulkan, 1280×800 at
-60 Hz, real vblank), median of five runs of e022a62; times to the photon.
-GPU memory is from three later runs with siv cb24e9b, after siv's
-renderer stopped making a 16 MiB path mask step and an unused 8 MiB
-color glyph atlas. Method, caveats, and every number:
-[bench/README.md](bench/README.md).
-
-|                                                               | Strider           | Nautilus           |
-| ------------------------------------------------------------- | ----------------- | ------------------ |
-| Warm start to the folder's rows on screen (cold)              | 48 ms (116 ms)    | 228 ms (498 ms)    |
-| Memory after starting: RSS, PSS                               | 61, 43 MiB        | 106, 82 MiB        |
-| Opening 100 100 entries to sorted rows on screen, warm (cold) | 157 ms (809 ms)   | 3.4 s (4.8 s)      |
-| Memory with them open (RSS)                                   | 68 MiB            | 288 MiB            |
-| Down, key to photon: median, worst                            | 12, 21 ms         | 13, 46 ms          |
-| End, Home: median                                             | 12, 12 ms         | 44, 72 ms          |
-| Filtering "12345": each key; the result after the last key    | 13 ms; 13 ms      | 408 ms; 1.8 s      |
-| Idle wakeups: after starting, with 100 100 entries open       | 0, 0.2 per second | 0.6, 98 per second |
-| GPU memory with 100 100 entries open (after starting)         | 40 MiB (39 MiB)   | 31 MiB (30 MiB)    |
+The code is three crates: `strider-core` (the model and formats),
+`strider-machines` (the behavior, as plusthree statecharts), and
+`strider` (the app on Keywork). A scene is a state of the window that
+tests and renders share; `tests/golden` holds the Zig build's captures of
+the same states, to compare renders with. Things that came up while
+building Strider, and decisions about it, are in
+[FRICTION.md](FRICTION.md).
 
 ## License
 
-MIT. siv and what it contains: `share/licenses/strider/`.
+MIT.

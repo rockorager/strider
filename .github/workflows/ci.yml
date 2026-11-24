@@ -1,13 +1,12 @@
-# `zig build test` on every push and pull request, as siv's CI does: the
-# unit tests and the headless tests (the views, keys, file operations,
-# previews, Lua, and the D-Bus services against a private dbus-daemon).
-# Nothing else; the sway session, the real portal, and the benchmarks
-# run by hand.
+# `just ci` on every push and pull request: the build, the tests (the
+# unit tests, the machines, the scenes on Keywork's headless backend, and
+# the D-Bus services against a private dbus-daemon), clippy, rustfmt, and
+# the shell, Markdown, and justfile lint. Nothing else; a real Wayland
+# session, the real portal, and releases run by hand.
 #
-# Arch Linux, as the user's machine. siv is a Zig package pinned in
-# build.zig.zon and builds with its vendored C libraries; the fetched
-# packages (zig-pkg) and their objects in Zig's global cache are kept
-# between runs.
+# Arch Linux, as the user's machine. Rust comes from rustup, at the
+# version rust-toolchain.toml names; the crates Cargo fetched and the
+# target directory are kept between runs.
 name: CI
 
 on:
@@ -29,19 +28,19 @@ jobs:
         shell: runuser -u ci -- bash -eo pipefail {0}
     env:
       MISE_VERSION: 2026.11.6
+      CARGO_TERM_COLOR: always
     steps:
-      # What siv links (libwayland-client, xkbcommon, Fontconfig, FreeType,
-      # the Vulkan headers) and the keymaps; shared-mime-info for types;
-      # dbus for the services tests; poppler's pdftoppm and libarchive's
-      # bsdtar, which previews call; tar and gzip, which a test archives
-      # with.
+      # gcc to link; rustup for Rust; Fontconfig, which Keywork loads, and a
+      # monospace font; the Vulkan loader and Mesa's software driver;
+      # shared-mime-info for types; dbus for the services tests; poppler's
+      # pdftoppm and libarchive's bsdtar, which previews call; tar and gzip,
+      # which tests archive with.
       - name: Packages and the ci user
         shell: bash
         run: |
           pacman -Syu --noconfirm --needed \
-            git curl xz tar gzip pkgconf \
-            wayland libxkbcommon xkeyboard-config fontconfig freetype2 libpng \
-            vulkan-headers vulkan-icd-loader \
+            git curl xz tar gzip gcc rustup \
+            fontconfig ttf-dejavu vulkan-icd-loader vulkan-swrast \
             shared-mime-info dbus poppler libarchive
           useradd -m -u "$(stat -c %u "$GITHUB_WORKSPACE")" ci
           # D-Bus's Peer.GetMachineId reads it; the image has none.
@@ -49,24 +48,25 @@ jobs:
 
       - uses: actions/checkout@v5
 
-      # The toolchain mise.toml pins, checked against
-      # mise.lock, as the orb setup and `just release` install it.
-      - name: mise
+      # The tools mise.toml pins, checked against mise.lock, as the orb
+      # setup and `just release` install them; and the Rust that
+      # rust-toolchain.toml names.
+      - name: mise and Rust
         run: |
           curl -fsSL https://mise.run | MISE_VERSION="v$MISE_VERSION" sh
           ~/.local/bin/mise trust -q mise.toml
           ~/.local/bin/mise install
+          rustup toolchain install --no-self-update
 
-      # Zig's global cache (compiler-rt, libc++, siv's vendored C
-      # libraries), once per siv commit and set of pinned packages.
       - uses: actions/cache@v4
         with:
           path: |
-            zig-pkg
-            /home/ci/.cache/zig
-          key: zig-${{ hashFiles('build.zig.zon') }}-${{ github.sha }}
+            /home/ci/.cargo/registry
+            /home/ci/.cargo/git
+            target
+          key: cargo-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            zig-${{ hashFiles('build.zig.zon') }}-
+            cargo-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
 
-      - name: zig build test
-        run: ~/.local/bin/mise exec -- zig build test -j16 --summary failures
+      - name: just ci
+        run: ~/.local/bin/mise exec -- just ci

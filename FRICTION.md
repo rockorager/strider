@@ -1,14 +1,18 @@
 # Friction log
 
 What building a keyboard-driven, ranger-style file manager on siv's
-public API ran into, in the order found. Each entry says what happened,
-what this project does about it, and its status:
+public API ran into, in the order found, while Strider was written in Zig
+on siv. The Rust build on Keywork took its place with the same behavior,
+so the decisions here still describe the program; the settings written
+as `strider.set { ... }` in `init.lua` are options in `config.json` now
+(README.md), and notes about only the Zig toolchain and its test harness
+are gone. Each entry says what happened, what this project does about
+it, and its status:
 
-- **Fixed** — siv changed in a labeled commit on its main branch (the
-  pin in `build.zig.zon` includes it).
+- **Fixed** — siv changed in a labeled commit on its main branch.
 - **Decide** — a question for siv's author (or the app's owner); the app
   works around it meanwhile. **Decided** — answered.
-- **Noted** — minor, or about Zig or the platform rather than siv.
+- **Noted** — minor, or about the platform rather than siv.
 
 ## Fixed in siv
 
@@ -171,47 +175,26 @@ what this project does about it, and its status:
 
 ## Noted
 
-19. **siv was private, so `zig fetch` could not reach it.** As in
-   siv-files, it was a git submodule (`deps/siv`) and a path dependency.
-   Now that siv is public it is an ordinary package pinned to a commit in
-   `build.zig.zon`; `zig build --fork=PATH` builds against a local
-   checkout.
-
-20. **The focus ring.** siv draws a focus ring when focus moved by
+19. **The focus ring.** siv draws a focus ring when focus moved by
    keyboard; focus returns to the cursor's row from a key handler when a
    prompt closes, so the ring appears then and not before (when focus
    came from creating the window). Both are siv's documented rule; the
    selection highlight is the cursor either way.
 
-21. **Bulk rename waits for the editor.** `R` writes the names to a
+20. **Bulk rename waits for the editor.** `R` writes the names to a
    file, runs `$VISUAL`/`$EDITOR` in a terminal, and renames when the
    editor exits, so the terminal must stay in the foreground until then:
    foot, alacritty, kitty, wezterm, and ghostty do; gnome-terminal does
    with `--wait`, which the app passes. `strider.set { terminal = "...",
    editor = "...", editor_in_terminal = false }` covers the rest.
 
-22. **Settling while a job waits for the user.** As in siv-files:
-    `siv_test_settle` waits for running jobs, so a test cannot settle
-    while a copy waits for the conflict question; the tests dispatch
-    until the question shows.
-
-23. **No monospace font in the tests.** The text preview asks for the
-    generic `monospace` family; the headless tests load only Droid Sans,
-    so their goldens show code in it. Real desktops get their monospace
-    font.
-
-24. **A large static binary.** ReleaseSafe with libsiv, its decoders,
-    and Lua linked in is 46 MB unstripped (`-Doptimize=ReleaseSmall` or
-    stripping makes it much smaller); it maps lazily, so startup does
-    not pay for it.
-
-25. **Driving the app on a headless sway.** With no keyboard attached,
+21. **Driving the app on a headless sway.** With no keyboard attached,
     each `wtype` adds a virtual keyboard, so the seat gains its keyboard
     as wtype starts typing; without a pause (`wtype -s 300 ...`) the
     first press can arrive before siv has the keyboard and is lost. siv's
     own sway test pauses the same way; real keyboards are unaffected.
 
-26. **Names several types claim are settled by content.** `*.ts` is
+22. **Names several types claim are settled by content.** `*.ts` is
     Qt Linguist and MPEG transport stream at weight 50 and, from
     shared-mime-info 2.5 (Arch), TypeScript at 40. The app had taken the
     last line, so TypeScript showed as video. As the spec says, contested
@@ -225,7 +208,7 @@ what this project does about it, and its status:
     databases without a TypeScript type show `.ts` source as plain text,
     still highlighted by its extension.
 
-27. **The columns are flat views** (fixed in siv, 404add3). A siv view
+23. **The columns are flat views** (fixed in siv, 404add3). A siv view
     draws a frame, and since siv 59d01d9 its scroll's corners are rounded
     to the frame's inner curve; replacing the view's visual left that
     clip, so a selected first row had round top corners over square
@@ -234,7 +217,7 @@ what this project does about it, and its status:
     inset) and the columns use it. The tasks view and the pickers keep
     their inset pill rows, rounded alike on every row.
 
-28. **A click on a column's empty space does nothing** (chosen here,
+24. **A click on a column's empty space does nothing** (chosen here,
     siv 5ef915e fixed the cause). siv's view sent the column an item's
     activation for item 0 when a press below the rows was released, so
     a click there entered the first folder or opened the first file.
@@ -245,7 +228,7 @@ what this project does about it, and its status:
     so a stray click keeps them. The right button there still opens the
     folder's menu.
 
-29. **Folders are the theme's accent** (decided by the user). For a
+25. **Folders are the theme's accent** (decided by the user). For a
     while they took the theme's blue, so that under Omarchy's kanagawa,
     whose accent is its text color, they stood apart from files; the
     user prefers the accent, so under kanagawa folders look like files
@@ -253,13 +236,13 @@ what this project does about it, and its status:
     folder icon stays symbolic, in the accent, and in the selection's
     text color on the cursor's row.
 
-30. **The file chooser** (chosen here; FileChooser portal backend).
+26. **The file chooser** (chosen here; FileChooser portal backend).
     - Keys: Enter picks (in folder mode, the folder under the cursor,
       else the folder shown), `l` and double clicks go into folders and
       pick files, Space marks several. Escape cancels from the columns
       after clearing marks, the visual range, or a filter. `q`,
       Cancel, and closing the window cancel; Tab goes between the save
-      name and the columns. Save is modal like vim (34).
+      name and the columns. Save is modal like vim (30).
     - The bar puts the filters and choices on a row above the name and
       buttons, wrapping; only the name (or the hint) shrinks, so the
       buttons show at any width, even narrower than the window's least
@@ -290,13 +273,13 @@ what this project does about it, and its status:
       and none leave a plain window. It starts where the last chooser
       picked when the application suggests no folder.
 
-31. **A moved bar painted its controls where they had been** (fixed in
+27. **A moved bar painted its controls where they had been** (fixed in
     siv c1a7973). Opening the command line under the chooser's bar
     moved the bar up, but the controls after the first combo box (a
     combo box roots a compositor layer) stayed behind: siv repainted
     only the moved node, not its descendants in other layers.
 
-32. **Hyprland opened a chooser at 360x240** (worked around). On
+28. **Hyprland opened a chooser at 360x240** (worked around). On
     Hyprland 0.56 a chooser (floating: it has a parent) opened at its
     least size, 360x240, not the 960x640 it asks for; reproduced on a
     real Hyprland at scale 1.5. The chooser's least size is now 800x500
@@ -307,7 +290,7 @@ what this project does about it, and its status:
     it gave none, so a save request titled "All Files" counts as
     untitled ("Save a File").
 
-33. **The breadcrumb, terminals in folders, and tab close buttons**
+29. **The breadcrumb, terminals in folders, and tab close buttons**
     (chosen here, on the user's request).
     - The header path underlines a folder only under the pointer (as
       the user asked); the folder shown is the last segment and is not
@@ -326,7 +309,7 @@ what this project does about it, and its status:
       browsers and GTK, with its space kept on every tab so labels never
       move. Closing the last tab closes the window, as `gq` does.
 
-34. **The chooser is modal like vim** (decided by the user). The name field
+30. **The chooser is modal like vim** (decided by the user). The name field
     is insert mode and the columns are normal mode, with the status
     line's badge saying which; the mode is where the keyboard focus is,
     so Escape, Tab, `i`, and clicks all switch it. Escape in the name
@@ -363,7 +346,7 @@ what this project does about it, and its status:
       takes a path; borrowed: a name with slashes saves in that folder
       if it exists.
 
-35. **Visual operators and keys that do nothing** (chosen here, after
+31. **Visual operators and keys that do nothing** (chosen here, after
     the user's `vD` did nothing). Visual mode had `y` and `d` only, and an
     unbound key returned silently.
     - Visual `y`, `d`, `x`, `D`, `X`, `Del`, and `Shift+Del` act on the
@@ -388,7 +371,7 @@ what this project does about it, and its status:
       with Enter and with Tab then Enter, and `vdD`, with the columns
       following each change.
 
-36. **Drag and drop inside the window** (chosen here, on the user's
+32. **Drag and drop inside the window** (chosen here, on the user's
     request). Feedback needed siv (7e4f89b, fcb487f): `siv_image_draw`
     for a drag icon of the file's icon and name, `siv_drag_set_icon` to
     show Move, Copy, or Link as it changes, `siv_drop_set_action` and
@@ -420,7 +403,7 @@ what this project does about it, and its status:
 Places where the mouse or a visual cue should work, by the design
 principle in the README, but does not yet. None is built; pick any.
 
-- **The breadcrumb takes no drops.** Its folders can be clicked (33);
+- **The breadcrumb takes no drops.** Its folders can be clicked (29);
   dropping files on one could move them there, and a right click could
   open that folder's menu.
 - **The mouse's back and forward buttons do nothing.** They could move
@@ -442,6 +425,6 @@ principle in the README, but does not yet. None is built; pick any.
   place, in the row (`r` and F2 alike), as GUI file managers do.
 - **Only the current column has a context menu.** The parent and
   preview columns could have one, for the folders they show (they take
-  drops now, 36).
+  drops now, 32).
 - **The image preview is look-only.** A click could open the image; the
   wheel with Ctrl could zoom it.

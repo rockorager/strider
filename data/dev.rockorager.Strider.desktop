@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Strider
+GenericName=File Manager
+Comment=Browse and organize files from the keyboard, in Miller columns
+Icon=dev.rockorager.Strider
+Exec=@PREFIX@/bin/strider %U
+DBusActivatable=true
+StartupNotify=true
+Terminal=false
+Categories=System;FileManager;FileTools;
+Keywords=folder;manager;explore;disk;filesystem;ranger;yazi;vim;keyboard;miller;columns;
+MimeType=inode/directory;
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=@PREFIX@/bin/strider --new-window

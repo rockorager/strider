@@ -1,30 +1,32 @@
 #!/usr/bin/env bash
-# Prepares a fresh Amp orb (Debian) to build, test, and lint Strider: siv's
-# system libraries and what the program and tests call from apt, the
-# toolchain in mise.toml from mise, bs included, and baskingspot-lint
-# from `just setup`, as on any other machine.
-# Idempotent: a warm orb skips downloads and package installs.
+# Prepares a fresh Amp orb (Debian, x86_64) to build, test, and lint
+# Strider: what the program and its tests load and call from apt, the tools
+# in mise.toml from mise, and Rust from rustup, as on any other machine.
+# Idempotent: a warm orb skips downloads and installs.
 set -euo pipefail
 
 MISE_VERSION=2026.11.6
 
-step() { printf '==> %s\n' "$*"; }
-
-# What siv links (libwayland-client, xkbcommon, Fontconfig, the Vulkan
-# headers), the keymaps its keyboard handling compiles, shared-mime-info
-# and desktop-file-utils for running the program, dbus (with dbus-daemon)
-# for its single-instance and FileManager1 services and the D-Bus tests,
-# and what previews call: poppler's pdftoppm and libarchive's bsdtar.
+# The build links nothing but libc. Keywork loads libfontconfig and
+# libvulkan (Mesa's drivers, lavapipe among them) at run time, and the
+# theme asks fc-match for monospace; DejaVu is a monospace font for the
+# renders. shared-mime-info and desktop-file-utils for types and
+# applications; dbus (with dbus-daemon) for the single instance, the
+# FileManager1 and portal services, and their tests on a private bus; and
+# what previews call: poppler's pdftoppm, libarchive's bsdtar, and ffmpeg.
 packages=(
-	ca-certificates curl xz-utils pkg-config git
-	libwayland-dev libxkbcommon-dev libfontconfig-dev xkb-data
-	libvulkan-dev mesa-vulkan-drivers
+	ca-certificates curl git xz-utils
+	fontconfig libfontconfig1 fonts-dejavu-core
+	libvulkan1 mesa-vulkan-drivers
 	shared-mime-info desktop-file-utils dbus
-	poppler-utils libarchive-tools
+	poppler-utils libarchive-tools ffmpeg
 )
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$HOME/.local/bin"
+
+# Each step says how long setup has run, so its log shows the slow one.
+step() { printf '==> %3ds %s\n' "$SECONDS" "$*"; }
 
 install_packages() {
 	local missing=()
@@ -46,6 +48,7 @@ install_mise() {
 		curl -fsSL https://mise.run | MISE_VERSION="v$MISE_VERSION" MISE_INSTALL_PATH="$bin/mise" sh
 	fi
 	mise trust -q mise.toml
+	step "mise install"
 	mise install
 	# The agent's shells do not activate mise, so its shims go on PATH,
 	# where they run the versions mise.toml names.
@@ -55,20 +58,29 @@ install_mise() {
 	done
 }
 
-# Fetch siv and its pinned packages and warm the caches with the tests,
-# built by bs as development builds are, so the first build in a thread
-# is incremental.
-build_once() {
-	step "just test"
-	just test
+# Rust from rustup, which reads rust-toolchain.toml for the version and
+# its components.
+install_rust() {
+	if ! command -v rustup >/dev/null && [[ ! -x $HOME/.cargo/bin/rustup ]]; then
+		step "install rustup"
+		curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+	fi
+	local tool
+	for tool in rustup cargo rustc; do
+		ln -sfn "$HOME/.cargo/bin/$tool" "$bin/$tool"
+	done
+	step "rustup toolchain install"
+	"$HOME/.cargo/bin/rustup" toolchain install --no-self-update
 }
 
 cd "$repo_root"
 mkdir -p "$bin"
-export PATH="$bin:$PATH"
-.agents/resume
+export PATH="$bin:$HOME/.cargo/bin:$PATH"
 install_packages
 install_mise
-just setup
-build_once
-zig version
+install_rust
+# Fetch the crates and warm the build with the tests, so the first build
+# in a thread is incremental.
+step "just test"
+just test
+step "done"

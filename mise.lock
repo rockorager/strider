@@ -2,23 +2,6 @@
 
 lockfile_version = 4
 
-[[tools."aqua:ast-grep/ast-grep"]]
-version = "0.51.1"
-backend = "aqua:ast-grep/ast-grep"
-specifiers = ["0.51.1"]
-
-[tools."aqua:ast-grep/ast-grep"."platforms.linux-arm64"]
-checksum = "sha256:db02fae2d8eace5fc40c55242068882452dd03eab38a1d950d5fd981cf112926"
-checksum_source = "mise-versions"
-url = "https://github.com/ast-grep/ast-grep/releases/download/0.51.1/app-aarch64-unknown-linux-gnu.zip"
-url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/701846463"
-
-[tools."aqua:ast-grep/ast-grep"."platforms.linux-x64"]
-checksum = "sha256:42514f77ae0c8a25d7d32154d31d3e7e16f3ab894f8ce76ce417de234ee49157"
-checksum_source = "mise-versions"
-url = "https://github.com/ast-grep/ast-grep/releases/download/0.51.1/app-x86_64-unknown-linux-gnu.zip"
-url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/701823082"
-
 [[tools."aqua:oxc-project/oxc/oxfmt"]]
 version = "0.78.0"
 backend = "aqua:oxc-project/oxc/oxfmt"
@@ -35,23 +18,6 @@ checksum = "sha256:ed43ec296f699a5bcbb1c1947e2aeb4271c3674e43dc6db463f8c1da4c9bf
 checksum_source = "mise-versions"
 url = "https://github.com/oxc-project/oxc/releases/download/oxfmt_v0.78.0/oxfmt-x86_64-unknown-linux-gnu.tar.gz"
 url_api = "https://api.github.com/repos/oxc-project/oxc/releases/assets/727291793"
-
-[[tools."github:baskingspot/bs"]]
-version = "0.1.3"
-backend = "github:baskingspot/bs"
-specifiers = ["0.1.3"]
-
-[tools."github:baskingspot/bs"."platforms.linux-arm64"]
-checksum = "sha256:fb054b6e42a1486d38e5a1020f7209a9c28feb286fab4de16e1c6753393d4cbf"
-url = "https://github.com/baskingspot/bs/releases/download/v0.1.3/bs-v0.1.3-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/740516626"
-provenance = "github-attestations"
-
-[tools."github:baskingspot/bs"."platforms.linux-x64"]
-checksum = "sha256:6b0a9e793cd2ef77c17c24c0746aa3b2edccb2c3bd84b252acf7a528bda01477"
-url = "https://github.com/baskingspot/bs/releases/download/v0.1.3/bs-v0.1.3-linux-x64.tar.gz"
-url_api = "https://api.github.com/repos/baskingspot/bs/releases/assets/740516628"
-provenance = "github-attestations"
 
 [[tools.just]]
 version = "1.59.0"
@@ -103,17 +69,3 @@ checksum = "sha256:76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea
 checksum_source = "mise-versions"
 url = "https://github.com/mvdan/sh/releases/download/v3.14.1/shfmt_v3.14.1_linux_amd64"
 url_api = "https://api.github.com/repos/mvdan/sh/releases/assets/547320883"
-
-[[tools.zig]]
-version = "0.17.1"
-backend = "core:zig"
-specifiers = ["0.17.1"]
-
-[tools.zig."platforms.linux-arm64"]
-checksum = "sha256:a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795"
-url = "https://ziglang.org/download/0.17.1/zig-aarch64-linux-0.17.1.tar.xz"
-
-[tools.zig."platforms.linux-x64"]
-checksum = "sha256:3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a"
-url = "https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz"
-provenance = "minisign"

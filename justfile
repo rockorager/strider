@@ -1,57 +1,64 @@
 # Strider: a keyboard-driven file manager for Wayland. `just --list` shows
 # the recipes. AGENTS.md holds the working conventions.
 #
-# `zig` is the compiler: bs for development builds, or upstream Zig where
-# bs is not installed. `just zig=zig test` uses upstream Zig anyway, for a
-# release build or what bs cannot compile.
-
-zig := `command -v bs >/dev/null && echo bs || echo zig`
-
-# `just setup` makes baskingspot-lint from github.com/baskingspot/nix at
-# this commit: its script and its ast-grep rules.
-
-rules_rev := "b246e853a3836a6279526db1d8f8fa54c14e6b7a"
+# Cargo builds it, with the Rust that rust-toolchain.toml names, which
+# rustup installs; `mise install` installs just, shellcheck, shfmt, and
+# oxfmt.
 
 # Where releases are published, as GitHub Releases: `just release` attaches
 # each release's build to its tag, and `just fetch` installs the newest.
 
 github := "rockorager/strider"
 
+# `stage ROOT PREFIX SRC [FILEMANAGER1]` installs SRC's release build and its
+# data files under ROOT: the program, the desktop entries, the D-Bus service
+# files, the portal file, the icon, and the AppStream metadata. The desktop
+# and service files name the program by its absolute path (D-Bus starts it
+# without searching PATH), as PREFIX/bin/strider; PREFIX is @PREFIX@ in a
+# release's archive, for `just fetch` to fill in. FILEMANAGER1 true adds a
+# service file for org.freedesktop.FileManager1, which only one file manager
+# may have, so other applications' "Show in folder" starts this one.
+
+stage := '''stage() {
+    local root=$1 prefix=$2 src=$3 id=dev.rockorager.Strider file
+    local files=(
+        "applications/$id.desktop"
+        "applications/$id.Chooser.desktop"
+        "dbus-1/services/$id.service"
+        "dbus-1/services/org.freedesktop.impl.portal.desktop.strider.service"
+    )
+    [ "${4:-false}" = false ] || files+=("dbus-1/services/org.freedesktop.FileManager1.service")
+    install -Dm755 "$src/target/release/strider" "$root/bin/strider"
+    for file in "${files[@]}"; do
+        sed "s|@PREFIX@|$prefix|g" "$src/data/${file##*/}" | install -Dm644 /dev/stdin "$root/share/$file"
+    done
+    install -Dm644 "$src/data/strider.portal" "$root/share/xdg-desktop-portal/portals/strider.portal"
+    install -Dm644 "$src/data/$id.svg" "$root/share/icons/hicolor/scalable/apps/$id.svg"
+    install -Dm644 "$src/data/$id.metainfo.xml" "$root/share/metainfo/$id.metainfo.xml"
+}'''
+
 [private]
 default:
     @just --list
 
-[doc("Make baskingspot-lint in ~/.local/bin from its pin; `mise install` installs the rest")]
-[group("build")]
-setup:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bin=$HOME/.local/bin
-    rules=${XDG_CACHE_HOME:-$HOME/.cache}/strider/baskingspot-nix-{{ rules_rev }}
-    if [ ! -d "$rules" ]; then
-        rm -rf "$rules.tmp"
-        git init -q "$rules.tmp"
-        git -C "$rules.tmp" fetch -q --depth 1 https://github.com/baskingspot/nix {{ rules_rev }}
-        git -C "$rules.tmp" checkout -q FETCH_HEAD
-        mv "$rules.tmp" "$rules"
-    fi
-    mkdir -p "$bin"
-    cat >"$bin/baskingspot-lint" <<EOF
-    #!/usr/bin/env bash
-    export BASKINGSPOT_RULES="$rules/pkgs/ast-grep-rules/rules"
-    exec bash "$rules/pkgs/baskingspot-lint/baskingspot-lint.sh" "\$@"
-    EOF
-    chmod +x "$bin/baskingspot-lint"
-
-[doc("Build strider into zig-out/bin/strider")]
+[doc("Build strider into target/debug/strider")]
 [group("build")]
 build *ARGS:
-    {{ zig }} build {{ ARGS }}
+    cargo build --locked {{ ARGS }}
 
-[doc("Install a release build of strider, its desktop entry, and its icon under PREFIX")]
+[doc("Install a release build of strider, its desktop entries, icon, metadata, D-Bus services, and portal under PREFIX; FILEMANAGER1 true adds org.freedesktop.FileManager1's service")]
 [group("build")]
-install prefix="~/.local":
-    zig build install -p {{ prefix }}
+install prefix="~/.local" filemanager1="false":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ stage }}
+    prefix="{{ prefix }}"
+    prefix="${prefix/#\~/$HOME}"
+    [[ $prefix == /* ]] || prefix=$PWD/$prefix
+    [[ "{{ filemanager1 }}" =~ ^(true|false)$ ]] || { echo "filemanager1 is true or false, not {{ filemanager1 }}" >&2; exit 1; }
+    cargo build --release --locked -p strider
+    stage "$prefix" "$prefix" "$PWD" "{{ filemanager1 }}"
+    echo "installed $prefix/bin/strider"
 
 [doc("Install the newest release's build under PREFIX, without building")]
 [group("build")]
@@ -105,6 +112,7 @@ fetch prefix="~/.local":
 release version="":
     #!/usr/bin/env bash
     set -euo pipefail
+    {{ stage }}
     die() {
         echo "$*" >&2
         exit 1
@@ -165,15 +173,16 @@ release version="":
     pushed=$(git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null) || die "cannot list origin's tags"
 
     # The pushed commit alone, whatever this checkout holds, in a worktree
-    # every release reuses: Zig's cache keys hold the sources' paths, so
-    # only there does it find what the last release compiled. One another
-    # clone made, or this clone forgot, starts over.
+    # every release reuses, so its target directory keeps what the last
+    # release compiled. One another clone made, or this clone forgot,
+    # starts over.
     src=${XDG_CACHE_HOME:-$HOME/.cache}/strider/release
     git worktree prune
     if [ -e "$src/.git" ] && [ "$(git -C "$src" rev-parse --git-common-dir 2>/dev/null)" -ef "$(git rev-parse --git-common-dir)" ]; then
         git -C "$src" checkout -q --force --detach "$base"
     else
         rm -rf "$src"
+        mkdir -p "$(dirname "$src")"
         git worktree add -q --detach "$src" "$base"
     fi
     # mise runs a checkout's own pins only once it is trusted.
@@ -181,12 +190,14 @@ release version="":
         mise trust -q "$src/mise.toml"
         (cd "$src" && mise install -q)
     fi
-    # The release commit sets build.zig.zon's version, which strider
+    # The release commit sets the Cargo workspace's version, which strider
     # --version reports, unless origin/main says it already.
     sha=$base
     if [ -z "$tagged" ]; then
-        sed -i "s/^    \.version = \".*\",\$/    .version = \"$version\",/" "$src/build.zig.zon"
-        grep -q "^    \.version = \"$version\",\$" "$src/build.zig.zon" || die "build.zig.zon names no version to set"
+        sed -i "s/^version = \".*\"\$/version = \"$version\"/" "$src/Cargo.toml"
+        grep -q "^version = \"$version\"\$" "$src/Cargo.toml" || die "Cargo.toml names no version to set"
+        # The lock names the workspace's crates' versions too.
+        (cd "$src" && cargo update -q --workspace --offline)
         if ! git -C "$src" diff --quiet; then
             git -C "$src" commit -q -am "release: $version"
             sha=$(git -C "$src" rev-parse HEAD)
@@ -200,16 +211,10 @@ release version="":
     # For x86-64-v3 (AVX2, 2013 on), not this machine's CPU: an orb's has
     # AVX-512, which laptops such as Lunar Lake lack, and strider built
     # for it dies there at its first such instruction.
-    (cd "$src" && zig build install -Dcpu=x86_64_v3 \
-        -Ddynamic-linker=/lib64/ld-linux-x86-64.so.2 -p "$tmp/root")
+    (cd "$src" && RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked -p strider)
     # The desktop and D-Bus service files name the program by its absolute
     # path: @PREFIX@ in the archive, for `just fetch` to fill in.
-    grep -rlIF "$tmp/root" "$tmp/root" | while IFS= read -r file; do
-        sed -i "s|$tmp/root|@PREFIX@|g" "$file"
-    done
-    if grep -rlF "$tmp/root" "$tmp/root" >/dev/null; then
-        die "a file installed names the build's prefix, $tmp/root"
-    fi
+    stage "$tmp/root" @PREFIX@ "$src"
     bin=$tmp/root/bin/strider
     strip "$bin"
     # It runs on other machines, so it must find their libraries, not the
@@ -217,10 +222,12 @@ release version="":
     if grep -qE 'RPATH|RUNPATH' <<<"$(readelf -d "$bin")"; then
         die "strider names a library path; build outside a Nix shell"
     fi
-    # Nor may it need a glibc newer than theirs, 2.38. The braces keep grep
-    # finding nothing from passing for objdump failing, which pipefail
+    # Nor may it need a glibc newer than theirs, 2.38. Versions it names
+    # weakly, as Rust's std does pidfd_spawnp's GLIBC_2.39, it does without:
+    # the loader starts it without them, and std falls back. The braces keep
+    # awk finding nothing from passing for readelf failing, which pipefail
     # reports.
-    glibc=$(objdump -T "$bin" | { grep -oE 'GLIBC_[0-9.]+' || true; } | sort -Vu | tail -1)
+    glibc=$(readelf -V "$bin" | { awk '$3 ~ /^GLIBC_/ && $5 == "none" { print $3 }' || true; } | sort -Vu | tail -1)
     if [ "$(printf '%s\n' "$glibc" GLIBC_2.38 | sort -V | tail -1)" != GLIBC_2.38 ]; then
         die "strider needs $glibc, newer than the 2.38 the desktops it is for have"
     fi
@@ -228,7 +235,7 @@ release version="":
     [ "$out" = "strider $version" ] || die "strider does not say it is $version: $out"
     # Owned by root, so an install by root leaves no files of this uid.
     tar -C "$tmp/root" --owner=0 --group=0 --numeric-owner -czf "$tmp/$name" .
-    echo "$name of ${sha:0:7}: $(du -h "$bin" | cut -f1) binary, $(du -h "$tmp/$name" | cut -f1) archive"
+    echo "$name of ${sha:0:7}: $(du -h "$bin" | cut -f1) binary, $(du -h "$tmp/$name" | cut -f1) archive, needs $glibc at most"
 
     # The release commit and its tag are pushed together or neither: main
     # moved since the fetch takes neither.
@@ -255,28 +262,28 @@ release version="":
 [doc("Build and run strider on the Wayland display")]
 [group("build")]
 run *ARGS:
-    {{ zig }} build run -- {{ ARGS }}
+    cargo run --locked -p strider -- {{ ARGS }}
 
-[doc("The unit and headless tests, on siv's headless backend: no display needed")]
+[doc("The tests, on Keywork's headless backend: no display needed")]
 [group("test")]
 test *ARGS:
-    {{ zig }} build test --summary failures {{ ARGS }}
+    cargo test --locked --workspace {{ ARGS }}
 
-[doc("Lint Zig, shell, Markdown, and this justfile: zig fmt, baskingspot-lint, shellcheck, shfmt, oxfmt, and just --fmt; bs lints with ziglint's rules as it builds")]
+[doc("Lint Rust, shell, Markdown, and this justfile: clippy, rustfmt, shellcheck, shfmt, oxfmt, and just --fmt")]
 [group("lint")]
 lint:
-    zig fmt --check build.zig build.zig.zon src tests tools
-    baskingspot-lint build.zig src tests tools
-    shellcheck .agents/setup .agents/resume
-    shfmt --diff .agents/setup .agents/resume
+    cargo clippy --locked --workspace --all-targets -- -D warnings
+    cargo fmt --all --check
+    shellcheck .agents/setup
+    shfmt --diff .agents/setup
     oxfmt --check README.md AGENTS.md
     just --unstable --fmt --check
 
 [doc("Format everything lint checks")]
 [group("lint")]
 fmt:
-    zig fmt build.zig build.zig.zon src tests tools
-    shfmt --write .agents/setup .agents/resume
+    cargo fmt --all
+    shfmt --write .agents/setup
     oxfmt README.md AGENTS.md
     just --unstable --fmt
 
