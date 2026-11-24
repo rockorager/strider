@@ -271,10 +271,33 @@ fn drive_at(s: &Strider, col: Col, pos: usize) -> Option<(&Drive, Option<Space>)
     Some((d, space))
 }
 
-/// A drive's row: what it says beside its name, and whether it is mounted (one that is not
-/// is muted, as a hidden file is).
-pub fn row(s: &Strider, col: Col, pos: usize) -> Option<(String, bool)> {
-    drive_at(s, col, pos).map(|(d, space)| (core::row_info(d, space), d.mounted()))
+/// Whether the current folder is Drives.
+pub fn in_drives(s: &Strider) -> bool {
+    is_drives(&s.cwd)
+}
+
+/// The drive under the cursor in Drives.
+pub fn under_cursor(s: &Strider) -> Option<Drive> {
+    drive_at(s, Col::Current, s.cur().cursor).map(|(d, _)| d.clone())
+}
+
+/// What a drive's row shows.
+pub struct Row {
+    /// Beside its name: its free space, or that it is not mounted.
+    pub info: String,
+    /// One that is not is muted, as a hidden file is.
+    pub mounted: bool,
+    /// A mounted drive's space, for the bar beside its free space.
+    pub space: Option<Space>,
+}
+
+/// The row of the drive the entry at `pos` of the folder `col` shows, if it shows one.
+pub fn row(s: &Strider, col: Col, pos: usize) -> Option<Row> {
+    drive_at(s, col, pos).map(|(d, space)| Row {
+        info: core::row_info(d, space),
+        mounted: d.mounted(),
+        space: space.filter(|sp| d.mounted() && sp.total != 0),
+    })
 }
 
 /// The status line for the drive under the cursor in Drives.
@@ -1192,6 +1215,91 @@ mod tests {
         assert_eq!(hovered(&h), "STICK");
         assert!(!drive(&h, "STICK").mounted());
         assert_eq!(message(&h), "“STICK” can be removed");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // As the Zig build's Drives rows: a mounted drive's used space shows as a bar beside its
+    // free space, filled in proportion; one that is not mounted has none.
+    #[test]
+    fn a_mounted_drive_shows_its_usage_bar() {
+        let (mut h, root, _) = start("bar");
+        typ(&mut h, "gvjlh");
+        assert_eq!(hovered(&h), "STICK");
+        let window = h.state().window;
+        // The bar, the row's fourth child, and how wide its fill is.
+        let bar = |h: &mut Headless<Strider>, label: &str| {
+            let rows = h
+                .query(
+                    window,
+                    &keywork::app::tooling::NodeQuery {
+                        label: Some(label.into()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            h.update(window, |tx| {
+                for r in &rows {
+                    let Some(bar) = tx.children(r.id)?.nth(3) else {
+                        continue;
+                    };
+                    if tx.children(r.id)?.count() < 5 {
+                        continue;
+                    }
+                    if tx.is_hidden(bar)? {
+                        return Ok(None);
+                    }
+                    let used = tx.children(bar)?.next().unwrap();
+                    return Ok(Some((tx.rect(bar)?.width, tx.rect(used)?.width)));
+                }
+                Ok(None)
+            })
+            .unwrap()
+        };
+        let sp = space_of(&root.join("Stick")).unwrap();
+        let used = (sp.total - sp.free) as f32 / sp.total as f32;
+        assert_eq!(bar(&mut h, "STICK"), Some((48.0, (48.0 * used).round())));
+        assert_eq!(bar(&mut h, "SECRET"), None, "not mounted");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The labels of the items of every open menu.
+    fn menu_items(h: &mut Headless<Strider>) -> Vec<String> {
+        let query = keywork::app::tooling::NodeQuery {
+            role: Some(keywork::Role::MenuItem),
+            ..Default::default()
+        };
+        let mut labels = Vec::new();
+        for w in h.windows() {
+            labels.extend(h.query(w, &query).unwrap().into_iter().map(|n| n.label));
+        }
+        labels
+    }
+
+    // As the Zig build's context menu in Drives: a drive that is not mounted mounts, a
+    // mounted one opens, here or in a tab or a terminal, and it unmounts and ejects as it
+    // can; none of the file commands Drives refuses.
+    #[test]
+    fn the_menu_in_drives_is_the_drive_s() {
+        let (mut h, root, _) = start("menu");
+        typ(&mut h, "gv:menu\n");
+        assert_eq!(hovered(&h), "SECRET");
+        assert_eq!(menu_items(&mut h), ["Mount", "Eject"]);
+        let window = h.state().window;
+        h.key(window, Keysym::ESCAPE, Modifiers::NONE).unwrap();
+        h.settle().unwrap();
+
+        typ(&mut h, "jlh:menu\n");
+        assert_eq!(hovered(&h), "STICK");
+        assert_eq!(
+            menu_items(&mut h),
+            [
+                "Open",
+                "Open in a new tab",
+                "Open terminal here",
+                "Unmount",
+                "Eject"
+            ]
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

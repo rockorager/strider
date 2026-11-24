@@ -860,7 +860,7 @@ pub fn fill_row(
         tx.set_radius(ring, 4.0)?;
         tx.set_pass_through(ring, true)?;
     }
-    let Some(ring) = tx.children(row)?.nth(4) else {
+    let Some(ring) = tx.children(row)?.nth(5) else {
         return Ok(());
     };
     let ring = tx.downcast::<Flex>(ring)?;

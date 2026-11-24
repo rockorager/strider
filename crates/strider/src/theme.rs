@@ -18,7 +18,7 @@ use std::time::Duration;
 use keywork::desktop::watch::{DirWatcher, WatchId};
 use keywork::prelude::*;
 use keywork::theme::{
-    Appearance, ColorRole, DesktopAppearance, Paint, Seeds, Theme, contrast_ratio,
+    Appearance, ColorRole, Corner, Len, Paint, Palette as Scale, Seeds, Theme, contrast_ratio,
 };
 use keywork::{FontFamily, Instant, Timer};
 use strider_core::omarchy::{Key, Mode, Palette, Rgba, mix, theme_dirs};
@@ -43,6 +43,8 @@ pub enum Tone {
     /// Text on the cursor's row, so folders' accent and marks' warning never sit on the
     /// selection's own color.
     Cursor,
+    /// The groove of a mounted drive's usage bar.
+    Track,
 }
 
 impl Tone {
@@ -51,29 +53,289 @@ impl Tone {
     }
 }
 
-/// The tones under the desktop's theme, in [`Tone`]'s order. The grays and roles resolve in
-/// light and dark alike, as siv's compiled sidebar, secondary sidebar, and view colors did.
-static DESKTOP_TONES: [Paint; 5] = [
-    Paint::Role(ColorRole::Panel),
-    Paint::Gray(3),
-    Paint::Gray(2),
-    Paint::Role(ColorRole::Background),
-    Paint::Role(ColorRole::Text),
+/// The paints of [`Tone`]'s slots, in its order.
+type Tones = [Paint; 6];
+
+/// One variant of siv's built-in palette, the colors the Zig build wore without an Omarchy
+/// theme: the tokens Strider and the widgets it uses wear, as `0xRRGGBB`.
+struct Siv {
+    window_bg: u32,
+    view_bg: u32,
+    view_fg: u32,
+    card_bg: u32,
+    muted_fg: u32,
+    disabled_fg: u32,
+    border: u32,
+    separator: u32,
+    control_bg: u32,
+    control_hover: u32,
+    control_active: u32,
+    accent: u32,
+    accent_hover: u32,
+    accent_active: u32,
+    accent_fg: u32,
+    selection_bg: u32,
+    selection_fg: u32,
+    focus_ring: u32,
+    track: u32,
+    destructive: u32,
+    success: u32,
+    warning: u32,
+    sidebar_bg: u32,
+    secondary_sidebar_bg: u32,
+}
+
+/// siv's light, dark, light high-contrast, and dark high-contrast variants, from its
+/// `ui/theme.zig` at the commit the Zig build pinned (752d328d).
+static SIV: [Siv; 4] = [
+    Siv {
+        window_bg: 0xfafafa,
+        view_bg: 0xffffff,
+        view_fg: 0x18181b,
+        card_bg: 0xffffff,
+        muted_fg: 0x71717a,
+        disabled_fg: 0xa1a1aa,
+        border: 0xc4c4cc,
+        separator: 0xe4e4e7,
+        control_bg: 0xf4f4f5,
+        control_hover: 0xe4e4e7,
+        control_active: 0xd4d4d8,
+        accent: 0x2563eb,
+        accent_hover: 0x1d4ed8,
+        accent_active: 0x1e40af,
+        accent_fg: 0xffffff,
+        selection_bg: 0xbfdbfe,
+        selection_fg: 0x18181b,
+        focus_ring: 0x2563eb,
+        track: 0xd4d4d8,
+        destructive: 0xdc2626,
+        success: 0x16a34a,
+        warning: 0xd97706,
+        sidebar_bg: 0xededf0,
+        secondary_sidebar_bg: 0xf6f6f8,
+    },
+    Siv {
+        window_bg: 0x18181b,
+        view_bg: 0x09090b,
+        view_fg: 0xf4f4f5,
+        card_bg: 0x27272a,
+        muted_fg: 0xa1a1aa,
+        disabled_fg: 0x52525b,
+        border: 0x52525b,
+        separator: 0x3f3f46,
+        control_bg: 0x27272a,
+        control_hover: 0x3f3f46,
+        control_active: 0x52525b,
+        accent: 0x2563eb,
+        accent_hover: 0x3b82f6,
+        accent_active: 0x1d4ed8,
+        accent_fg: 0xffffff,
+        selection_bg: 0x1e3a8a,
+        selection_fg: 0xf4f4f5,
+        focus_ring: 0x3b82f6,
+        track: 0x3f3f46,
+        destructive: 0xdc2626,
+        success: 0x22c55e,
+        warning: 0xf59e0b,
+        sidebar_bg: 0x1c1c20,
+        secondary_sidebar_bg: 0x131316,
+    },
+    Siv {
+        window_bg: 0xffffff,
+        view_bg: 0xffffff,
+        view_fg: 0x000000,
+        card_bg: 0xffffff,
+        muted_fg: 0x333333,
+        disabled_fg: 0x595959,
+        border: 0x000000,
+        separator: 0x000000,
+        control_bg: 0xffffff,
+        control_hover: 0xe0e0e0,
+        control_active: 0xc2c2c2,
+        accent: 0x0040c0,
+        accent_hover: 0x002f8f,
+        accent_active: 0x00226b,
+        accent_fg: 0xffffff,
+        selection_bg: 0x0040c0,
+        selection_fg: 0xffffff,
+        focus_ring: 0x000000,
+        track: 0x595959,
+        destructive: 0xa00000,
+        success: 0x006b1f,
+        warning: 0x8a4b00,
+        sidebar_bg: 0xe6e6e6,
+        secondary_sidebar_bg: 0xf2f2f2,
+    },
+    Siv {
+        window_bg: 0x000000,
+        view_bg: 0x000000,
+        view_fg: 0xffffff,
+        card_bg: 0x000000,
+        muted_fg: 0xe0e0e0,
+        disabled_fg: 0xa6a6a6,
+        border: 0xffffff,
+        separator: 0xffffff,
+        control_bg: 0x000000,
+        control_hover: 0x262626,
+        control_active: 0x404040,
+        accent: 0x7cb4ff,
+        accent_hover: 0xa3caff,
+        accent_active: 0xc7ddff,
+        accent_fg: 0x000000,
+        selection_bg: 0x7cb4ff,
+        selection_fg: 0x000000,
+        focus_ring: 0xffff00,
+        track: 0xa6a6a6,
+        destructive: 0xff7070,
+        success: 0x66ff99,
+        warning: 0xffcc33,
+        sidebar_bg: 0x1f1f1f,
+        secondary_sidebar_bg: 0x101010,
+    },
 ];
 
-/// The tones in higher contrast, where the cursor's row is the solid accent.
-static HIGH_CONTRAST_TONES: [Paint; 5] = [
-    Paint::Role(ColorRole::Panel),
-    Paint::Gray(3),
-    Paint::Gray(2),
-    Paint::Role(ColorRole::Background),
-    Paint::Role(ColorRole::OnAccent),
-];
+/// Interpolation in linear light, as siv mixed its colors.
+fn lerp(a: keywork::Color, b: keywork::Color, k: f32) -> keywork::Color {
+    let at = |x: f32, y: f32| x + (y - x) * k;
+    keywork::Color::rgba(at(a.r, b.r), at(a.g, b.g), at(a.b, b.b), at(a.a, b.a))
+}
+
+impl Siv {
+    /// The variant's accent: the desktop's, if it gives one, else its own.
+    fn accent(&self, desktop: Option<keywork::Color>) -> keywork::Color {
+        desktop.unwrap_or(keywork::Color::hex(self.accent))
+    }
+
+    /// The roles and tones of one appearance in this variant. A desktop's accent replaces
+    /// the variant's and the colors siv derived from it: its hover and pressed shades, the
+    /// text on it, the focus ring, and the selection, over the view background (the accent
+    /// itself in higher contrast).
+    fn look(&self, dark: bool, high: bool, desktop: Option<keywork::Color>) -> RoleColors {
+        use ColorRole::*;
+        use keywork::Color;
+        let hex = Color::hex;
+        let shade = if dark { Color::WHITE } else { Color::BLACK };
+        let accent = self.accent(desktop);
+        let [hover, pressed, on, ring, sel, sel_fg] = match desktop {
+            None => [
+                self.accent_hover,
+                self.accent_active,
+                self.accent_fg,
+                self.focus_ring,
+                self.selection_bg,
+                self.selection_fg,
+            ]
+            .map(hex),
+            Some(a) => {
+                let on = if contrast_ratio(Color::WHITE, a) >= contrast_ratio(Color::BLACK, a) {
+                    Color::WHITE
+                } else {
+                    Color::BLACK
+                };
+                [
+                    lerp(a, shade, 0.12),
+                    lerp(a, shade, 0.24),
+                    on,
+                    a,
+                    if high {
+                        a
+                    } else {
+                        lerp(hex(self.view_bg), a, 0.3)
+                    },
+                    if high { on } else { hex(self.selection_fg) },
+                ]
+            }
+        };
+        let roles = vec![
+            (Background, hex(self.view_bg)),
+            (Panel, hex(self.window_bg)),
+            (Surface, hex(self.card_bg)),
+            (PanelTranslucent, hex(self.card_bg)),
+            (Component, hex(self.control_bg)),
+            (ComponentHover, hex(self.control_hover)),
+            (ComponentPressed, hex(self.control_active)),
+            (BorderSubtle, hex(self.separator)),
+            (Border, hex(self.border)),
+            (BorderStrong, hex(self.border)),
+            (Text, hex(self.view_fg)),
+            (Caret, hex(self.view_fg)),
+            (TextMuted, hex(self.muted_fg)),
+            (TextPlaceholder, hex(self.muted_fg)),
+            (TextDisabled, hex(self.disabled_fg)),
+            (AccentFill, accent),
+            (AccentFillHover, hover),
+            (AccentFillPressed, pressed),
+            (OnAccent, on),
+            (AccentText, accent),
+            (FocusRing, ring),
+            (FocusRingContrast, ring),
+            (Selection, sel),
+            (SelectionHover, lerp(sel, sel_fg, 0.08)),
+            (TextSelection, sel),
+            (Danger, hex(self.destructive)),
+            (DangerHover, lerp(hex(self.destructive), shade, 0.12)),
+            (DangerText, hex(self.destructive)),
+            (Warning, hex(self.warning)),
+            (WarningText, hex(self.warning)),
+            (Success, hex(self.success)),
+            (SuccessText, hex(self.success)),
+        ];
+        let tones = [
+            hex(self.window_bg),
+            hex(self.sidebar_bg),
+            hex(self.secondary_sidebar_bg),
+            hex(self.view_bg),
+            sel_fg,
+            hex(self.track),
+        ]
+        .map(Paint::Color);
+        RoleColors { roles, tones }
+    }
+}
+
+/// An appearance's roles as siv's palette sets them, and Strider's tones.
+struct RoleColors {
+    roles: Vec<(ColorRole, keywork::Color)>,
+    tones: Tones,
+}
+
+/// Dresses `theme` in siv's palette, in higher contrast its high-contrast variants, with the
+/// desktop's accent if it gives one: the roles of both appearances, so a subtree in the other
+/// follows too, the accent scale the widgets' soft fills draw from, and Strider's tones.
+fn wear_siv(theme: Theme, high: bool, desktop: Option<keywork::Color>) -> Theme {
+    let [light, dark] = if high {
+        [&SIV[2], &SIV[3]]
+    } else {
+        [&SIV[0], &SIV[1]]
+    };
+    let scale = Scale::generate(Seeds {
+        accent: light.accent(desktop),
+        accent_dark: Some(dark.accent(desktop)),
+        light: Some(keywork::Color::hex(light.view_bg)),
+        dark: Some(keywork::Color::hex(dark.view_bg)),
+        danger: None,
+        warning: None,
+        success: None,
+    });
+    let mut theme = theme.accent(scale);
+    let looks = [
+        (Appearance::Light, light.look(false, high, desktop)),
+        (Appearance::Dark, dark.look(true, high, desktop)),
+    ];
+    for (appearance, look) in &looks {
+        let roles = theme.roles.get_mut(*appearance);
+        for &(role, c) in &look.roles {
+            roles[role] = Paint::Color(c);
+        }
+    }
+    let [(_, l), (_, d)] = &looks;
+    theme.app_paints(keep_paints(l.tones), keep_paints(d.tones))
+}
 
 /// The paints that go on every theme the window gets, kept for the life of the process
 /// since a theme holds `'static` slices; the same paints give back the same slice, so a
 /// switch back and forth adds nothing.
-fn keep_paints(paints: [Paint; 5]) -> &'static [Paint] {
+fn keep_paints(paints: Tones) -> &'static [Paint] {
     static KEPT: Mutex<Vec<&'static [Paint]>> = Mutex::new(Vec::new());
     let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(k) = kept.iter().find(|k| **k == paints) {
@@ -190,14 +452,16 @@ impl Ramp {
     }
 
     /// The tones, as siv mapped them: the window and the current column in
-    /// `dark_background`, the parent in `darker_background`, the preview in `background`.
-    fn tones(&self) -> [Paint; 5] {
+    /// `dark_background`, the parent in `darker_background`, the preview in `background`,
+    /// and a drive's usage bar between `lighter_background` and `muted`.
+    fn tones(&self) -> Tones {
         [
             self.dark_bg,
             self.darker_bg,
             self.dark_bg,
             self.bg,
             self.on_selection,
+            mix(self.lighter_bg, self.muted, 0.5),
         ]
         .map(|c| Paint::Color(color(c)))
     }
@@ -285,45 +549,49 @@ fn high_contrast(theme: &Theme) -> bool {
     theme.roles.light[ColorRole::TextMuted] == Paint::Role(ColorRole::Text)
 }
 
+/// The desktop's accent, if it gives one. Keywork hands the map the nearest of Radix's
+/// scales to it, in place of the default indigo; its step 9 is that color's nearest.
+fn desktop_accent(theme: &Theme) -> Option<keywork::Color> {
+    (!std::ptr::eq(theme.accent, Scale::INDIGO)).then(|| theme.accent.step(Appearance::Light, 9))
+}
+
 /// What the window does to every theme it gets: text in monospace, or the family
-/// Fontconfig names for it since the configuration changed, and Strider's tones. Under an
-/// Omarchy theme, its mode, whatever the desktop prefers. In higher contrast the cursor's
-/// row is the solid accent, and an Omarchy theme gives way to the desktop's in its mode, as
-/// siv had it: Omarchy's themes have no high-contrast variant, and theirs would undo what
-/// the user asked for.
+/// Fontconfig names for it since the configuration changed, Strider's tones, and the column
+/// lists' rows square and edge to edge. Without an Omarchy theme, siv's palette in the
+/// desktop's light or dark, with its accent. Under an Omarchy theme, its mode, whatever the
+/// desktop prefers. In higher contrast, siv's high-contrast palette, an Omarchy theme's mode
+/// kept, as siv had it: Omarchy's themes have no high-contrast variant, and theirs would undo
+/// what the user asked for.
 pub fn map(
     palette: Option<&Palette>,
     font: Option<&'static str>,
 ) -> impl Fn(Theme) -> Theme + use<> {
     let mode = palette.map(|p| appearance(p.mode));
-    let tones: &'static [Paint] = match palette.and_then(|p| Ramp::of(p, accent(p))) {
-        Some(r) => keep_paints(r.tones()),
-        None => &DESKTOP_TONES,
-    };
+    let tones: Option<&'static [Paint]> = palette
+        .and_then(|p| Ramp::of(p, accent(p)))
+        .map(|r| keep_paints(r.tones()));
     let family = font.map_or(FontFamily::Monospace, FontFamily::Named);
     move |theme| {
         let high = high_contrast(&theme);
-        let mut theme = match (high, mode) {
-            (true, Some(mode)) => {
-                let desktop = DesktopAppearance {
-                    high_contrast: true,
-                    reduced_motion: theme.motion.reduced,
-                    ..DesktopAppearance::default()
-                };
-                Theme::default().follow_desktop(&desktop).appearance(mode)
-            }
-            (false, Some(mode)) => theme.appearance(mode),
-            (_, None) => theme,
+        // An Omarchy theme keeps its own accent, whatever the desktop's.
+        let desktop = if mode.is_none() {
+            desktop_accent(&theme)
+        } else {
+            None
         };
-        if high {
-            theme.roles.set(ColorRole::Selection, ColorRole::AccentFill);
-            theme
-                .roles
-                .set(ColorRole::SelectionHover, ColorRole::AccentFillHover);
-        }
-        let tones = if high { &HIGH_CONTRAST_TONES } else { tones };
+        let mut theme = match mode {
+            Some(mode) => theme.appearance(mode),
+            None => theme,
+        };
         theme.fonts.ui = family;
-        theme.app_paints(tones, tones)
+        theme.styles.list.inset = Len::Px(0.0);
+        theme.styles.list.corner = Corner::Square;
+        // The picker's, the tasks', and the which-key popup's cards, in siv's border.
+        theme.styles.surface.card.border = Some(ColorRole::Border.paint());
+        match tones {
+            Some(tones) if !high => theme.app_paints(tones, tones),
+            _ => wear_siv(theme, high, desktop),
+        }
     }
 }
 
@@ -518,7 +786,7 @@ mod tests {
 
     use keywork::Color;
     use keywork::desktop::localtime::Zone;
-    use keywork::theme::ColorScheme;
+    use keywork::theme::{ColorScheme, DesktopAppearance};
     use strider_core::config::Config;
 
     use super::*;
@@ -613,6 +881,89 @@ mod tests {
         );
     }
 
+    // Without Omarchy, the colors the Zig build's goldens show, siv's built-in palette, in
+    // light, dark, and higher contrast in each: the three column tones, the chrome, the
+    // cursor's row and its text, folders' accent, and the dividers. The column lists' rows
+    // are square and edge to edge in each.
+    #[test]
+    fn without_omarchy_strider_wears_siv_s_palette() {
+        let hex = |c: u32| Color::hex(c).to_srgba8();
+        let light = prefers(ColorScheme::PreferLight);
+        let dark = prefers(ColorScheme::PreferDark);
+        let high = |d: DesktopAppearance| DesktopAppearance {
+            high_contrast: true,
+            ..d
+        };
+        for (desktop, want) in [
+            (
+                light,
+                [
+                    0xfafafa, 0xededf0, 0xf6f6f8, 0xffffff, 0xbfdbfe, 0x2563eb, 0xe4e4e7,
+                ],
+            ),
+            (
+                dark,
+                [
+                    0x18181b, 0x1c1c20, 0x131316, 0x09090b, 0x1e3a8a, 0x2563eb, 0x3f3f46,
+                ],
+            ),
+            (
+                high(light),
+                [
+                    0xffffff, 0xe6e6e6, 0xf2f2f2, 0xffffff, 0x0040c0, 0x0040c0, 0x000000,
+                ],
+            ),
+            (
+                high(dark),
+                [
+                    0x000000, 0x1f1f1f, 0x101010, 0x000000, 0x7cb4ff, 0x7cb4ff, 0xffffff,
+                ],
+            ),
+        ] {
+            let t = worn(None, desktop);
+            let paints = [
+                Tone::Chrome.paint(),
+                Tone::Parent.paint(),
+                Tone::Current.paint(),
+                Tone::Preview.paint(),
+                ColorRole::Selection.paint(),
+                ColorRole::AccentText.paint(),
+                ColorRole::BorderSubtle.paint(),
+            ];
+            for (paint, want) in paints.into_iter().zip(want) {
+                assert_eq!(
+                    t.color(paint).to_srgba8(),
+                    hex(want),
+                    "{desktop:?} {paint:?}"
+                );
+            }
+            assert_eq!(t.styles.list.inset, Len::Px(0.0));
+            assert_eq!(t.styles.list.corner, Corner::Square);
+        }
+        // The cursor's row reads on the selection: dark text on light blue, white on the
+        // solid accent in higher contrast.
+        let t = worn(None, light);
+        assert_eq!(t.color(Tone::Cursor.paint()).to_srgba8(), hex(0x18181b));
+        let t = worn(None, high(light));
+        assert_eq!(t.color(Tone::Cursor.paint()).to_srgba8(), hex(0xffffff));
+
+        // A desktop's accent replaces siv's blue, and the selection is it over the view, as
+        // siv derived it.
+        let t = worn(
+            None,
+            DesktopAppearance {
+                accent: Some(Color::hex(0x2f7d4f)),
+                ..light
+            },
+        );
+        let accent = t.color(ColorRole::AccentFill.paint());
+        assert_ne!(accent.to_srgba8(), hex(0x2563eb));
+        assert_eq!(
+            t.color(ColorRole::Selection.paint()).to_srgba8(),
+            lerp(Color::WHITE, accent, 0.3).to_srgba8()
+        );
+    }
+
     // omarchy-theme-set swaps the theme directory: it removes the current one and renames
     // the next into its place. The window follows, dark to light.
     #[test]
@@ -652,6 +1003,9 @@ mod tests {
         }
         let t = theme(&mut h);
         assert_eq!(t.appearance, Appearance::Light);
+        // The column lists' rows stay square and edge to edge through the switch.
+        assert_eq!(t.styles.list.inset, Len::Px(0.0));
+        assert_eq!(t.styles.list.corner, Corner::Square);
         assert_eq!(
             t.color(Tone::Preview.paint()).to_srgba8(),
             Color::hex(0xeff1f5).to_srgba8()

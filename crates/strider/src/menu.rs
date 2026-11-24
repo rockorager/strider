@@ -3,8 +3,12 @@
 //! to it at its end, so the menu teaches the keymap. Choosing an item runs its command as a
 //! key would. The open-with menu lists applications the same way.
 
+use std::rc::Rc;
+
+use keywork::desktop::icon::Icon as ThemeIcon;
+use keywork::desktop::svg::SymbolicColors;
 use keywork::prelude::*;
-use keywork::widgets::{self, Icon, Menu};
+use keywork::widgets::{self, Icon, Menu, PaintedIcon};
 use strider_core::config::Mode;
 use strider_core::keys;
 use strider_core::model::Kind;
@@ -122,6 +126,7 @@ fn open(s: &mut Strider, tx: &mut Txn<'_, Strider>, ctx: Context, at: Point) -> 
         commands: Vec::new(),
     };
     let menu = match ctx {
+        _ if crate::drives::in_drives(items.s) => drives(&mut items),
         Context::Entries => entries(&mut items),
         Context::Folder => folder(&mut items),
     };
@@ -134,9 +139,38 @@ fn open(s: &mut Strider, tx: &mut Txn<'_, Strider>, ctx: Context, at: Point) -> 
     widgets::open_context_menu(tx, list, at, &menu)
 }
 
-/// Whether there is something to paste; the register comes with the operations.
-fn can_paste(_s: &Strider) -> bool {
-    false
+/// Whether there is something to paste.
+fn can_paste(s: &Strider) -> bool {
+    !s.ops.register.is_empty()
+}
+
+/// In Drives, what the drive under the cursor does: a mounted one opens, one that is not
+/// mounts, and either unmounts or ejects as it can; without one, Drives reloads.
+fn drives(it: &mut Items<'_>) -> Menu {
+    let Some(d) = crate::drives::under_cursor(it.s) else {
+        return it.add(Menu::new(), "Reload", "reload");
+    };
+    let open = Icon::themed("folder-open", Icon::Folder);
+    let mut m = if d.mounted() {
+        let p = d.mount_point.display();
+        let m = it.add(Menu::new(), "Open", "enter").icon(open);
+        let m = it.add(m, "Open in a new tab", &format!("tab-new {p}"));
+        it.add(m, "Open terminal here", &format!("terminal {p}"))
+    } else {
+        it.add(Menu::new(), "Mount", "enter").icon(open)
+    };
+    if d.can_unmount || d.can_eject {
+        m = m.separator();
+    }
+    if d.can_unmount {
+        m = it.add(m, "Unmount", "unmount");
+    }
+    if d.can_eject {
+        m = it
+            .add(m, "Eject", "eject")
+            .icon(Icon::themed("media-eject", Icon::Eject));
+    }
+    m
 }
 
 /// The targets' menu: opening, the clipboard, renaming, trashing, and a shell command.
@@ -233,12 +267,14 @@ fn folder(it: &mut Items<'_>) -> Menu {
 }
 
 /// The open-with menu at the cursor: applications named `names`, numbered from 1, after a
-/// Terminal item for a `folder`. `chosen` hears the item's index.
+/// Terminal item for a `folder`, each item with its icon in `icons`, if any. `chosen` hears
+/// the item's index.
 pub fn open_with<F>(
     s: &mut Strider,
     tx: &mut Txn<'_, Strider>,
     folder: bool,
     names: &[String],
+    icons: Vec<Option<ThemeIcon>>,
     chosen: F,
 ) -> Result<()>
 where
@@ -246,9 +282,22 @@ where
 {
     let terminal = folder.then(|| "Terminal".to_owned());
     let mut menu = Menu::new();
+    let mut icons = icons.into_iter();
     for (i, name) in terminal.iter().chain(names).enumerate() {
         // An underscore in a name is no mnemonic: the digit is.
         let item = Menu::new().item(i, &name.replace('_', "__"));
+        let item = match icons.next().flatten() {
+            Some(icon) => item.icon(Icon::Painted(PaintedIcon::new(Rc::new(
+                move |b, dst, color| {
+                    let colors = SymbolicColors {
+                        foreground: color,
+                        ..SymbolicColors::default()
+                    };
+                    icon.draw(b, dst, &colors);
+                },
+            )))),
+            None => item,
+        };
         let item = if i < 9 {
             item.trailing(&(i + 1).to_string())
         } else {

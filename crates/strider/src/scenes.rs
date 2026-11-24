@@ -853,7 +853,9 @@ fn add_pointer(app: &mut App<Strider>) {
         app.update(window, |tx| over_docs(&mut s, tx))?;
         Ok((app, s))
     });
-    // The card alone, with what a drop on docs does: `--keywork-size 148x28`.
+    // The card alone, with what a drop on docs does: `--keywork-size 165x28`. The card is
+    // as wide as what it holds, as the Zig build's was, so the size follows the font: the
+    // Zig build's golden, in its proportional font, is 148 wide.
     app.scene_app("drag-icon", || {
         let (mut app, mut s) = sample_prepared("drag-icon", "work", |_| Ok(()))?;
         let window = s.window;

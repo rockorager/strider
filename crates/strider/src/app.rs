@@ -32,6 +32,8 @@ use crate::theme::Tone;
 
 /// A row's height in the columns, as the Zig build had it.
 pub const ROW_HEIGHT: f32 = 26.0;
+/// The width of a mounted drive's usage bar in Drives.
+const DRIVE_BAR_WIDTH: f32 = 48.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Col {
@@ -422,10 +424,14 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     }
     let dnd = crate::dnd::build(tx, &panes, &lists)?;
     let preview_pane = panes[2];
+    // Code sits 6 px below the column's top, as the Zig build's preview text did.
     let preview_lines = widgets::list(
         tx,
         preview_pane,
-        Style::new().width(Dim::Fill).height(Dim::Fill),
+        Style::new()
+            .width(Dim::Fill)
+            .height(Dim::Fill)
+            .padding(Insets::new(6.0, 0.0, 6.0, 0.0)),
         ListDesc {
             selection: SelectionMode::None,
             ..ListDesc::default()
@@ -537,18 +543,19 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     tx.set_label(picker, "Results")?;
     tx.set_hidden(picker, true)?;
 
+    // A bordered card, as the Zig build's: no shadow.
     let which_key = widgets::surface(
         tx,
         root,
         Flex::column()
             .gap(4.0)
-            .padding(12.0)
+            .padding(Insets::new(10.0, 14.0, 12.0, 14.0))
             .absolute(keywork::tree::Anchors {
                 right: Some(12.0),
-                bottom: Some(36.0),
+                bottom: Some(34.0),
                 ..Default::default()
             }),
-        widgets::SurfaceKind::Raised(2),
+        widgets::SurfaceKind::Card,
     )?;
     tx.set_hidden(which_key, true)?;
 
@@ -1488,7 +1495,7 @@ fn fill_line(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<(
         return Ok(());
     };
     if fresh {
-        tx.update_style(row, |st| st.padding = Insets::new(0.0, 12.0, 0.0, 12.0))?;
+        tx.update_style(row, |st| st.padding = Insets::new(0.0, 10.0, 0.0, 10.0))?;
         let t = tx.text(row, "")?;
         tx.update_style(t, |st| {
             st.font_family = FontFamily::Mono;
@@ -1670,6 +1677,11 @@ fn fill_row(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, col: Col) ->
             st.grow = 1.0;
             st.max_lines = 1;
         })?;
+        // A mounted drive's usage: a groove, and the used share filled.
+        let bar = tx.flex(row, Flex::row().size(DRIVE_BAR_WIDTH, 4.0).shrink(0.0))?;
+        tx.set_radius(bar, 2.0)?;
+        let used = tx.flex(bar, Flex::row().height(Dim::Fill))?;
+        tx.set_radius(used, 2.0)?;
         let size = widgets::label(tx, row, "", TextKind::Small)?;
         tx.update_style(size, |st| st.max_lines = 1)?;
     }
@@ -1702,7 +1714,7 @@ fn fill_row(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, col: Col) ->
             ColorRole::WarningText
         } else if e.kind == Kind::Dir {
             ColorRole::AccentText
-        } else if e.hidden || drive.as_ref().is_some_and(|d| !d.1) {
+        } else if e.hidden || drive.as_ref().is_some_and(|d| !d.mounted) {
             ColorRole::TextMuted
         } else if e.mode & 0o111 != 0 && e.kind == Kind::File {
             ColorRole::SuccessText
@@ -1710,10 +1722,18 @@ fn fill_row(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, col: Col) ->
             ColorRole::Text
         })
     };
+    let show_info = col != Col::Parent && s.options.show_size;
+    // The used share of a mounted drive's space, shown where its free space is.
+    let usage = drive
+        .as_ref()
+        .and_then(|d| d.space)
+        .filter(|_| show_info)
+        .map(|sp| {
+            let used = sp.total - sp.free.min(sp.total);
+            (used as f64 / sp.total as f64) as f32
+        });
     let size = match e.kind {
-        _ if drive.is_some() && col != Col::Parent && s.options.show_size => {
-            drive.map(|d| d.0).unwrap_or_default()
-        }
+        _ if drive.is_some() && show_info => drive.map(|d| d.info).unwrap_or_default(),
         Kind::File if col != Col::Parent && s.options.show_size => model::compact_size(e.size),
         Kind::Other if e.link && col != Col::Parent && s.options.show_size => "broken link".into(),
         _ => String::new(),
@@ -1725,11 +1745,37 @@ fn fill_row(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, col: Col) ->
         crate::register::decoration(s, &f.listing.path_of(&e))
     };
     let mut parts = tx.children(row)?;
-    let (Some(mark), Some(canvas), Some(name_node), Some(size_node)) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let (Some(mark), Some(canvas), Some(name_node), Some(bar), Some(size_node)) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
         return Ok(());
     };
+    let bar = tx.downcast::<Flex>(bar)?;
+    tx.set_hidden(bar, usage.is_none())?;
+    if let Some(u) = usage {
+        // Under the cursor in the selection's text color on the page's, else in the
+        // accent, or the warning when less than a tenth is free.
+        let full = u > 0.9;
+        let (groove, fill) = if cursor {
+            (Tone::Preview, Tone::Cursor.paint())
+        } else if full {
+            (Tone::Track, Paint::Role(ColorRole::Warning))
+        } else {
+            (Tone::Track, Paint::Role(ColorRole::AccentFill))
+        };
+        tx.set_background(bar, groove.paint())?;
+        if let Some(used) = tx.children(bar)?.next() {
+            let used = tx.downcast::<Flex>(used)?;
+            tx.update_style(used, |st| {
+                st.width = Dim::Px((DRIVE_BAR_WIDTH * u).round());
+            })?;
+            tx.set_background(used, fill)?;
+        }
+    }
     let mark = tx.downcast::<Flex>(mark)?;
     tx.set_background(
         mark,
