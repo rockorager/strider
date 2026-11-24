@@ -90,7 +90,7 @@ pub fn fixture(name: &str) -> PathBuf {
 /// The app on the sample home, started in `start` under it, with times in UTC.
 fn sample(name: &str, start: &str) -> Result<(App<Strider>, Strider)> {
     let home = fixture(name);
-    crate::app_in(home.join(start), home, Config::default(), Zone::utc())
+    crate::app_in(home.join(start), home, Config::default(), Zone::utc(), true)
 }
 
 /// Presses keys as a user would, through the keymap.

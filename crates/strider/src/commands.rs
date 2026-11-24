@@ -24,7 +24,7 @@ pub fn execute(
         .split_once(char::is_whitespace)
         .map_or((line, ""), |(n, a)| (n, a.trim()));
     let n = count.unwrap_or(1) as usize;
-    let cursor = s.current.cursor;
+    let cursor = s.cur().cursor;
     match name {
         "down" => app::move_cursor(s, tx, cursor.saturating_add(n)),
         "up" => app::move_cursor(s, tx, cursor.saturating_sub(n)),
@@ -52,7 +52,7 @@ pub fn execute(
         }
         "enter" | "open" => enter(s, tx),
         "leave" => {
-            let here = s.current.path.clone();
+            let here = s.cur().path.clone();
             match here.parent() {
                 Some(up) => app::cd(
                     s,
@@ -92,7 +92,7 @@ pub fn execute(
         }
         "toggle-preview" => {
             s.options.preview = !s.options.preview;
-            app::reload_preview(s);
+            app::reload_preview(s, tx)?;
             app::draw(s, tx)
         }
         "sort" => {
@@ -114,32 +114,31 @@ pub fn execute(
             rearrange(s, tx)
         }
         "reload" => {
-            let path = s.current.path.clone();
-            let focus = s.current.current_name().map(<[u8]>::to_vec);
+            let path = s.cur().path.clone();
+            let focus = s.cur().current_name().map(<[u8]>::to_vec);
             app::cd(s, tx, path, focus.as_deref(), false)
         }
         "visual" => app::send_mode(s, tx, ModeEv::Visual),
         "visual-end" => app::send_mode(s, tx, ModeEv::VisualEnd),
         "escape" => {
-            s.current.marks.clear();
-            widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.current.len())?;
+            s.cur_mut().marks.clear();
+            widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.cur().len())?;
             app::draw_status(s, tx)
         }
         "toggle-mark" => {
             for _ in 0..n {
-                if let Some(i) = s.current.index(s.current.cursor) {
-                    if !s.current.marks.remove(&i) {
-                        s.current.marks.insert(i);
+                if let Some(i) = s.cur().index(s.cur().cursor) {
+                    if !s.cur_mut().marks.remove(&i) {
+                        s.cur_mut().marks.insert(i);
                     }
-                    s.current.cursor =
-                        (s.current.cursor + 1).min(s.current.len().saturating_sub(1));
+                    s.cur_mut().cursor = (s.cur().cursor + 1).min(s.cur().len().saturating_sub(1));
                 }
             }
-            app::reload_preview(s);
+            app::reload_preview(s, tx)?;
             app::draw(s, tx)
         }
         "mark-all" => {
-            s.current.marks = s.current.order.iter().copied().collect();
+            s.cur_mut().marks = s.cur().order.iter().copied().collect();
             app::draw(s, tx)
         }
         "quit" | "quit-all" => {
@@ -167,10 +166,10 @@ pub fn execute(
 
 /// Into the folder under the cursor. Opening files comes with the rest of opening.
 fn enter(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    let Some(e) = s.current.current().copied() else {
+    let Some(e) = s.cur().current().copied() else {
         return Ok(());
     };
-    let path = s.current.listing.path_of(&e);
+    let path = s.cur().listing.path_of(&e);
     if e.kind == Kind::Dir {
         return app::cd(s, tx, path, None, true);
     }
@@ -180,11 +179,13 @@ fn enter(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 
 /// Sorts and filters the folders shown again, the cursors staying on their entries.
 fn rearrange(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    s.current.arrange(&s.options, None);
-    if let Some(p) = &mut s.parent {
-        p.arrange(&s.options, None);
+    let shown = [Some(s.cwd.clone()), s.parent_path.clone()];
+    for path in shown.into_iter().flatten() {
+        if let Some(f) = s.cache.get_mut(&path) {
+            f.arrange(&s.options, None);
+        }
     }
-    app::reload_preview(s);
+    app::reload_preview(s, tx)?;
     app::draw(s, tx)
 }
 
@@ -193,6 +194,6 @@ fn expand(s: &Strider, arg: &str) -> PathBuf {
     match arg {
         "" | "~" => s.home.clone(),
         a if a.starts_with("~/") => s.home.join(&a[2..]),
-        a => s.current.path.join(a),
+        a => s.cur().path.join(a),
     }
 }

@@ -1,12 +1,12 @@
 //! Strider: a keyboard-driven file manager for Linux on Wayland.
 
 mod app;
+mod cache;
 mod commands;
 mod folder;
 mod preview;
 mod scenes;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -30,6 +30,7 @@ pub fn app_in(
     home: PathBuf,
     config: Config,
     zone: Zone,
+    sync_reads: bool,
 ) -> Result<(App<Strider>, Strider)> {
     let mut app = App::<Strider>::new();
     // Names, sizes, and dates line up in a monospace face, as Fontconfig resolves the alias,
@@ -54,7 +55,6 @@ pub fn app_in(
         ))),
         plusthree::host::NoTimers,
     );
-    let current = folder::Folder::read(&start, &config.options, &db, None);
     let mut state = Strider {
         window,
         ui,
@@ -66,12 +66,14 @@ pub fn app_in(
         zone,
         db,
         icons: None,
-        current,
-        parent: None,
+        cache: cache::Cache::new(),
+        cwd: start.clone(),
+        parent_path: None,
         preview: preview::Preview::None,
-        history: vec![start],
+        preview_generation: 0,
+        sync_reads,
+        history: vec![start.clone()],
         history_pos: 0,
-        cursors: HashMap::new(),
         anchor: 0,
         message: problems
             .first()
@@ -79,9 +81,11 @@ pub fn app_in(
         width: 0.0,
         parent_fit: 0.0,
     };
-    app::reload_around(&mut state);
-    app.update(window, |tx| app::draw(&mut state, tx))?;
+    // A start that is no folder leaves an empty current folder, which says why.
+    state.cache.entry(&start);
+    app.update(window, |tx| app::cd(&mut state, tx, start, None, false))?;
     app.on_icon_theme(load_icons);
+    app.on_start(cache::start_watching);
     scenes::add(&mut app);
     Ok((app, state))
 }
@@ -127,14 +131,25 @@ fn main() -> Result<()> {
     for p in &problems {
         eprintln!("strider: config.json: {p}");
     }
-    let start = std::env::args()
-        .skip(1)
-        .find(|a| !a.starts_with("--"))
+    // Keywork's own flags, and the values of those that take one, are not the folder.
+    let mut args = std::env::args().skip(1);
+    let mut folder = None;
+    while let Some(a) = args.next() {
+        if a.starts_with("--keywork-") {
+            if !a.contains('=') && a != "--keywork-list-scenes" {
+                args.next();
+            }
+        } else if !a.starts_with("--") {
+            folder = Some(a);
+            break;
+        }
+    }
+    let start = folder
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| home.clone());
     let start = std::path::absolute(&start).unwrap_or(start);
-    let (app, state) = app_in(start, home, config, Zone::local())?;
+    let (app, state) = app_in(start, home, config, Zone::local(), false)?;
     app.run(state)
 }
 
@@ -158,10 +173,12 @@ mod tests {
             home.clone(),
             Config::default(),
             Zone::utc(),
+            false,
         )
         .unwrap();
         let window = state.window;
         let mut h = app.headless(state).unwrap();
+        h.settle().unwrap();
         let press = |h: &mut keywork::app::Headless<Strider>, c: char| {
             h.key(window, Keysym::from_char(c), Modifiers::NONE)
                 .unwrap();
@@ -170,17 +187,17 @@ mod tests {
 
         press(&mut h, '2');
         press(&mut h, 'j');
-        assert_eq!(h.state().current.cursor, 2);
-        assert_eq!(h.state().current.name(2), b"src");
+        assert_eq!(h.state().cur().cursor, 2);
+        assert_eq!(h.state().cur().name(2), b"src");
 
         press(&mut h, ' ');
-        assert_eq!(h.state().current.marks.len(), 1);
+        assert_eq!(h.state().cur().marks.len(), 1);
         press(&mut h, 'g');
         h.key(window, Keysym::ESCAPE, Modifiers::NONE).unwrap();
         h.settle().unwrap();
         assert!(h.state().keys.matches(states::IDLE));
         assert_eq!(
-            h.state().current.marks.len(),
+            h.state().cur().marks.len(),
             1,
             "Escape ended the sequence, and ran nothing"
         );
@@ -193,7 +210,66 @@ mod tests {
         assert!(h.state().keys.matches(states::pending::HINTING));
         press(&mut h, 'h');
         assert!(h.state().keys.matches(states::IDLE));
-        assert_eq!(h.state().current.path, home);
+        assert_eq!(h.state().cur().path, home);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // Folders are read on a worker and watched: a file made in the folder shown appears once
+    // the watcher's batch is in, with the cursor kept on its entry; back in a folder left, the
+    // cursor is where it was.
+    #[test]
+    fn folders_follow_changes_and_keep_their_cursors() {
+        let home = scenes::fixture("watch");
+        let work = home.join("work");
+        let (app, state) = app_in(
+            work.clone(),
+            home.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+        )
+        .unwrap();
+        let window = state.window;
+        let mut h = app.headless(state).unwrap();
+        h.settle().unwrap();
+        assert!(h.state().cur().loaded);
+        let press = |h: &mut keywork::app::Headless<Strider>, c: char| {
+            h.key(window, Keysym::from_char(c), Modifiers::NONE)
+                .unwrap();
+            h.settle().unwrap();
+        };
+        // On "build.zig", the sixth entry.
+        for _ in 0..5 {
+            press(&mut h, 'j');
+        }
+        assert_eq!(h.state().cur().current_name(), Some(&b"build.zig"[..]));
+
+        // "aaa.txt" sorts before it, after "a-very-long-…" ('-' is before 'a').
+        std::fs::write(work.join("aaa.txt"), "new").unwrap();
+        for _ in 0..10 {
+            h.advance(Duration::from_millis(50)).unwrap();
+            h.settle().unwrap();
+            if h.state().cur().position_of(b"aaa.txt").is_some() {
+                break;
+            }
+        }
+        assert_eq!(h.state().cur().position_of(b"aaa.txt"), Some(4));
+        assert_eq!(h.state().cur().current_name(), Some(&b"build.zig"[..]));
+
+        // Into src, onto main.zig, out and in again: the cursor is still on main.zig.
+        press(&mut h, 'g');
+        press(&mut h, 'g');
+        press(&mut h, 'j');
+        press(&mut h, 'j');
+        press(&mut h, 'l');
+        assert_eq!(h.state().cwd, work.join("src"));
+        press(&mut h, 'G');
+        assert_eq!(h.state().cur().current_name(), Some(&b"main.zig"[..]));
+        press(&mut h, 'h');
+        assert_eq!(h.state().cwd, work);
+        assert_eq!(h.state().cur().current_name(), Some(&b"src"[..]));
+        press(&mut h, 'l');
+        assert_eq!(h.state().cur().current_name(), Some(&b"main.zig"[..]));
         let _ = std::fs::remove_dir_all(&home);
     }
 }

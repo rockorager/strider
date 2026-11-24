@@ -2,18 +2,16 @@
 //! file's start with syntax coloring, or the entry's details.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use keywork::desktop::mime::MimeDb;
 use strider_core::highlight::{self, Span};
-use strider_core::model::Kind;
-use strider_core::options::Options;
-
-use crate::folder::Folder;
 
 pub enum Preview {
     None,
-    Folder(Box<Folder>),
+    /// A folder, from the cache.
+    Folder(PathBuf),
+    /// A file being read on a worker.
+    Loading,
     /// A text file's start: its lines, as byte ranges, and its coloring.
     Text {
         text: String,
@@ -23,31 +21,18 @@ pub enum Preview {
     Info(String),
 }
 
-impl Preview {
-    pub fn of(
-        path: Option<&Path>,
-        kind: Option<Kind>,
-        options: &Options,
-        db: &MimeDb,
-        focus: Option<&[u8]>,
-    ) -> Preview {
-        let (Some(path), Some(kind), true) = (path, kind, options.preview) else {
-            return Preview::None;
-        };
-        match kind {
-            Kind::Dir => Preview::Folder(Box::new(Folder::read(path, options, db, focus))),
-            Kind::File => text(path, options).unwrap_or_else(|| Preview::Info(String::new())),
-            Kind::Other => Preview::Info(String::new()),
-        }
-    }
+/// What a file shows: its start, colored, when it is text. It touches the file system, so it
+/// runs on a worker.
+pub fn read_file(path: &Path, max_bytes: u32, syntax: bool) -> Preview {
+    text(path, max_bytes, syntax).unwrap_or_else(|| Preview::Info(String::new()))
 }
 
 /// The start of a text file, colored; None for a file that is not text.
-fn text(path: &Path, options: &Options) -> Option<Preview> {
+fn text(path: &Path, max_bytes: u32, syntax: bool) -> Option<Preview> {
     let mut data = Vec::new();
     std::fs::File::open(path)
         .ok()?
-        .take(u64::from(options.preview_max_bytes))
+        .take(u64::from(max_bytes))
         .read_to_end(&mut data)
         .ok()?;
     if data.contains(&0) {
@@ -69,7 +54,7 @@ fn text(path: &Path, options: &Options) -> Option<Preview> {
     let name = path
         .file_name()
         .map_or(&b""[..], |n| std::os::unix::ffi::OsStrExt::as_bytes(n));
-    let spans = match (options.syntax, highlight::detect(name, text.as_bytes())) {
+    let spans = match (syntax, highlight::detect(name, text.as_bytes())) {
         (true, Some(lang)) => highlight::highlight(lang, text.as_bytes()),
         _ => Vec::new(),
     };

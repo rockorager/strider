@@ -3,7 +3,6 @@
 //! Keys go through the keymap statechart to commands; the mode statechart says which table
 //! they are looked up in.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -25,6 +24,7 @@ use strider_machines::driver::Driver;
 use strider_machines::keymap::{self, KeyEv, KeyFx};
 use strider_machines::mode::{self, ModeEv, ModeFx};
 
+use crate::cache::{self, Cache};
 use crate::commands;
 use crate::folder::Folder;
 use crate::preview::Preview;
@@ -66,14 +66,19 @@ pub struct Strider {
     pub zone: Zone,
     pub db: Arc<MimeDb>,
     pub icons: Option<MimeIcons>,
-    pub current: Folder,
-    pub parent: Option<Folder>,
+    pub cache: Cache,
+    /// The current folder, and its parent, which the columns show from the cache.
+    pub cwd: PathBuf,
+    pub parent_path: Option<PathBuf>,
     pub preview: Preview,
+    /// Which preview read a file's result belongs to.
+    pub preview_generation: u64,
+    /// Read folders and files on the UI thread, so a scene's keys find them read: scenes
+    /// render the same every time.
+    pub sync_reads: bool,
     /// Back and forward through the folders visited.
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
-    /// The entry the cursor was last on in each folder left.
-    pub cursors: HashMap<PathBuf, Vec<u8>>,
     /// Where a visual range started, as a position in the current folder's order.
     pub anchor: usize,
     /// A message for the status line, and whether it is an error.
@@ -89,12 +94,25 @@ impl Strider {
         self.mode.matches(mode::mode::states::VISUAL)
     }
 
+    /// The current folder, which the cache holds while a column shows it.
+    pub fn cur(&self) -> &Folder {
+        self.cache
+            .get(&self.cwd)
+            .expect("the current folder is cached")
+    }
+
+    pub fn cur_mut(&mut self) -> &mut Folder {
+        self.cache
+            .get_mut(&self.cwd)
+            .expect("the current folder is cached")
+    }
+
     pub fn folder(&self, col: Col) -> Option<&Folder> {
         match col {
-            Col::Parent => self.parent.as_ref(),
-            Col::Current => Some(&self.current),
+            Col::Parent => self.parent_path.as_deref().and_then(|p| self.cache.get(p)),
+            Col::Current => Some(self.cur()),
             Col::Preview => match &self.preview {
-                Preview::Folder(f) => Some(f),
+                Preview::Folder(p) => self.cache.get(p),
                 _ => None,
             },
         }
@@ -381,19 +399,19 @@ pub fn send_mode(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: ModeEv) -> Resu
     let fx = s.mode.send(ev, plusthree::host::NoTimers);
     for f in fx {
         match f {
-            ModeFx::StartRange => s.anchor = s.current.cursor,
+            ModeFx::StartRange => s.anchor = s.cur().cursor,
             ModeFx::EndRange => {
                 let (lo, hi) = range(s);
                 for pos in lo..=hi {
-                    if let Some(i) = s.current.index(pos) {
-                        s.current.marks.insert(i);
+                    if let Some(i) = s.cur().index(pos) {
+                        s.cur_mut().marks.insert(i);
                     }
                 }
             }
             ModeFx::Changed => {
                 let fx = s.keys.send(KeyEv::Reset, Clock { tx });
                 apply_key_fx(s, tx, fx)?;
-                widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.current.len())?;
+                widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.cur().len())?;
             }
         }
     }
@@ -403,8 +421,8 @@ pub fn send_mode(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: ModeEv) -> Resu
 /// The visual range, as positions in the current folder's order.
 pub fn range(s: &Strider) -> (usize, usize) {
     let (a, c) = (
-        s.anchor.min(s.current.len().saturating_sub(1)),
-        s.current.cursor,
+        s.anchor.min(s.cur().len().saturating_sub(1)),
+        s.cur().cursor,
     );
     (a.min(c), a.max(c))
 }
@@ -460,13 +478,8 @@ fn show_which_key(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 
 // --- Folders -------------------------------------------------------------------------------
 
-/// Shows `path` as the current folder, the cursor on `focus` or where it was last.
-pub fn open(s: &mut Strider, path: &Path, focus: Option<&[u8]>) -> Folder {
-    let remembered = s.cursors.get(path).cloned();
-    Folder::read(path, &s.options, &s.db, focus.or(remembered.as_deref()))
-}
-
-/// Changes the current folder and records it in the history.
+/// Changes the current folder, the cursor on `focus` or where it was last, and records it in
+/// the history. A cached folder shows at once; one not read yet shows "Loading…".
 pub fn cd(
     s: &mut Strider,
     tx: &mut Txn<'_, Strider>,
@@ -479,55 +492,71 @@ pub fn cd(
         s.notify(format!("{} is not a folder", s.short_path(&path)), true);
         return draw_status(s, tx);
     }
-    remember(s);
-    s.current = open(s, &path, focus);
+    if s.visual() {
+        send_mode(s, tx, ModeEv::VisualEnd)?;
+    }
+    let f = s.cache.entry(&path);
+    if let Some(name) = focus {
+        f.focus(name);
+    }
+    s.cwd = path.clone();
+    s.parent_path = path.parent().map(Path::to_owned);
+    if let (Some(p), Some(name)) = (s.parent_path.clone(), path.file_name()) {
+        s.cache
+            .entry(&p)
+            .focus(std::os::unix::ffi::OsStrExt::as_bytes(name));
+    }
     if record {
         s.history.truncate(s.history_pos + 1);
         s.history.push(path);
         s.history_pos = s.history.len() - 1;
     }
-    if s.visual() {
-        send_mode(s, tx, ModeEv::VisualEnd)?;
-    }
-    reload_around(s);
+    reload_preview(s, tx)?;
     draw(s, tx)
 }
 
-fn remember(s: &mut Strider) {
-    if let Some(name) = s.current.current_name() {
-        s.cursors.insert(s.current.path.clone(), name.to_vec());
-    }
-}
-
-/// Reads the parent column and the preview again for the current folder and its cursor.
-pub fn reload_around(s: &mut Strider) {
-    let here = s.current.path.clone();
-    s.parent = here.parent().map(|p| {
-        let name = here
-            .file_name()
-            .map(|n| std::os::unix::ffi::OsStrExt::as_bytes(n).to_vec());
-        Folder::read(p, &s.options, &s.db, name.as_deref())
-    });
-    reload_preview(s);
-}
-
-pub fn reload_preview(s: &mut Strider) {
-    let path = s.current.current_path();
-    let kind = s.current.current().map(|e| e.kind);
-    let focus = path.as_ref().and_then(|p| s.cursors.get(p).cloned());
-    s.preview = Preview::of(path.as_deref(), kind, &s.options, &s.db, focus.as_deref());
+/// Shows what is under the cursor in the preview: a folder from the cache, or a file read on
+/// a worker; then tells the cache which folders the columns show.
+pub fn reload_preview(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    s.preview_generation += 1;
+    let generation = s.preview_generation;
+    let entry = s.cur().current().copied();
+    let path = s.cur().current_path();
+    s.preview = match (entry, path, s.options.preview) {
+        (Some(e), Some(path), true) if e.kind == Kind::Dir => Preview::Folder(path),
+        (Some(e), Some(path), true) if e.kind == Kind::File && s.sync_reads => {
+            crate::preview::read_file(&path, s.options.preview_max_bytes, s.options.syntax)
+        }
+        (Some(e), Some(path), true) if e.kind == Kind::File => {
+            let (max, syntax) = (s.options.preview_max_bytes, s.options.syntax);
+            tx.spawn_blocking(
+                move || crate::preview::read_file(&path, max, syntax),
+                move |s: &mut Strider, tx, preview| {
+                    if s.preview_generation != generation {
+                        return Ok(());
+                    }
+                    s.preview = preview;
+                    draw_preview(s, tx)
+                },
+            );
+            Preview::Loading
+        }
+        (Some(_), Some(_), true) => Preview::Info(String::new()),
+        _ => Preview::None,
+    };
+    cache::show(s, tx)
 }
 
 /// Moves the cursor to `pos` in the current folder, and shows what is under it.
 pub fn move_cursor(s: &mut Strider, tx: &mut Txn<'_, Strider>, pos: usize) -> Result<()> {
-    let pos = pos.min(s.current.len().saturating_sub(1));
-    if pos == s.current.cursor && !matches!(s.preview, Preview::None) {
+    let pos = pos.min(s.cur().len().saturating_sub(1));
+    if pos == s.cur().cursor && !matches!(s.preview, Preview::None) {
         return Ok(());
     }
-    s.current.cursor = pos;
-    reload_preview(s);
+    s.cur_mut().cursor = pos;
+    reload_preview(s, tx)?;
     if s.visual() {
-        widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.current.len())?;
+        widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.cur().len())?;
     }
     draw_cursor(s, tx, Col::Current)?;
     draw_preview(s, tx)?;
@@ -547,7 +576,9 @@ fn clicked(s: &mut Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {
     match col {
         Col::Current => move_cursor(s, tx, pos),
         Col::Parent => {
-            let parent = s.parent.as_ref().expect("a parent column with a cursor");
+            let parent = s
+                .folder(Col::Parent)
+                .expect("a parent column with a cursor");
             let Some(path) = parent
                 .entry(pos)
                 .filter(|e| e.kind == Kind::Dir)
@@ -587,9 +618,7 @@ pub fn draw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     }
     layout(s, tx)?;
     for col in [Col::Parent, Col::Current] {
-        let n = s.folder(col).map_or(0, Folder::len);
-        widgets::set_row_count(tx, s.ui.lists[col as usize], n)?;
-        draw_cursor(s, tx, col)?;
+        draw_column(s, tx, col)?;
     }
     draw_preview(s, tx)?;
     draw_header(s, tx)?;
@@ -599,7 +628,9 @@ pub fn draw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 /// The width the parent column needs for its longest names: the dozen longest in bytes are
 /// measured, in the bold a marked name takes, with the row around them.
 fn fit_width(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<f32> {
-    let Some(p) = &s.parent else { return Ok(0.0) };
+    let Some(p) = s.folder(Col::Parent) else {
+        return Ok(0.0);
+    };
     let mut names: Vec<&[u8]> = p
         .order
         .iter()
@@ -663,12 +694,26 @@ pub fn layout(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     tx.set_hidden(preview, !show_preview)
 }
 
+/// Fills a column's rows again and places its cursor.
+pub fn draw_column(s: &Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {
+    let n = s.folder(col).map_or(0, Folder::len);
+    widgets::set_row_count(tx, s.ui.lists[col as usize], n)?;
+    draw_cursor(s, tx, col)
+}
+
 fn draw_cursor(s: &Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {
     let list = s.ui.lists[col as usize];
     let message = match s.folder(col) {
-        Some(f) if f.error.is_some() => "Cannot read this folder",
-        Some(f) if f.len() == 0 => "Empty",
-        _ => "",
+        Some(f) => match f.error {
+            Some(model::ReadError::AccessDenied) => "Permission denied",
+            Some(model::ReadError::FileNotFound) => "Not found",
+            Some(model::ReadError::NotDir) => "Not a folder",
+            Some(_) => "Cannot read this folder",
+            None if !f.loaded => "Loading…",
+            None if f.len() == 0 => "Empty",
+            None => "",
+        },
+        None => "",
     };
     tx.set_text(s.ui.messages[col as usize], message)?;
     tx.set_hidden(s.ui.messages[col as usize], message.is_empty())?;
@@ -687,7 +732,7 @@ fn draw_preview(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         Preview::Folder(_) => (true, false, false),
         Preview::Text { .. } => (false, true, false),
         Preview::Info(_) => (false, false, true),
-        Preview::None => (false, false, false),
+        Preview::None | Preview::Loading => (false, false, false),
     };
     tx.set_hidden(list, !folder)?;
     if !folder {
@@ -696,10 +741,7 @@ fn draw_preview(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     tx.set_hidden(s.ui.preview_lines, !text)?;
     tx.set_hidden(s.ui.preview_info, !info)?;
     match &s.preview {
-        Preview::Folder(f) => {
-            widgets::set_row_count(tx, list, f.len())?;
-            draw_cursor(s, tx, Col::Preview)?;
-        }
+        Preview::Folder(_) => draw_column(s, tx, Col::Preview)?,
         Preview::Text { text, lines, .. } => {
             // Lines run on past the column's edge, as in an editor, rather than wrapping: the
             // rows are as wide as the longest line.
@@ -717,7 +759,7 @@ fn draw_preview(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
             widgets::scroll_to_item(tx, list, 0)?;
         }
         Preview::Info(t) => tx.set_text(s.ui.preview_info, t)?,
-        Preview::None => {}
+        Preview::None | Preview::Loading => {}
     }
     Ok(())
 }
@@ -781,13 +823,13 @@ fn span_for(class: Class, range: std::ops::Range<usize>) -> TextSpan {
 
 /// The header: the path of the entry under the cursor, its folder in the accent color.
 pub fn draw_header(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    let dir = s.short_path(&s.current.path);
+    let dir = s.short_path(&s.cur().path);
     let dir = if dir.ends_with('/') {
         dir
     } else {
         format!("{dir}/")
     };
-    let name = String::from_utf8_lossy(s.current.current_name().unwrap_or_default());
+    let name = String::from_utf8_lossy(s.cur().current_name().unwrap_or_default());
     tx.set_text(s.ui.header, format_args!("{dir}{name}"))?;
     let span = TextSpan::new(0..dir.len())
         .color(Paint::Role(ColorRole::AccentText))
@@ -801,7 +843,7 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let visual = s.visual();
     tx.set_text(s.ui.status_mode, if visual { "VISUAL" } else { "" })?;
     tx.set_hidden(s.ui.status_mode, !visual)?;
-    let (left, role) = match (&s.message, s.current.current()) {
+    let (left, role) = match (&s.message, s.cur().current()) {
         (Some((m, error)), _) => (
             m.clone(),
             if *error {
@@ -830,7 +872,7 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
                 ColorRole::TextMuted,
             )
         }
-        (None, None) if s.current.error.is_some() => {
+        (None, None) if s.cur().error.is_some() => {
             ("Cannot read this folder".into(), ColorRole::TextMuted)
         }
         (None, None) => (String::new(), ColorRole::TextMuted),
@@ -849,8 +891,8 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         let (lo, hi) = range(s);
         right += &format!("{} in range   ", hi - lo + 1);
     }
-    if !s.current.marks.is_empty() {
-        right += &format!("{} marked   ", s.current.marks.len());
+    if !s.cur().marks.is_empty() {
+        right += &format!("{} marked   ", s.cur().marks.len());
     }
     if s.options.show_hidden {
         right += "hidden   ";
@@ -860,11 +902,11 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         let name = format!("{:?}", sort.key).to_lowercase();
         right += &format!("{name}{}   ", if sort.descending { " ↓" } else { "" });
     }
-    let n = s.current.len();
+    let n = s.cur().len();
     right += &if n == 0 {
         "0/0".into()
     } else {
-        format!("{}/{n}", s.current.cursor + 1)
+        format!("{}/{n}", s.cur().cursor + 1)
     };
     tx.set_text(s.ui.status_right, &right)
 }

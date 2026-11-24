@@ -3,5 +3,6 @@
 //! carries out the effects and draws what the snapshots say.
 
 pub mod driver;
+pub mod folder;
 pub mod keymap;
 pub mod mode;
