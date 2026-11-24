@@ -215,6 +215,9 @@ release version="":
     # The desktop and D-Bus service files name the program by its absolute
     # path: @PREFIX@ in the archive, for `just fetch` to fill in.
     stage "$tmp/root" @PREFIX@ "$src"
+    # The licences of the crates compiled in.
+    mkdir -p "$tmp/root/share/doc/strider"
+    (cd "$src" && python3 tools/notices.py) >"$tmp/root/share/doc/strider/NOTICES"
     bin=$tmp/root/bin/strider
     strip "$bin"
     # It runs on other machines, so it must find their libraries, not the
