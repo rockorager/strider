@@ -18,6 +18,30 @@ pub struct KeyCtx {
     pub count: Option<u32>,
     /// How long a pending sequence waits before its continuations show.
     pub delay: Duration,
+    /// What the next key answers, while one is awaited.
+    pub question: Option<Question>,
+}
+
+/// A question the next key answers instead of going to a binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Question {
+    /// The key to bookmark this folder under.
+    BookmarkSet,
+    /// The bookmark to go to; the bookmarks show after the delay.
+    BookmarkJump,
+    /// The bookmark to remove; the bookmarks show after the delay.
+    BookmarkRemove,
+    /// y to empty the trash.
+    EmptyTrash,
+    /// How to settle an operation's conflict: replace, skip, keep both, merge, cancel.
+    Conflict,
+}
+
+impl Question {
+    /// Whether the bookmarks show while it waits, as continuations do.
+    fn hints(self) -> bool {
+        matches!(self, Question::BookmarkJump | Question::BookmarkRemove)
+    }
 }
 
 #[derive(Event, Clone, Debug, PartialEq)]
@@ -31,6 +55,8 @@ pub enum KeyEv {
     },
     /// Forget the pending keys and the count, as when the mode changes.
     Reset,
+    /// Take the next key as the answer to a question.
+    Ask(Question),
     /// `which_key_delay` changed.
     SetDelay(Duration),
 }
@@ -51,6 +77,8 @@ pub enum KeyFx {
     HideHints,
     /// The pending keys or the count changed: draw the status line again.
     Status,
+    /// The key that answers a question (Escape among them, which declines).
+    Answer(Question, Key),
 }
 
 /// The keys to look up for `key` after `pending`: a sequence at its longest starts over.
@@ -156,6 +184,19 @@ fn pending_key(
     }
 }
 
+/// Waits for the key that answers `q`, showing the bookmarks after the delay for the
+/// questions that list them.
+fn ask(q: Question) -> Transition<Keymap> {
+    let target = if q.hints() {
+        keymap::states::asking::WAITING
+    } else {
+        keymap::states::asking::QUIET
+    };
+    Transition::<Keymap>::to(target)
+        .reenter(true)
+        .patch(move |p| p.question(Some(q)).pending(Vec::new()).count(None))
+}
+
 plusthree::machine! {
     pub Keymap { context: KeyCtx, events: KeyEv, effects: KeyFx }
     id: "keymap",
@@ -176,6 +217,33 @@ plusthree::machine! {
                 KeyEv::Reset => |_, enq| {
                     enq.action(KeyFx::Status);
                     Transition::stay().patch(|p| p.count(None))
+                },
+                KeyEv::Ask(q) => |_, _| self::ask(*q),
+            },
+        },
+        asking: {
+            exit: |_, enq| { enq.action(KeyFx::HideHints); enq.action(KeyFx::Status) },
+            on: {
+                KeyEv::Key { key, .. } => |a, enq| {
+                    if let Some(q) = a.context.question {
+                        enq.action(KeyFx::Answer(q, *key));
+                    }
+                    Transition::to(keymap::states::IDLE).patch(|p| p.question(None))
+                },
+                KeyEv::Reset => |_, _| Transition::to(keymap::states::IDLE).patch(|p| p.question(None)),
+                KeyEv::Ask(q) => |_, _| self::ask(*q),
+            },
+            initial: waiting,
+            states: {
+                waiting: {
+                    entry: |_, enq| enq.action(KeyFx::Status),
+                    after: { which_key => hinting },
+                },
+                hinting: {
+                    entry: |_, enq| enq.action(KeyFx::ShowHints),
+                },
+                quiet: {
+                    entry: |_, enq| enq.action(KeyFx::Status),
                 },
             },
         },
@@ -292,6 +360,34 @@ mod tests {
         assert!(runs(&fx).is_empty());
         assert!(fx.contains(&KeyFx::HideHints));
         assert!(d.matches(keymap::states::IDLE));
+    }
+
+    // A question takes the next key whatever it is bound to, Escape too; the bookmarks show
+    // after the delay only for the questions that pick one.
+    #[test]
+    fn questions_take_the_next_key() {
+        let (mut d, mut r) = start(300);
+        d.send(KeyEv::Ask(Question::BookmarkSet), &mut r);
+        assert_eq!(r.running().count(), 0, "no hints for setting one");
+        let fx = d.send(key(ch('j'), Some("down"), false), &mut r);
+        assert!(fx.contains(&KeyFx::Answer(Question::BookmarkSet, ch('j'))));
+        assert!(runs(&fx).is_empty());
+        assert!(d.matches(keymap::states::IDLE));
+        assert_eq!(d.context().question, None);
+
+        d.send(KeyEv::Ask(Question::BookmarkJump), &mut r);
+        let [t] = r.running().map(|t| t.token).collect::<Vec<_>>()[..] else {
+            panic!("one timer")
+        };
+        r.fired(t);
+        assert_eq!(d.fire(t, &mut r), [KeyFx::ShowHints]);
+        let esc = Key {
+            code: keys::sym::ESCAPE,
+            mods: keys::Mods::default(),
+        };
+        let fx = d.send(key(esc, Some("escape"), false), &mut r);
+        assert!(fx.contains(&KeyFx::Answer(Question::BookmarkJump, esc)));
+        assert!(fx.contains(&KeyFx::HideHints));
     }
 
     // A sequence that ends in nothing is reported whole; a lone unbound arrow is not, and

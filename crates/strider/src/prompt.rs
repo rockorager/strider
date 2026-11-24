@@ -10,7 +10,7 @@ use strider_core::state;
 use strider_machines::mode::{ModeEv, Prompt};
 
 use crate::app::{self, Col, Strider};
-use crate::commands;
+use crate::{commands, picker};
 
 /// Opens the command line for `p` with `text`, `anchor..head` of it selected.
 pub fn start(
@@ -41,7 +41,8 @@ fn set_text(s: &Strider, tx: &mut Txn<'_, Strider>, text: &str) -> Result<()> {
 pub fn key(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt, key: Key) -> Result<()> {
     let m = key.mods;
     let plain = !m.ctrl && !m.alt && !m.super_;
-    if s.message.take().is_some() {
+    // The passphrase's message says which drive it unlocks while it is typed.
+    if p != Prompt::Passphrase && s.message.take().is_some() {
         app::draw_status(s, tx)?;
     }
     match key.code {
@@ -53,13 +54,40 @@ pub fn key(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt, key: Key) -> R
             let t = text(s, tx)?;
             app::send_mode(s, tx, ModeEv::Submit(t))
         }
+        keys::sym::TAB if p == Prompt::Pick && !m.ctrl && !m.alt => {
+            picker::move_by(s, tx, if m.shift { -1 } else { 1 })
+        }
+        keys::sym::PAGE_UP | keys::sym::PAGE_DOWN if p == Prompt::Pick => {
+            let rows = picker::ROWS as isize;
+            picker::move_by(
+                s,
+                tx,
+                if key.code == keys::sym::PAGE_UP {
+                    -rows
+                } else {
+                    rows
+                },
+            )
+        }
+        keys::sym::UP | keys::sym::DOWN if plain && p == Prompt::Pick => {
+            picker::move_by(s, tx, if key.code == keys::sym::UP { -1 } else { 1 })
+        }
+        // Ctrl+N and Ctrl+P (Ctrl+J and Ctrl+K) move in the picker, as in fzf.
+        c if p == Prompt::Pick && m.ctrl && [u32::from('n'), u32::from('j')].contains(&c) => {
+            picker::move_by(s, tx, 1)
+        }
+        c if p == Prompt::Pick && m.ctrl && [u32::from('p'), u32::from('k')].contains(&c) => {
+            picker::move_by(s, tx, -1)
+        }
         keys::sym::TAB if plain => {
-            if p == Prompt::Command {
-                complete(s, tx)?;
+            if matches!(p, Prompt::Command | Prompt::Shell) {
+                complete(s, tx, p)?;
             }
             Ok(())
         }
-        keys::sym::UP | keys::sym::DOWN if plain && p == Prompt::Command => {
+        keys::sym::UP | keys::sym::DOWN
+            if plain && matches!(p, Prompt::Command | Prompt::Shell) =>
+        {
             recall(s, tx, if key.code == keys::sym::UP { -1 } else { 1 })
         }
         _ => Err(Error::Pass),
@@ -71,10 +99,18 @@ pub fn open(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<()>
     s.prompt_origin = s.cur().cursor;
     s.prompt_entry = s.cur().current_name().map(<[u8]>::to_vec);
     s.line_pos = s.lines.len();
-    tx.set_text(s.ui.line_label, p.label())?;
-    tx.set_label(s.ui.line_editor, p.name())?;
+    let (label, name) = match p {
+        Prompt::Pick => (s.picker.label(), s.picker.name()),
+        _ => (p.label(), p.name()),
+    };
+    tx.set_text(s.ui.line_label, label)?;
+    tx.set_label(s.ui.line_editor, name)?;
+    if p != Prompt::Pick {
+        picker::close(s, tx)?;
+    }
     tx.set_text(s.ui.line_editor, "")?;
     tx.set_hidden(s.ui.which_key, true)?;
+    tx.set_masked(s.ui.line_editor, p == Prompt::Passphrase)?;
     tx.set_hidden(s.ui.line, false)?;
     lift_popup(s, tx, true)?;
     tx.focus(s.ui.line_editor)
@@ -95,7 +131,9 @@ fn lift_popup(s: &Strider, tx: &mut Txn<'_, Strider>, line: bool) -> Result<()> 
 /// Hides the command line, emptied, and gives the keys back to the folder.
 pub fn close(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     tx.set_hidden(s.ui.line, true)?;
+    tx.set_masked(s.ui.line_editor, false)?;
     tx.set_text(s.ui.line_editor, "")?;
+    picker::close(s, tx)?;
     tx.set_hidden(s.ui.which_key, true)?;
     lift_popup(s, tx, false)?;
     tx.focus(s.ui.lists[Col::Current as usize])
@@ -127,7 +165,9 @@ pub fn live(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<()>
             let entry = s.prompt_entry.clone();
             set_filter(s, tx, t, entry.as_deref())
         }
-        Prompt::Command => Ok(()),
+        Prompt::Pick => picker::set_query(s, tx, &t),
+        Prompt::Command | Prompt::Shell | Prompt::Rename | Prompt::Create => Ok(()),
+        Prompt::Passphrase => Ok(()),
     }
 }
 
@@ -136,13 +176,14 @@ pub fn live(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<()>
 pub fn run(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt, t: &str) -> Result<()> {
     match p {
         Prompt::Command => {
-            if state::add_history(&mut s.lines, t)
-                && let Some(dir) = &s.state_dir
-                && let Err(e) = state::save_history(dir, &s.lines)
-            {
-                s.notify(format!("Cannot save the history: {e}"), true);
-            }
+            remember(s, t);
             commands::execute(s, tx, t, None, false)
+        }
+        // Kept as the command that runs it again, so Up recalls it on either line.
+        Prompt::Shell if t.is_empty() => Ok(()),
+        Prompt::Shell => {
+            remember(s, &format!("shell {t}"));
+            crate::opening::run_shell(s, tx, t, false)
         }
         Prompt::Search | Prompt::SearchBack => {
             let back = p == Prompt::SearchBack;
@@ -153,7 +194,11 @@ pub fn run(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt, t: &str) -> Re
             }
             app::draw_status(s, tx)
         }
+        Prompt::Pick => picker::submit(s, tx),
         Prompt::Find | Prompt::Filter => app::draw_status(s, tx),
+        Prompt::Rename => crate::register::finish_rename(s, tx, t),
+        Prompt::Create => crate::register::finish_create(s, tx, t),
+        Prompt::Passphrase => crate::drives::unlock(s, tx, t),
     }
 }
 
@@ -167,7 +212,23 @@ pub fn restore(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<
             let entry = s.prompt_entry.take();
             set_filter(s, tx, String::new(), entry.as_deref())
         }
-        Prompt::Command => app::draw_status(s, tx),
+        Prompt::Command | Prompt::Pick | Prompt::Shell | Prompt::Rename | Prompt::Create => {
+            app::draw_status(s, tx)
+        }
+        Prompt::Passphrase => {
+            crate::drives::cancel_unlock(s);
+            app::draw_status(s, tx)
+        }
+    }
+}
+
+/// Keeps a command line in the history file.
+fn remember(s: &mut Strider, line: &str) {
+    if state::add_history(&mut s.lines, line)
+        && let Some(dir) = &s.state_dir
+        && let Err(e) = state::save_history(dir, &s.lines)
+    {
+        s.notify(format!("Cannot save the history: {e}"), true);
     }
 }
 
@@ -201,10 +262,14 @@ fn recall(s: &mut Strider, tx: &mut Txn<'_, Strider>, delta: isize) -> Result<()
 }
 
 /// Tab: completes the command's name, then its argument, as far as every candidate goes,
-/// and lists the candidates when there are several.
-fn complete(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+/// and lists the candidates when there are several. A shell command's words are all paths.
+fn complete(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<()> {
     let t = text(s, tx)?;
-    let (completed, candidates) = commands::complete(s, &t);
+    let (completed, candidates) = if p == Prompt::Shell {
+        commands::complete_shell(s, &t)
+    } else {
+        commands::complete(s, &t)
+    };
     if candidates.is_empty() {
         return Ok(());
     }

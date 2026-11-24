@@ -21,6 +21,16 @@ pub enum Prompt {
     Find,
     /// Show only the names that match.
     Filter,
+    /// The picker's query.
+    Pick,
+    /// A shell command, run on the targets, as typed after `!`.
+    Shell,
+    /// A new name for the entry under the cursor.
+    Rename,
+    /// A new file, or a folder with a trailing `/`.
+    Create,
+    /// The passphrase of an encrypted drive, masked.
+    Passphrase,
 }
 
 impl Prompt {
@@ -32,6 +42,11 @@ impl Prompt {
             Prompt::SearchBack => "?",
             Prompt::Find => "find:",
             Prompt::Filter => "filter:",
+            Prompt::Pick => "",
+            Prompt::Shell => "!",
+            Prompt::Rename => "rename:",
+            Prompt::Create => "new:",
+            Prompt::Passphrase => "passphrase:",
         }
     }
 
@@ -42,6 +57,11 @@ impl Prompt {
             Prompt::Search | Prompt::SearchBack => "Search",
             Prompt::Find => "Find",
             Prompt::Filter => "Filter",
+            Prompt::Pick => "Pick",
+            Prompt::Shell => "Shell command",
+            Prompt::Rename => "New name",
+            Prompt::Create => "New file or folder",
+            Prompt::Passphrase => "Passphrase",
         }
     }
 }
@@ -60,6 +80,10 @@ pub enum ModeEv {
     VisualEnd,
     /// End it without marking the range, as Escape and changing folders do.
     VisualCancel,
+    /// Open the tasks view, whose keys are the tasks table's; a visual range ends unmarked.
+    OpenTasks,
+    /// Close the tasks view.
+    CloseTasks,
     /// Open the command line for a prompt, or switch the open one to it.
     Open(Prompt),
     /// The prompt's text changed.
@@ -101,7 +125,7 @@ plusthree::machine! {
             initial: normal,
             states: {
                 normal: {
-                    on: { ModeEv::Visual => visual },
+                    on: { ModeEv::Visual => visual, ModeEv::OpenTasks => tasks },
                 },
                 visual: {
                     entry: |_, enq| { enq.action(ModeFx::StartRange); enq.action(ModeFx::Changed) },
@@ -116,7 +140,13 @@ plusthree::machine! {
                             Transition::to(mode::states::selection::NORMAL)
                         },
                         ModeEv::VisualCancel => normal,
+                        ModeEv::OpenTasks => tasks,
                     },
+                },
+                tasks: {
+                    entry: |_, enq| enq.action(ModeFx::Changed),
+                    exit: |_, enq| enq.action(ModeFx::Changed),
+                    on: { ModeEv::CloseTasks => normal },
                 },
             },
         },
@@ -160,6 +190,15 @@ plusthree::machine! {
                 },
             },
         },
+    }
+}
+
+/// The key table for the tasks view while it is open, else for the selection's mode.
+pub fn key_table(visual: bool, tasks: bool) -> config::Mode {
+    if tasks {
+        config::Mode::Tasks
+    } else {
+        table(visual)
     }
 }
 
@@ -215,6 +254,24 @@ mod tests {
         assert!(!fx.contains(&ModeFx::EndRange));
         assert!(d.matches(mode::states::selection::VISUAL));
         assert!(d.matches(mode::states::line::CLOSED));
+    }
+
+    // The tasks view takes the selection region: visual mode ends without marking the range,
+    // and closing it goes back to normal mode; a prompt still opens over it.
+    #[test]
+    fn the_tasks_view_ends_visual_unmarked() {
+        let mut d = start();
+        d.send(ModeEv::Visual, NoTimers);
+        let fx = d.send(ModeEv::OpenTasks, NoTimers);
+        assert!(!fx.contains(&ModeFx::EndRange));
+        assert!(fx.contains(&ModeFx::Changed));
+        assert!(d.matches(mode::states::selection::TASKS));
+        assert!(d.send(ModeEv::Visual, NoTimers).is_empty());
+        d.send(ModeEv::Open(Prompt::Command), NoTimers);
+        assert!(d.matches(mode::states::selection::TASKS));
+        assert_eq!(d.send(ModeEv::CloseTasks, NoTimers), [ModeFx::Changed]);
+        assert!(d.matches(mode::states::selection::NORMAL));
+        assert!(d.send(ModeEv::CloseTasks, NoTimers).is_empty());
     }
 
     // Edits act for the prompt open; once it closes, a late edit (the editor emptied as the

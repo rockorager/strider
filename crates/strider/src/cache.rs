@@ -18,7 +18,7 @@ use strider_machines::driver::Driver;
 use strider_machines::folder::{Folder as Chart, FolderEv, FolderFx};
 
 use crate::app::{self, Col, Strider};
-use crate::folder::{self, Folder, Listed};
+use crate::folder::{Folder, Listed};
 use crate::preview::Preview;
 
 /// How many folders no column shows stay cached.
@@ -42,6 +42,8 @@ pub struct Cache {
     pub dirs: HashMap<PathBuf, Cached>,
     /// The folders columns show.
     shown: Vec<PathBuf>,
+    /// The folders other tabs show, kept for when they show again.
+    pub pinned: Vec<PathBuf>,
     tick: u64,
     generation: u64,
     watcher: Option<DirWatcher>,
@@ -54,6 +56,7 @@ impl Cache {
         Cache {
             dirs: HashMap::new(),
             shown: Vec::new(),
+            pinned: Vec::new(),
             tick: 0,
             generation: 0,
             watcher: DirWatcher::new(LATENCY).ok(),
@@ -78,7 +81,7 @@ impl Cache {
                 let Some(victim) = self
                     .dirs
                     .iter()
-                    .filter(|(p, _)| !self.shown.contains(p))
+                    .filter(|(p, _)| !self.shown.contains(p) && !self.pinned.contains(p))
                     .min_by_key(|(_, c)| c.last_used)
                     .map(|(p, _)| p.clone())
                 else {
@@ -141,6 +144,13 @@ pub fn show(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     Ok(())
 }
 
+/// Reads `path` again if it is cached: now while a column shows it, else when one next does,
+/// as after a file operation changed it (the watcher would, a moment later, and not at all
+/// without inotify).
+pub fn invalidate(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
+    send(s, tx, path, FolderEv::Changed)
+}
+
 /// Steps a folder's chart, and carries out what it asks.
 fn send(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path, ev: FolderEv) -> Result<()> {
     let Some(c) = s.cache.dirs.get_mut(path) else {
@@ -175,6 +185,7 @@ fn send(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path, ev: FolderEv) -
 fn read(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
     s.cache.generation += 1;
     let generation = s.cache.generation;
+    let drives = crate::drives::reader(s, path);
     let Some(c) = s.cache.dirs.get_mut(path) else {
         return Ok(());
     };
@@ -186,11 +197,11 @@ fn read(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
     }
     let (db, sort, owned) = (s.db.clone(), s.options.sort, path.to_owned());
     if s.sync_reads {
-        c.result = Some(folder::read(&owned, &db, sort));
+        c.result = Some(crate::drives::read(&owned, &db, sort, drives));
         return send(s, tx, path, FolderEv::Read);
     }
     tx.spawn_blocking(
-        move || folder::read(&owned, &db, sort),
+        move || crate::drives::read(&owned, &db, sort, drives),
         move |s: &mut Strider, tx, listed| {
             let path = listed.listing.path.clone();
             match s.cache.dirs.get_mut(&path) {

@@ -2,6 +2,7 @@
 
 pub mod archive;
 pub mod config;
+pub mod drives;
 pub mod fsops;
 pub mod fuzzy;
 pub mod highlight;
@@ -13,3 +14,4 @@ pub mod rename;
 pub mod state;
 pub mod trash;
 pub mod undo;
+pub mod uri;

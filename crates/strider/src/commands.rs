@@ -12,7 +12,7 @@ use strider_core::options::{INFOS, SetError};
 use strider_machines::mode::{ModeEv, Prompt};
 
 use crate::app::{self, Col, Strider};
-use crate::prompt;
+use crate::{bookmarks, columns, drives, menu, opening, picker, prompt, tabs};
 
 /// What Tab completes in a command's argument.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,120 +24,237 @@ pub enum Complete {
     Sort,
 }
 
-/// A command: its name, and what its argument completes to.
+/// A command: its name, what it does, and what its argument completes to.
 pub struct Command {
     pub name: &'static str,
+    pub desc: &'static str,
     pub complete: Complete,
 }
 
-const fn cmd(name: &'static str, complete: Complete) -> Command {
-    Command { name, complete }
+const fn cmd(name: &'static str, desc: &'static str, complete: Complete) -> Command {
+    Command {
+        name,
+        desc,
+        complete,
+    }
 }
 
-/// Every command, as the Zig build had them, for completion; those not ported yet
+/// Every command, as the Zig build had them, for completion and help; those not ported yet
 /// say so when run.
 pub const COMMANDS: &[Command] = &[
-    cmd("down", Complete::None),
-    cmd("up", Complete::None),
-    cmd("top", Complete::None),
-    cmd("bottom", Complete::None),
-    cmd("half-down", Complete::None),
-    cmd("half-up", Complete::None),
-    cmd("page-down", Complete::None),
-    cmd("page-up", Complete::None),
-    cmd("leave", Complete::None),
-    cmd("enter", Complete::None),
-    cmd("open", Complete::None),
-    cmd("back", Complete::None),
-    cmd("forward", Complete::None),
-    cmd("cd", Complete::Dir),
-    cmd("fuzzy", Complete::None),
-    cmd("z", Complete::None),
-    cmd("zi", Complete::None),
-    cmd("cd-xdg", Complete::None),
-    cmd("cd-media", Complete::None),
-    cmd("trash-browse", Complete::None),
-    cmd("preview-down", Complete::None),
-    cmd("preview-up", Complete::None),
-    cmd("search", Complete::None),
-    cmd("search-back", Complete::None),
-    cmd("search-next", Complete::None),
-    cmd("search-prev", Complete::None),
-    cmd("find", Complete::None),
-    cmd("filter", Complete::None),
-    cmd("toggle-mark", Complete::None),
-    cmd("mark-all", Complete::None),
-    cmd("unmark-all", Complete::None),
-    cmd("invert-marks", Complete::None),
-    cmd("visual", Complete::None),
-    cmd("visual-end", Complete::None),
-    cmd("escape", Complete::None),
-    cmd("yank", Complete::None),
-    cmd("cut", Complete::None),
-    cmd("paste", Complete::None),
-    cmd("paste-overwrite", Complete::None),
-    cmd("yank-path", Complete::None),
-    cmd("yank-name", Complete::None),
-    cmd("yank-dir", Complete::None),
-    cmd("trash", Complete::None),
-    cmd("delete", Complete::None),
-    cmd("restore", Complete::None),
-    cmd("empty-trash", Complete::None),
-    cmd("undo", Complete::None),
-    cmd("rename", Complete::None),
-    cmd("rename-append", Complete::None),
-    cmd("rename-insert", Complete::None),
-    cmd("bulk-rename", Complete::None),
-    cmd("create", Complete::None),
-    cmd("mkdir", Complete::None),
-    cmd("touch", Complete::None),
-    cmd("open-with", Complete::None),
-    cmd("chmod", Complete::None),
-    cmd("chown", Complete::None),
-    cmd("shell", Complete::Path),
-    cmd("shell-prompt", Complete::None),
-    cmd("insert", Complete::None),
-    cmd("terminal", Complete::Dir),
-    cmd("reload", Complete::None),
-    cmd("toggle-hidden", Complete::None),
-    cmd("toggle-preview", Complete::None),
-    cmd("toggle-icons", Complete::None),
-    cmd("sort", Complete::Sort),
-    cmd("sort-reverse", Complete::None),
-    cmd("sort-dirs-first", Complete::None),
-    cmd("set", Complete::Option),
-    cmd("bookmark-set", Complete::None),
-    cmd("bookmark-jump", Complete::None),
-    cmd("bookmark-remove", Complete::None),
-    cmd("tab-new", Complete::Dir),
-    cmd("tab-close", Complete::None),
-    cmd("tab-next", Complete::None),
-    cmd("tab-prev", Complete::None),
-    cmd("tab", Complete::None),
-    cmd("drives", Complete::None),
-    cmd("mount", Complete::None),
-    cmd("unmount", Complete::None),
-    cmd("eject", Complete::None),
-    cmd("map", Complete::None),
-    cmd("unmap", Complete::None),
-    cmd("help", Complete::None),
-    cmd("messages", Complete::None),
-    cmd("tasks", Complete::None),
-    cmd("menu", Complete::None),
-    cmd("properties", Complete::None),
-    cmd("column-wider", Complete::None),
-    cmd("column-narrower", Complete::None),
-    cmd("column-reset", Complete::None),
-    cmd("task-down", Complete::None),
-    cmd("task-up", Complete::None),
-    cmd("task-pause", Complete::None),
-    cmd("task-cancel", Complete::None),
-    cmd("command", Complete::None),
-    cmd("new-window", Complete::None),
-    cmd("quit", Complete::None),
-    cmd("quit-all", Complete::None),
-    cmd("q", Complete::None),
-    cmd("qa", Complete::None),
+    cmd("down", "Move down [count]", Complete::None),
+    cmd("up", "Move up [count]", Complete::None),
+    cmd("top", "First entry, or entry [count]", Complete::None),
+    cmd("bottom", "Last entry, or entry [count]", Complete::None),
+    cmd("half-down", "Half a page down", Complete::None),
+    cmd("half-up", "Half a page up", Complete::None),
+    cmd("page-down", "A page down", Complete::None),
+    cmd("page-up", "A page up", Complete::None),
+    cmd("leave", "The parent folder", Complete::None),
+    cmd(
+        "enter",
+        "Enter the folder, or open the file",
+        Complete::None,
+    ),
+    cmd("open", "Open the targets", Complete::None),
+    cmd("back", "Back in history", Complete::None),
+    cmd("forward", "Forward in history", Complete::None),
+    cmd("cd", "Go to a folder (or a file's folder)", Complete::Dir),
+    cmd(
+        "fuzzy",
+        "Find a file or folder below this one",
+        Complete::None,
+    ),
+    cmd(
+        "z",
+        "Jump to zoxide's best folder for the words, or pick one",
+        Complete::None,
+    ),
+    cmd("zi", "Pick a folder zoxide knows", Complete::None),
+    cmd(
+        "cd-xdg",
+        "Go to an XDG user folder: DOWNLOAD, DOCUMENTS, …",
+        Complete::None,
+    ),
+    cmd("cd-media", "Go to where drives mount", Complete::None),
+    cmd("trash-browse", "Show the trash", Complete::None),
+    cmd("preview-down", "Scroll the preview down", Complete::None),
+    cmd("preview-up", "Scroll the preview up", Complete::None),
+    cmd(
+        "search",
+        "Search forward (or for the argument)",
+        Complete::None,
+    ),
+    cmd("search-back", "Search backward", Complete::None),
+    cmd("search-next", "Next match", Complete::None),
+    cmd("search-prev", "Previous match", Complete::None),
+    cmd("find", "Jump by typing part of a name", Complete::None),
+    cmd(
+        "filter",
+        "Show only names containing the text",
+        Complete::None,
+    ),
+    cmd(
+        "toggle-mark",
+        "Mark or unmark, and move down",
+        Complete::None,
+    ),
+    cmd("mark-all", "Mark every entry", Complete::None),
+    cmd("unmark-all", "Unmark every entry", Complete::None),
+    cmd("invert-marks", "Invert the marks", Complete::None),
+    cmd("visual", "Visual selection", Complete::None),
+    cmd(
+        "visual-end",
+        "End the visual selection, marking it",
+        Complete::None,
+    ),
+    cmd(
+        "escape",
+        "Cancel: the filter, the visual range, the marks",
+        Complete::None,
+    ),
+    cmd("yank", "Copy the targets", Complete::None),
+    cmd("cut", "Cut the targets", Complete::None),
+    cmd("paste", "Paste here", Complete::None),
+    cmd("paste-overwrite", "Paste here, replacing", Complete::None),
+    cmd("yank-path", "Copy the targets' paths", Complete::None),
+    cmd("yank-name", "Copy the targets' names", Complete::None),
+    cmd("yank-dir", "Copy the folder's path", Complete::None),
+    cmd("trash", "Move the targets to the trash", Complete::None),
+    cmd("delete", "Delete the targets permanently", Complete::None),
+    cmd(
+        "restore",
+        "Restore the targets from the trash",
+        Complete::None,
+    ),
+    cmd("empty-trash", "Empty the trash", Complete::None),
+    cmd("undo", "Undo the last operation", Complete::None),
+    cmd("rename", "Rename (to the argument)", Complete::None),
+    cmd(
+        "rename-append",
+        "Rename, the caret at the end",
+        Complete::None,
+    ),
+    cmd(
+        "rename-insert",
+        "Rename, the caret at the start",
+        Complete::None,
+    ),
+    cmd(
+        "bulk-rename",
+        "Rename the targets in $EDITOR",
+        Complete::None,
+    ),
+    cmd(
+        "create",
+        "New file, or folder with a trailing /",
+        Complete::None,
+    ),
+    cmd("mkdir", "New folder", Complete::None),
+    cmd("touch", "New file", Complete::None),
+    cmd("open-with", "Open with an application", Complete::None),
+    cmd(
+        "chmod",
+        "Permissions: chmod [-R] 755, u+x, go-w, a=rX…",
+        Complete::None,
+    ),
+    cmd(
+        "chown",
+        "Owner: chown [-R] user, user:group, :group",
+        Complete::None,
+    ),
+    cmd(
+        "shell",
+        "Run a shell command (-t in a terminal)",
+        Complete::Path,
+    ),
+    cmd("shell-prompt", "Type a shell command", Complete::None),
+    cmd(
+        "insert",
+        "Chooser: type the name or path (stem, start, end, or clear)",
+        Complete::None,
+    ),
+    cmd("terminal", "A terminal in this folder", Complete::Dir),
+    cmd("reload", "Read the folders again", Complete::None),
+    cmd("toggle-hidden", "Show or hide hidden files", Complete::None),
+    cmd("toggle-preview", "Show or hide the preview", Complete::None),
+    cmd("toggle-icons", "Show or hide icons", Complete::None),
+    cmd(
+        "sort",
+        "Sort by name, size, modified, type, extension [reverse]",
+        Complete::Sort,
+    ),
+    cmd("sort-reverse", "Reverse the sort", Complete::None),
+    cmd("sort-dirs-first", "Folders first, or not", Complete::None),
+    cmd("set", "Set an option: set name value", Complete::Option),
+    cmd(
+        "bookmark-set",
+        "Bookmark this folder under a key",
+        Complete::None,
+    ),
+    cmd("bookmark-jump", "Go to a bookmark", Complete::None),
+    cmd("bookmark-remove", "Remove a bookmark", Complete::None),
+    cmd(
+        "tab-new",
+        "New tab (here, or at the argument)",
+        Complete::Dir,
+    ),
+    cmd("tab-close", "Close the tab", Complete::None),
+    cmd("tab-next", "Next tab", Complete::None),
+    cmd("tab-prev", "Previous tab", Complete::None),
+    cmd("tab", "Go to tab N", Complete::None),
+    cmd("drives", "Show the drives", Complete::None),
+    cmd("mount", "Mount a drive by name", Complete::None),
+    cmd(
+        "unmount",
+        "Unmount the drive this folder is on (in Drives, the cursor's)",
+        Complete::None,
+    ),
+    cmd(
+        "eject",
+        "Unmount and eject the drive this folder is on (in Drives, the cursor's)",
+        Complete::None,
+    ),
+    cmd("map", "Bind keys: map [mode] keys command…", Complete::None),
+    cmd("unmap", "Unbind keys: unmap [mode] keys", Complete::None),
+    cmd("help", "Every key and command", Complete::None),
+    cmd("messages", "Recent messages, newest first", Complete::None),
+    cmd("tasks", "Open or close the tasks view", Complete::None),
+    cmd("menu", "The context menu at the cursor", Complete::None),
+    cmd(
+        "properties",
+        "The targets' details, permissions, and owner",
+        Complete::None,
+    ),
+    cmd(
+        "column-wider",
+        "Widen the current column (or: column-wider parent)",
+        Complete::None,
+    ),
+    cmd(
+        "column-narrower",
+        "Narrow the current column (or: column-narrower parent)",
+        Complete::None,
+    ),
+    cmd(
+        "column-reset",
+        "Column widths from the ratio again",
+        Complete::None,
+    ),
+    cmd("task-down", "The next task", Complete::None),
+    cmd("task-up", "The previous task", Complete::None),
+    cmd("task-pause", "Pause or resume the task", Complete::None),
+    cmd(
+        "task-cancel",
+        "Cancel the task, or remove it when done",
+        Complete::None,
+    ),
+    cmd("command", "Open the command line", Complete::None),
+    cmd("new-window", "A new window here", Complete::None),
+    cmd("quit", "Close the tab, or the window", Complete::None),
+    cmd("quit-all", "Quit", Complete::None),
+    cmd("q", "Close the tab, or the window", Complete::None),
+    cmd("qa", "Quit", Complete::None),
 ];
 
 pub fn by_name(name: &str) -> Option<&'static Command> {
@@ -168,14 +285,22 @@ pub fn execute(
         _ if digits > 0 => (line[..digits].parse().ok().or(count), &line[digits..]),
         _ => (count, line),
     };
-    if rest.starts_with('!') {
-        return not_yet(s, tx, "shell");
+    if let Some(cmd) = rest.strip_prefix('!') {
+        let cmd = cmd.trim_matches(' ');
+        if cmd.is_empty() {
+            return Ok(());
+        }
+        return opening::run_shell(s, tx, cmd, false);
     }
     let (name, args) = rest
         .split_once([' ', '\t'])
         .map_or((rest, ""), |(n, a)| (n, a.trim_matches([' ', '\t'])));
     let n = count.unwrap_or(1) as usize;
     let cursor = s.cur().cursor;
+    if let Some(why) = drives::refused(s, name) {
+        s.notify(why, true);
+        return app::draw_status(s, tx);
+    }
     match name {
         "down" => app::move_cursor(s, tx, cursor.saturating_add(n)),
         "up" => app::move_cursor(s, tx, cursor.saturating_sub(n)),
@@ -201,20 +326,32 @@ pub fn execute(
             };
             app::move_cursor(s, tx, pos)
         }
-        "enter" | "open" => enter(s, tx),
+        "enter" | "open" if drives::enter(s, tx)? => Ok(()),
+        "enter" => enter(s, tx),
+        "open" => {
+            opening::open_targets(s, tx)?;
+            app::consume_targets(s, tx)
+        }
+        "open-with" => opening::open_with(s, tx, args),
+        "shell" => opening::shell(s, tx, args),
+        "shell-prompt" => prompt::start(s, tx, Prompt::Shell, "", 0, 0),
+        "terminal" => {
+            let folder = (!args.is_empty()).then(|| expand(s, args));
+            opening::terminal(s, tx, folder)
+        }
+        "bulk-rename" => opening::bulk_rename(s, tx),
+        "menu" => menu::at_cursor(s, tx),
         "leave" => {
             let here = s.cur().path.clone();
-            match here.parent() {
-                Some(up) => app::cd(
-                    s,
-                    tx,
-                    up.to_owned(),
-                    here.file_name().map(OsStrExt::as_bytes),
-                    true,
-                ),
+            // Drives is a top, as "/" is: each drive's root is below it.
+            match drives::parent_of(s, &here) {
+                Some((up, name)) => app::cd(s, tx, up, Some(&name), true),
                 None => Ok(()),
             }
         }
+        "drives" => drives::show(s, tx),
+        "mount" => drives::mount_named(s, tx, args),
+        "unmount" | "eject" => drives::unmount_named(s, tx, args, name == "eject"),
         "back" | "forward" => {
             let pos = if name == "back" {
                 s.history_pos.checked_sub(1)
@@ -255,6 +392,50 @@ pub fn execute(
             let f = s.cur().filter.clone();
             prompt::start(s, tx, Prompt::Filter, &f, 0, f.len())
         }
+        "fuzzy" => picker::start(s, tx, picker::Kind::Files, args),
+        "z" => picker::jump(s, tx, args),
+        "zi" => {
+            if args.is_empty() || s.zoxide.is_none() {
+                picker::jump(s, tx, "")
+            } else {
+                picker::start(s, tx, picker::Kind::Folders, args)
+            }
+        }
+        "bookmark-set" | "bookmark-jump" | "bookmark-remove" => {
+            use strider_machines::keymap::Question;
+            let q = match name {
+                "bookmark-set" => Question::BookmarkSet,
+                "bookmark-jump" => Question::BookmarkJump,
+                _ => Question::BookmarkRemove,
+            };
+            if args.is_empty() || q == Question::BookmarkRemove {
+                return bookmarks::ask(s, tx, q);
+            }
+            let Some(k) = bookmarks::key_arg(s, args) else {
+                return app::draw_status(s, tx);
+            };
+            if q == Question::BookmarkSet {
+                bookmarks::set(s, k, s.cwd.clone());
+                return app::draw_status(s, tx);
+            }
+            match bookmarks::get(s, k) {
+                Some(p) => app::cd(s, tx, p, None, true),
+                None => {
+                    s.notify("No such bookmark", true);
+                    app::draw_status(s, tx)
+                }
+            }
+        }
+        "cd-xdg" => cd_xdg(s, tx, args),
+        "cd-media" => {
+            let user = std::env::var("USER").unwrap_or_default();
+            let run_media = PathBuf::from(format!("/run/media/{user}"));
+            let path = [run_media, "/media".into()]
+                .into_iter()
+                .find(|p| p.is_dir())
+                .unwrap_or_else(|| "/mnt".into());
+            app::cd(s, tx, path, None, true)
+        }
         "command" => prompt::start(s, tx, Prompt::Command, args, args.len(), args.len()),
         "set" => set(s, tx, args),
         "map" | "unmap" => map(s, tx, name == "unmap", args),
@@ -266,6 +447,8 @@ pub fn execute(
             s.options.icons = !s.options.icons;
             app::draw(s, tx)
         }
+        "preview-down" => crate::preview::scroll(s, tx, 4 * n as i32),
+        "preview-up" => crate::preview::scroll(s, tx, -4 * n as i32),
         "toggle-preview" => {
             s.options.preview = !s.options.preview;
             app::reload_preview(s, tx)?;
@@ -324,12 +507,46 @@ pub fn execute(
             s.cur_mut().marks = s.cur().order.iter().copied().collect();
             app::draw(s, tx)
         }
-        "quit" | "quit-all" => {
-            tx.after(std::time::Duration::ZERO, |_, cx| {
-                cx.quit();
-                Ok(())
-            });
-            Ok(())
+        "quit" | "q" => {
+            let active = s.active;
+            tabs::close(s, tx, active)
+        }
+        "quit-all" | "qa" => app::close_window(s, tx),
+        "column-wider" | "column-narrower" => {
+            let step = columns::STEP * n as f32;
+            let delta = if name == "column-wider" { step } else { -step };
+            columns::resize(s, tx, args.trim() == "parent", delta)
+        }
+        "column-reset" => columns::reset(s, tx),
+        "help" => help(s, tx),
+        "messages" => messages(s, tx),
+        "tab-new" => {
+            let path = if args.is_empty() {
+                s.cwd.clone()
+            } else {
+                expand(s, args)
+            };
+            tabs::open(s, tx, path)
+        }
+        "tab-close" => {
+            let active = s.active;
+            tabs::close(s, tx, active)
+        }
+        "tab-next" => {
+            let n = s.tabs.len();
+            let to = count.map_or((s.active + 1) % n, |k| (k as usize).saturating_sub(1));
+            tabs::select(s, tx, to)
+        }
+        "tab-prev" => {
+            let n = s.tabs.len();
+            tabs::select(s, tx, (s.active + n - 1) % n)
+        }
+        "tab" => {
+            let k = args.parse().unwrap_or(count.unwrap_or(1) as usize);
+            tabs::select(s, tx, k.saturating_sub(1))
+        }
+        _ if crate::register::NAMES.contains(&name) => {
+            crate::register::run(s, tx, name, args, count)
         }
         _ if by_name(name).is_some() => not_yet(s, tx, name),
         _ => {
@@ -342,6 +559,96 @@ pub fn execute(
 fn not_yet(s: &mut Strider, tx: &mut Txn<'_, Strider>, name: &str) -> Result<()> {
     s.notify(format!("{name} isn't in the Rust build yet"), true);
     app::draw_status(s, tx)
+}
+
+/// `:help`: every key and every command, in the preview.
+fn help(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    use std::fmt::Write;
+    use strider_core::config::Mode;
+    let mut out = String::from("KEYS\n\n");
+    for b in s.keymap.bindings() {
+        let mode = match b.mode {
+            Mode::Normal => "  ",
+            Mode::Visual => "v ",
+            Mode::Tasks => "t ",
+        };
+        let keys = strider_core::keys::format(&b.keys);
+        let _ = writeln!(out, "{mode}{keys:<10} {:<24} {}", b.cmd, b.desc);
+    }
+    out.push_str("\nCOMMANDS (type : and Tab completes)\n\n");
+    for c in COMMANDS {
+        let _ = writeln!(out, "  {:<18} {}", c.name, c.desc);
+    }
+    crate::preview::show_output(s, tx, "Keys and commands", &out, Vec::new())
+}
+
+/// `:messages`: the status line's recent messages in the preview, newest first, errors in
+/// the error color.
+fn messages(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    use std::fmt::Write;
+    use strider_core::highlight::{Class, Span};
+    // Not a message itself: it would list itself next time.
+    if s.log.is_empty() {
+        return crate::preview::show_output(s, tx, "Messages", "No messages yet.\n", Vec::new());
+    }
+    let mut out = String::from("MESSAGES (newest first)\n\n");
+    let mut spans = Vec::new();
+    for (time, error, text) in s.log.iter().rev() {
+        let start = out.len();
+        let day = (time + i64::from(s.zone.offset_at(*time))).rem_euclid(86_400);
+        let _ = write!(
+            out,
+            "{:02}:{:02}:{:02}  {}",
+            day / 3600,
+            day / 60 % 60,
+            day % 60,
+            text.replace('\n', " ")
+        );
+        if *error {
+            spans.push(Span {
+                start,
+                end: out.len(),
+                class: Class::Removed,
+            });
+        }
+        out.push('\n');
+    }
+    crate::preview::show_output(s, tx, "Messages", &out, spans)
+}
+
+/// `:cd-xdg NAME`: an XDG user folder, by its name (DOWNLOAD, DOCUMENTS, PICTURES, MUSIC,
+/// VIDEOS, DESKTOP, …) or by its folder's name, as Documents.
+fn cd_xdg(s: &mut Strider, tx: &mut Txn<'_, Strider>, args: &str) -> Result<()> {
+    use keywork::desktop::places::{UserDir, UserDirs};
+    let label = match args.to_ascii_uppercase().as_str() {
+        "DOWNLOAD" => "Downloads",
+        "DOCUMENTS" => "Documents",
+        "PICTURES" => "Pictures",
+        "MUSIC" => "Music",
+        "VIDEOS" => "Videos",
+        "DESKTOP" => "Desktop",
+        _ => args,
+    }
+    .to_owned();
+    let mut base = keywork::desktop::basedir::BaseDirs::from_env();
+    base.home = s.home.clone();
+    let dirs = UserDirs::load(&base);
+    let found = UserDir::ALL
+        .iter()
+        .filter_map(|&d| dirs.get(d).map(|p| (d, p.to_owned())))
+        .find(|(d, p)| {
+            d.key().eq_ignore_ascii_case(args)
+                || p.file_name().is_some_and(|n| n.to_string_lossy() == label)
+        })
+        .map(|(_, p)| p)
+        .filter(|p| p.is_dir());
+    match found {
+        Some(p) => app::cd(s, tx, p, None, true),
+        None => {
+            s.notify(format!("There is no {label} folder"), true);
+            app::draw_status(s, tx)
+        }
+    }
 }
 
 /// `n` and `N`: the last search's next match, `count` times, in its direction or against
@@ -377,7 +684,9 @@ fn search_next(
 fn cd(s: &mut Strider, tx: &mut Txn<'_, Strider>, arg: &str) -> Result<()> {
     let path = strider_core::model::normalize(&expand(s, arg));
     s.probe += 1;
-    if s.cache.get(&path).is_some() {
+    if s.cache.get(&path).is_some()
+        || path == std::path::Path::new(strider_core::model::DRIVES_PATH)
+    {
         return app::cd(s, tx, path, None, true);
     }
     let probe = s.probe;
@@ -506,6 +815,13 @@ pub fn complete(s: &Strider, text: &str) -> (String, Vec<String>) {
     )
 }
 
+/// Completes a shell command's last word as a path, as far as the candidates agree.
+pub fn complete_shell(s: &Strider, text: &str) -> (String, Vec<String>) {
+    let at = text.rfind(' ').map_or(0, |i| i + 1);
+    let (head, word) = text.split_at(at);
+    finish(head, word, paths(s, word, false), false)
+}
+
 /// The line with `word` grown to the candidates' longest common prefix, and a space after
 /// the only one, unless it is a path, which may go on.
 fn finish(head: &str, word: &str, candidates: Vec<String>, space: bool) -> (String, Vec<String>) {
@@ -565,17 +881,16 @@ fn paths(s: &Strider, word: &str, dirs_only: bool) -> Vec<String> {
     names
 }
 
-/// Into the folder under the cursor. Opening files comes with the rest of opening.
+/// Into the folder under the cursor, or open the targets.
 fn enter(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let Some(e) = s.cur().current().copied() else {
         return Ok(());
     };
-    let path = s.cur().listing.path_of(&e);
     if e.kind == Kind::Dir {
+        let path = s.cur().listing.path_of(&e);
         return app::cd(s, tx, path, None, true);
     }
-    s.notify("Opening files isn't in the Rust build yet", true);
-    app::draw_status(s, tx)
+    opening::open_targets(s, tx)
 }
 
 /// Sorts and filters the folders shown again, the cursors staying on their entries.

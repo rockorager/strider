@@ -110,6 +110,8 @@ impl Folder {
             .take()
             .or_else(|| self.current_name().map(<[u8]>::to_vec));
         self.listing = listed.listing;
+        // The old order indexes the old listing; `focus` already names the entry to keep.
+        self.order.clear();
         self.error = listed.error;
         self.types = listed.types;
         self.sorted = listed.sorted;
