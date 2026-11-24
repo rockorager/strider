@@ -284,7 +284,11 @@ fn complete(s: &mut Strider, tx: &mut Txn<'_, Strider>, p: Prompt) -> Result<()>
 }
 
 /// Lists completions in the which-key popup: up to 60, in up to three columns.
-fn show_candidates(s: &Strider, tx: &mut Txn<'_, Strider>, candidates: &[String]) -> Result<()> {
+pub fn show_candidates(
+    s: &Strider,
+    tx: &mut Txn<'_, Strider>,
+    candidates: &[String],
+) -> Result<()> {
     let popup = s.ui.which_key;
     let old: Vec<_> = tx.children(popup)?.collect();
     for n in old {

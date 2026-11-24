@@ -327,6 +327,9 @@ pub fn execute(
             app::move_cursor(s, tx, pos)
         }
         "enter" | "open" if drives::enter(s, tx)? => Ok(()),
+        "enter" if crate::chooser::of(s).is_some() => crate::chooser::enter(s, tx),
+        "open" if crate::chooser::of(s).is_some() => crate::chooser::open_targets(s, tx),
+        "insert" => crate::chooser::insert_command(s, tx, args),
         "enter" => enter(s, tx),
         "open" => {
             opening::open_targets(s, tx)?;
@@ -487,6 +490,10 @@ pub fn execute(
             if !s.cur().filter.is_empty() {
                 return prompt::set_filter(s, tx, String::new(), None);
             }
+            // Nothing to clear: a file chooser is cancelled.
+            if s.cur().marks.is_empty() && crate::chooser::cancel(s, tx)? {
+                return Ok(());
+            }
             s.cur_mut().marks.clear();
             widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.cur().len())?;
             app::draw_cursor(s, tx, Col::Current)?;
@@ -508,6 +515,7 @@ pub fn execute(
             s.cur_mut().marks = s.cur().order.iter().copied().collect();
             app::draw(s, tx)
         }
+        "quit" | "q" if crate::chooser::cancel(s, tx)? => Ok(()),
         "quit" | "q" => {
             let active = s.active;
             tabs::close(s, tx, active)
@@ -738,7 +746,13 @@ fn set(s: &mut Strider, tx: &mut Txn<'_, Strider>, args: &str) -> Result<()> {
         return app::draw_status(s, tx);
     }
     match s.options.set_line(args) {
-        Ok(_) => apply_options(s, tx),
+        Ok(name) => {
+            // Set by hand: the next chooser takes it over the size remembered.
+            if name == "chooser_size" {
+                crate::chooser::forget_size(s);
+            }
+            apply_options(s, tx)
+        }
         Err((name, e)) => {
             let why = match e {
                 SetError::UnknownOption => "no such option",
@@ -867,6 +881,12 @@ fn finish(head: &str, word: &str, candidates: Vec<String>, space: bool) -> (Stri
     (format!("{head}{grown}{end}"), candidates)
 }
 
+/// Completes a path by itself, as a chooser's path field takes one, as far as the
+/// candidates agree; with `dirs_only`, folders alone.
+pub fn complete_path(s: &Strider, text: &str, dirs_only: bool) -> (String, Vec<String>) {
+    finish("", text, paths(s, text, dirs_only), false)
+}
+
 /// Names in the folder `word` is in that start as its last part does, folders with a `/`
 /// after, in natural order. Dotfiles only once a dot is typed.
 fn paths(s: &Strider, word: &str, dirs_only: bool) -> Vec<String> {
@@ -936,7 +956,7 @@ fn redraw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 
 /// A path as typed: `~` is home, `$NAME` an environment variable, and a relative one is
 /// under the current folder.
-fn expand(s: &Strider, arg: &str) -> PathBuf {
+pub fn expand(s: &Strider, arg: &str) -> PathBuf {
     match arg {
         "" | "~" => s.home.clone(),
         a if a.starts_with("~/") => s.home.join(&a[2..]),

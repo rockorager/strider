@@ -8,9 +8,12 @@
 mod app;
 mod bookmarks;
 mod cache;
+mod chooser;
 mod columns;
 mod commands;
+mod crumbs;
 mod dialogs;
+mod dnd;
 mod drives;
 mod folder;
 mod instance;
@@ -22,6 +25,7 @@ mod preview;
 mod prompt;
 mod register;
 mod scenes;
+mod services;
 mod tabs;
 mod tasks;
 mod theme;
@@ -88,6 +92,8 @@ pub fn base(
         inputs: 0,
         config_message: problems.first().map(|p| format!("config.json: {p}")),
         launch: instance::Launch::default(),
+        dragged: dnd::Dragged::default(),
+        services: services::Services::default(),
     };
     for p in &problems {
         state.log_message(&format!("config.json: {p}"), true);
@@ -104,6 +110,7 @@ pub fn base(
     app.on_start(cache::start_watching);
     app.on_quit(tasks::quit);
     instance::install(&mut app);
+    services::install(&mut app);
     scenes::add(&mut app);
     Ok((app, state))
 }
@@ -160,7 +167,7 @@ fn refresh_rows(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     for col in [Col::Parent, Col::Current, Col::Preview] {
         keywork::widgets::refresh_rows(tx, s.ui.lists[col as usize])?;
     }
-    Ok(())
+    dnd::icons_changed(s, tx)
 }
 
 const USAGE: &str = "usage: strider [FOLDER or FILE ...] [options]
@@ -254,6 +261,7 @@ fn main() -> Result<()> {
         Some(state_dir),
         args.scheme,
     )?;
+    lua_notice(&mut state, &config_home);
     state.launch.new_window = args.new_window;
     state.launch.service = args.service;
     // Settled before any window maps: a second launch hands its folders over and exits.
@@ -268,6 +276,20 @@ fn main() -> Result<()> {
     }
     app.on_start(drives::start_watching);
     app.run(state)
+}
+
+/// What the Zig build read, `init.lua`, left without the `config.json` that replaces it: said
+/// once, in the first window's status line and in `:messages`.
+fn lua_notice(state: &mut Strider, config_home: &std::path::Path) {
+    let dir = config_home.join("strider");
+    if !dir.join("init.lua").exists() || dir.join("config.json").exists() {
+        return;
+    }
+    let text = "init.lua is no longer read; config.json replaces it";
+    state.log_message(text, true);
+    if state.config_message.is_none() {
+        state.config_message = Some(text.into());
+    }
 }
 
 #[cfg(test)]
@@ -1740,5 +1762,431 @@ esac
         let (text, status) = args(&["--clean"]).unwrap_err();
         assert_eq!(status, 2);
         assert!(text.starts_with("strider: unknown option --clean\n"));
+    }
+
+    // --- Drag and drop, the header path, and tabs under the pointer --------------------------
+
+    /// Where row `pos` of column `col` is, for the pointer: 30 px in, at its middle.
+    fn row_at(h: &mut H, window: WindowId, col: Col, pos: usize) -> (f32, f32) {
+        let list = h.state().ui.lists[col as usize];
+        h.render(window).unwrap();
+        let r = h.update(window, |tx| tx.window_rect(list)).unwrap();
+        (
+            r.x + 30.0,
+            r.y + app::ROW_HEIGHT * pos as f32 + app::ROW_HEIGHT / 2.0,
+        )
+    }
+
+    /// Where entry `name` of column `col` is.
+    fn entry_at(h: &mut H, window: WindowId, col: Col, name: &str) -> (f32, f32) {
+        let pos = h
+            .state()
+            .folder(col)
+            .and_then(|f| f.position_of(name.as_bytes()))
+            .unwrap_or_else(|| panic!("{name} in the column"));
+        row_at(h, window, col, pos)
+    }
+
+    /// Where node `n` is, for the pointer: at most 40 px in, at its middle, as the Zig
+    /// build's tests moved there.
+    fn node_at<K: keywork::tree::Kind>(h: &mut H, window: WindowId, n: NodeId<K>) -> (f32, f32) {
+        h.render(window).unwrap();
+        let r = h.update(window, |tx| tx.window_rect(n)).unwrap();
+        (r.x + (r.width / 2.0).min(40.0), r.y + r.height / 2.0)
+    }
+
+    /// Presses on `from` and moves past the threshold, the button held: the drag starts.
+    /// Then it is over `to`, as the compositor reports the app's own drag.
+    fn drag(h: &mut H, window: WindowId, from: (f32, f32), to: (f32, f32)) {
+        use keywork::input::BTN_LEFT;
+        h.pointer_move(window, from.0, from.1).unwrap();
+        h.settle().unwrap();
+        h.pointer_button(window, BTN_LEFT, true).unwrap();
+        h.pointer_move(window, from.0 + 12.0, from.1 + 3.0).unwrap();
+        h.settle().unwrap();
+        drag_to(h, window, to);
+    }
+
+    fn drag_to(h: &mut H, window: WindowId, to: (f32, f32)) {
+        use keywork::app::dnd::DndActions;
+        let mimes = [dnd::URI_LIST, "text/plain;charset=utf-8"];
+        h.drag_over(
+            window,
+            to.0,
+            to.1,
+            &mimes,
+            DndActions::COPY | DndActions::MOVE,
+        )
+        .unwrap();
+        h.settle().unwrap();
+    }
+
+    /// Drops the app's own drag where it is, and lets go of the button.
+    fn drop_and_release(h: &mut H, window: WindowId, at: (f32, f32)) {
+        use keywork::app::dnd::DndActions;
+        h.drop_data(at.0, at.1, DndActions::MOVE, b"").unwrap();
+        h.settle().unwrap();
+        h.pointer_button(window, keywork::input::BTN_LEFT, false)
+            .unwrap();
+        h.settle().unwrap();
+        wait_ops(h);
+    }
+
+    fn hint(h: &H) -> String {
+        h.state().dnd.hint.clone()
+    }
+
+    // As the Zig build's test: a file onto a folder's row in the current column (outlined,
+    // the hint says the move), dropped as a file operation that u undoes; Ctrl copies, even
+    // within one filesystem, the hint following the key; onto a folder in the parent column;
+    // resting on a folder opens it, and a folder in its preview takes the drop; a folder
+    // that opened under a resting drag takes the drop there, the pointer still. Catches:
+    // drops into the folder under the cursor rather than the one under the pointer, the
+    // modifiers or the filesystem ignored, drops left out of undo, folders that never open.
+    #[test]
+    fn drag_and_drop_into_folders() {
+        let (mut h, window, home) = ops_app_with("dnd-folders", |home| {
+            std::fs::create_dir(home.join("work/src/util/inner")).unwrap();
+        });
+        let work = home.join("work");
+        let from = entry_at(&mut h, window, Col::Current, "build.zig");
+        let docs = entry_at(&mut h, window, Col::Current, "docs");
+        drag(&mut h, window, from, docs);
+        assert!(dnd::dragging(h.state()));
+        assert_eq!(hint(&h), "Move “build.zig” to docs");
+        let pos = h.state().cur().position_of(b"docs").unwrap();
+        assert_eq!(
+            h.state().dnd.over,
+            Some(dnd::Target::Row(Col::Current, pos))
+        );
+        drop_and_release(&mut h, window, docs);
+        assert!(work.join("docs/build.zig").exists() && !work.join("build.zig").exists());
+        assert!(!dnd::dragging(h.state()) && hint(&h).is_empty());
+        typ(&mut h, window, "u");
+        wait_ops(&mut h);
+        assert!(work.join("build.zig").exists() && !work.join("docs/build.zig").exists());
+
+        // Ctrl copies; the hint follows the key.
+        let from = entry_at(&mut h, window, Col::Current, "README.md");
+        drag(&mut h, window, from, docs);
+        h.key_press(window, Keysym(0xffe3), Modifiers::NONE)
+            .unwrap();
+        h.settle().unwrap();
+        assert_eq!(hint(&h), "Copy “README.md” to docs");
+        drop_and_release(&mut h, window, docs);
+        h.key_release(window, Keysym(0xffe3), Modifiers::CTRL)
+            .unwrap();
+        h.settle().unwrap();
+        assert!(work.join("docs/README.md").exists() && work.join("README.md").exists());
+
+        // Onto a folder in the parent column.
+        let from = entry_at(&mut h, window, Col::Current, "photo.png");
+        let music = entry_at(&mut h, window, Col::Parent, "Music");
+        drag(&mut h, window, from, music);
+        assert_eq!(hint(&h), "Move “photo.png” to Music");
+        drop_and_release(&mut h, window, music);
+        assert!(home.join("Music/photo.png").exists() && !work.join("photo.png").exists());
+
+        // Resting on src opens it; util, under its cursor, is in the preview, and inner there
+        // takes the drop.
+        let from = entry_at(&mut h, window, Col::Current, "run.sh");
+        let src = entry_at(&mut h, window, Col::Current, "src");
+        drag(&mut h, window, from, src);
+        h.advance(strider_machines::dnd::SPRING).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().cwd, work.join("src"));
+        let inner = entry_at(&mut h, window, Col::Preview, "inner");
+        drag_to(&mut h, window, inner);
+        assert_eq!(hint(&h), "Move “run.sh” to inner");
+        drop_and_release(&mut h, window, inner);
+        assert!(work.join("src/util/inner/run.sh").exists() && !work.join("run.sh").exists());
+
+        // docs opens under a resting drag; the release there, the pointer still, is docs's.
+        typ(&mut h, window, "h");
+        let from = entry_at(&mut h, window, Col::Current, "report.pdf");
+        let docs = entry_at(&mut h, window, Col::Current, "docs");
+        drag(&mut h, window, from, docs);
+        h.advance(strider_machines::dnd::SPRING).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().cwd, work.join("docs"));
+        drop_and_release(&mut h, window, docs);
+        assert!(work.join("docs/report.pdf").exists() && !work.join("report.pdf").exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // As the Zig build's test, home being work: onto a folder of the header path; its own
+    // folder takes nothing (no hint, nothing moves); onto a tab, its folder; Escape gives a
+    // drag up, and its release drops nothing. Catches: crumbs or tabs that take no drops, a
+    // drop into the folder the files are in, Escape ignored mid-drag.
+    #[test]
+    fn drag_and_drop_onto_the_path_and_tabs() {
+        let root = scenes::fixture("dnd-path");
+        let work = root.join("work");
+        let (app, state) = app_in(
+            work.join("src"),
+            work.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+            None,
+        )
+        .unwrap();
+        let window = state.window;
+        let mut h = app.headless(state).unwrap();
+        h.settle().unwrap();
+        let home_link = h.state().crumbs.links[0].0;
+        let from = entry_at(&mut h, window, Col::Current, "App.zig");
+        let to = node_at(&mut h, window, home_link);
+        drag(&mut h, window, from, to);
+        assert_eq!(hint(&h), "Move “App.zig” to ~");
+        drop_and_release(&mut h, window, to);
+        assert!(work.join("App.zig").exists() && !work.join("src/App.zig").exists());
+
+        // Below the rows, src itself: nothing.
+        let from = entry_at(&mut h, window, Col::Current, "main.zig");
+        let list = h.state().ui.lists[Col::Current as usize];
+        let r = h.update(window, |tx| tx.window_rect(list)).unwrap();
+        let below = (r.x + r.width / 2.0, r.y + r.height - 30.0);
+        drag(&mut h, window, from, below);
+        assert_eq!(h.state().dnd.over, Some(dnd::Target::Column(Col::Current)));
+        assert_eq!(hint(&h), "");
+        drop_and_release(&mut h, window, below);
+        assert!(work.join("src/main.zig").exists());
+
+        // Onto a tab: its folder.
+        typ(&mut h, window, "gnhgt");
+        assert_eq!(h.state().cwd, work.join("src"));
+        let tab = h.state().tab_nodes[1].0;
+        let from = entry_at(&mut h, window, Col::Current, "main.zig");
+        let to = node_at(&mut h, window, tab);
+        drag(&mut h, window, from, to);
+        assert_eq!(hint(&h), "Move “main.zig” to ~");
+        drop_and_release(&mut h, window, to);
+        assert!(work.join("main.zig").exists() && !work.join("src/main.zig").exists());
+
+        // Escape gives the drag up: the release drops nothing.
+        typ(&mut h, window, "fut");
+        let from = entry_at(&mut h, window, Col::Current, "util");
+        drag(&mut h, window, from, to);
+        assert!(dnd::dragging(h.state()));
+        h.key(window, Keysym::ESCAPE, Modifiers::NONE).unwrap();
+        h.settle().unwrap();
+        assert!(!dnd::dragging(h.state()) && hint(&h).is_empty());
+        drop_and_release(&mut h, window, to);
+        assert!(work.join("src/util").exists() && !work.join("util").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Files another application drops: a uri-list copied here, GNOME's copied files too, a
+    // move when the drop asks for one, links with Ctrl+Shift, and a URI that names no local
+    // file said so. Catches: other applications' drops refused or moved by default, GNOME's
+    // "copy" line taken for a file, remote URIs passed on as paths.
+    #[test]
+    fn drops_from_other_applications() {
+        use keywork::app::dnd::DndActions;
+        let (mut h, window, home) = ops_app("dnd-others");
+        let work = home.join("work");
+        let list = h.state().ui.lists[Col::Current as usize];
+        h.render(window).unwrap();
+        let r = h.update(window, |tx| tx.window_rect(list)).unwrap();
+        let below = (r.x + 100.0, r.y + 400.0);
+        let drop = |h: &mut H, mime: &str, action, data: String| {
+            let accepted = h
+                .drag_over(
+                    window,
+                    below.0,
+                    below.1,
+                    &[mime],
+                    DndActions::COPY | DndActions::MOVE,
+                )
+                .unwrap();
+            assert_eq!(accepted.map(|a| a.0).as_deref(), Some(mime));
+            h.drop_data(below.0, below.1, action, data.as_bytes())
+                .unwrap();
+            h.settle().unwrap();
+            wait_ops(h);
+        };
+        let uri = |p: &std::path::Path| {
+            let mut u = String::new();
+            strider_core::uri::push_file_uri(&mut u, p);
+            u
+        };
+        drop(
+            &mut h,
+            dnd::URI_LIST,
+            DndActions::COPY,
+            format!("{}\r\n", uri(&home.join("notes.txt"))),
+        );
+        assert!(work.join("notes.txt").exists() && home.join("notes.txt").exists());
+        let gnome = format!("copy\n{}", uri(&home.join("Music")));
+        drop(&mut h, dnd::GNOME_COPIED, DndActions::COPY, gnome);
+        assert!(work.join("Music").is_dir() && home.join("Music").is_dir());
+        drop(
+            &mut h,
+            dnd::URI_LIST,
+            DndActions::MOVE,
+            uri(&home.join("Desktop")),
+        );
+        assert!(work.join("Desktop").is_dir() && !home.join("Desktop").exists());
+        h.key_press(window, Keysym(0xffe3), Modifiers::NONE)
+            .unwrap();
+        h.key_press(window, Keysym(0xffe1), Modifiers::CTRL)
+            .unwrap();
+        drop(
+            &mut h,
+            dnd::URI_LIST,
+            DndActions::COPY,
+            uri(&home.join("Documents")),
+        );
+        assert!(work.join("Documents").is_symlink());
+        h.key_release(window, Keysym(0xffe1), Modifiers::CTRL | Modifiers::SHIFT)
+            .unwrap();
+        h.key_release(window, Keysym(0xffe3), Modifiers::CTRL)
+            .unwrap();
+        drop(
+            &mut h,
+            dnd::URI_LIST,
+            DndActions::COPY,
+            "https://example.org/a.txt\r\n".into(),
+        );
+        assert_eq!(message(&h), "Only local files can be pasted here");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // As the Zig build's test, home being work: the folder shown is no link; hovering "~"
+    // underlines it; a click goes there with the cursor on the folder it came from, in the
+    // history; from src/util, a middle click on src opens it in a new tab and this one stays.
+    // Catches: links to the wrong folder, the current folder as a link, clicks lost.
+    #[test]
+    fn the_header_path_links() {
+        use keywork::input::BTN_MIDDLE;
+        let root = scenes::fixture("crumbs");
+        let work = root.join("work");
+        let (app, state) = app_in(
+            work.join("src"),
+            work.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+            None,
+        )
+        .unwrap();
+        let window = state.window;
+        let mut h = app.headless(state).unwrap();
+        h.settle().unwrap();
+        assert_eq!(crumbs::text(h.state()), "~/src/");
+        let links: Vec<PathBuf> = h.state().crumbs.links.iter().map(|l| l.1.clone()).collect();
+        assert_eq!(links, std::slice::from_ref(&work), "only ~ is a link");
+        let home_link = h.state().crumbs.links[0].0;
+        let at = node_at(&mut h, window, home_link);
+        h.pointer_move(window, at.0, at.1).unwrap();
+        h.settle().unwrap();
+        let underlined = h
+            .update(window, |tx| Ok(tx.style(home_link)?.text_decoration))
+            .unwrap();
+        assert_eq!(underlined, keywork::tree::TextDecoration::UNDERLINE);
+        h.click(window, at.0, at.1).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().cwd, work);
+        assert_eq!(hovered(&h), "src");
+        typ(&mut h, window, "H");
+        assert_eq!(h.state().cwd, work.join("src"));
+        typ(&mut h, window, "ful");
+        assert_eq!(h.state().cwd, work.join("src/util"));
+        let src = h.state().crumbs.links[1].0;
+        let at = node_at(&mut h, window, src);
+        h.pointer_move(window, at.0, at.1).unwrap();
+        h.pointer_button(window, BTN_MIDDLE, true).unwrap();
+        h.pointer_button(window, BTN_MIDDLE, false).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().tabs.len(), 2);
+        assert_eq!(h.state().cwd, work.join("src"));
+        assert_eq!(h.state().tabs[0].cwd, work.join("src/util"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // As the Zig build's test: three tabs, the second active; the third's x shows under the
+    // pointer, darkens under it, and closes that tab, the active one staying; a middle click
+    // closes the tab before the active one, which stays active. Catches: the x closing the
+    // active tab, or none, and the active index left pointing past the tabs.
+    #[test]
+    fn a_tabs_close_button() {
+        let (mut h, window, home) = ops_app("tabx");
+        let work = home.join("work");
+        typ(&mut h, window, "gnfsrlgnhfdoclgT");
+        assert_eq!(h.state().tabs.len(), 3);
+        assert_eq!(h.state().active, 1);
+        let (tab, _, x) = h.state().tab_nodes[2];
+        let at = node_at(&mut h, window, tab);
+        h.pointer_move(window, at.0, at.1).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().hover, Some(2));
+        let at = node_at(&mut h, window, x);
+        h.pointer_move(window, at.0, at.1).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().close_hover, Some(2));
+        h.click(window, at.0, at.1).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().tabs.len(), 2);
+        assert_eq!(h.state().active, 1);
+        assert_eq!(h.state().cwd, work.join("src"));
+        assert_eq!(h.state().tabs[0].cwd, work);
+        let first = h.state().tab_nodes[0].0;
+        let at = node_at(&mut h, window, first);
+        h.pointer_move(window, at.0, at.1).unwrap();
+        h.pointer_button(window, keywork::input::BTN_MIDDLE, true)
+            .unwrap();
+        h.pointer_button(window, keywork::input::BTN_MIDDLE, false)
+            .unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.state().tabs.len(), 1);
+        assert_eq!(h.state().active, 0);
+        assert_eq!(h.state().cwd, work.join("src"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // A leftover init.lua with no config.json: said once, in the first window and in
+    // :messages, and not with a config.json beside it. Catches: the notice lost, said on
+    // every window, or said to users who already moved to config.json.
+    #[test]
+    fn a_leftover_init_lua_is_said_once() {
+        let home = scenes::fixture("init-lua");
+        let config = home.join(".config");
+        std::fs::create_dir_all(config.join("strider")).unwrap();
+        std::fs::write(config.join("strider/init.lua"), "-- old\n").unwrap();
+        let (mut app, mut state) = base(
+            home.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        lua_notice(&mut state, &config);
+        let text = "init.lua is no longer read; config.json replaces it";
+        let window = app.open_window(app::window_desc()).unwrap();
+        let ui = app.update(window, app::build).unwrap();
+        app::adopt(&mut state, window, ui, &home);
+        assert_eq!(state.message.as_ref().map(|m| m.0.as_str()), Some(text));
+        let second = app.open_window(app::window_desc()).unwrap();
+        let ui = app.update(second, app::build).unwrap();
+        app::adopt(&mut state, second, ui, &home);
+        assert_eq!(state.message, None, "the second window says nothing");
+        assert_eq!(state.log.iter().filter(|m| m.2 == text).count(), 1);
+
+        std::fs::write(config.join("strider/config.json"), "{}").unwrap();
+        let (_app, mut state) = base(
+            home.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        lua_notice(&mut state, &config);
+        assert!(state.config_message.is_none() && state.log.is_empty());
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

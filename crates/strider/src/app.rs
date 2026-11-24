@@ -73,6 +73,10 @@ pub struct Ui {
     pub tabs: NodeId<Flex>,
     /// The handles on the column boundaries, parent|current and current|preview.
     pub handles: [crate::columns::Handle; 2],
+    /// The header's path, as links, before the name in `header`.
+    pub crumbs: NodeId<Flex>,
+    /// The columns' drop rings and the drag's card.
+    pub dnd: crate::dnd::Nodes,
 }
 
 /// What each window has of its own, as the Zig build's Window: its tree, tabs, folder and
@@ -119,6 +123,8 @@ pub struct Win {
     pub active: usize,
     /// The tab under the pointer, and the tabs' nodes.
     pub hover: Option<usize>,
+    /// The tab whose close button is under the pointer.
+    pub close_hover: Option<usize>,
     pub tab_nodes: Vec<crate::tabs::TabNodes>,
     /// A column boundary being dragged, and the handle under the pointer.
     pub drag: Option<crate::columns::Drag>,
@@ -130,6 +136,10 @@ pub struct Win {
     /// When input last came to it, by the app's count of inputs, for activations to find
     /// the window used last.
     pub last_input: u64,
+    /// The drop target under a drag, and its timers.
+    pub dnd: crate::dnd::Dnd,
+    /// The header path's links.
+    pub crumbs: crate::crumbs::Crumbs,
 }
 
 /// What every window shares, as the Zig build's App: options and the keymap, the MIME and
@@ -178,6 +188,10 @@ pub struct Strider {
     pub config_message: Option<String>,
     /// How this process was started, which activations and the last window's closing heed.
     pub launch: crate::instance::Launch,
+    /// What the app drags, and the modifiers that pick what a drop does.
+    pub dragged: crate::dnd::Dragged,
+    /// FileManager1 and the file chooser portal, with the chooser windows open.
+    pub services: crate::services::Services,
 }
 
 impl std::ops::Deref for Strider {
@@ -220,11 +234,13 @@ impl Strider {
         self.wins.iter().map(|w| w.window).collect()
     }
 
-    /// The window input went to last, for activations.
+    /// The window input went to last, for activations; file choosers are their callers', not
+    /// the app's.
     pub fn last_window(&self) -> Option<WindowId> {
         self.wins
             .iter()
             .enumerate()
+            .filter(|(_, w)| !crate::chooser::is_chooser(self, w.window))
             .max_by_key(|&(i, w)| (w.last_input, std::cmp::Reverse(i)))
             .map(|(_, w)| w.window)
     }
@@ -316,6 +332,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
             .width(Dim::Fill)
             .padding(Insets::new(6.0, 12.0, 6.0, 12.0)),
     )?;
+    let crumbs = crate::crumbs::build(tx, bar)?;
     let header = widgets::label(tx, bar, "", TextKind::Body)?;
     tx.update_style(header, |s| {
         s.max_lines = 1;
@@ -403,6 +420,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         }
         lists.push(list);
     }
+    let dnd = crate::dnd::build(tx, &panes, &lists)?;
     let preview_pane = panes[2];
     let preview_lines = widgets::list(
         tx,
@@ -564,6 +582,8 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         picker,
         tabs,
         handles: handles.try_into().expect("two handles"),
+        crumbs,
+        dnd,
     })
 }
 
@@ -623,6 +643,9 @@ fn key_down(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<()
     };
     s.inputs += 1;
     s.last_input = s.inputs;
+    if crate::dnd::key(s, tx, keysym, modifiers)? {
+        return Ok(());
+    }
     let Some(key) = key_of(keysym, modifiers) else {
         return Err(Error::Pass);
     };
@@ -637,6 +660,9 @@ pub fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()>
     }
     if let Some(p) = s.prompt() {
         return crate::prompt::key(s, tx, p, key);
+    }
+    if let Some(r) = crate::chooser::key(s, tx, key) {
+        return r;
     }
     if s.message.take().is_some() {
         draw_status(s, tx)?;
@@ -880,6 +906,7 @@ pub fn cd(
         f.focus(name);
     }
     s.cwd = path.clone();
+    crate::chooser::apply_types(s);
     // A drive's mount point has Drives above it.
     let up = crate::drives::parent_of(s, &path);
     s.parent_path = up.as_ref().map(|(p, _)| p.clone());
@@ -982,12 +1009,15 @@ pub fn new_win(s: &Strider, window: WindowId, ui: Ui, start: &Path) -> Win {
         tabs: vec![crate::tabs::Tab::new(start.to_owned())],
         active: 0,
         hover: None,
+        close_hover: None,
         tab_nodes: Vec::new(),
         drag: None,
         handle_hover: None,
         wops: crate::tasks::WinOps::default(),
         shown: Vec::new(),
         last_input: 0,
+        dnd: crate::dnd::Dnd::new(),
+        crumbs: crate::crumbs::Crumbs::default(),
     }
 }
 
@@ -1069,6 +1099,7 @@ pub fn closed(s: &mut Strider, cx: &mut Cx<'_, Strider>, id: WindowId) -> Result
     let Some(i) = s.wins.iter().position(|w| w.window == id) else {
         return Ok(());
     };
+    crate::chooser::window_closed(s, cx, id);
     let w = s.wins.remove(i);
     w.previews.cancel();
     w.picker.cancel();
@@ -1268,8 +1299,14 @@ pub fn layout(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let r = o.ratio;
     let w = s.width;
     let narrow = o.narrow_width as f32;
-    let show_parent = r[0] > 0.0 && (w == 0.0 || w >= narrow);
-    let show_preview = o.preview && r[2] > 0.0 && (w == 0.0 || w >= narrow * 2.0 / 3.0);
+    // A chooser keeps the parent (where it is) longer than the preview.
+    let (parent_at, preview_at) = if crate::chooser::of(s).is_some() {
+        (narrow * 2.0 / 3.0, narrow)
+    } else {
+        (narrow, narrow * 2.0 / 3.0)
+    };
+    let show_parent = r[0] > 0.0 && (w == 0.0 || w >= parent_at);
+    let show_preview = o.preview && r[2] > 0.0 && (w == 0.0 || w >= preview_at);
     let [parent, current, preview] = s.ui.panes;
     let total = r[0] + r[1].max(0.1) + r[2];
     let fixed = |tx: &mut Txn<'_, Strider>, pane, px: f32| {
@@ -1504,21 +1541,10 @@ fn span_for(class: Class, range: std::ops::Range<usize>) -> TextSpan {
     }
 }
 
-/// The header: the path of the entry under the cursor, its folder in the accent color.
-pub fn draw_header(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    // In Drives or on a drive, the drive's label stands for where it is mounted.
-    let dir = crate::drives::header(s).unwrap_or_else(|| s.short_path(&s.cur().path));
-    let dir = if dir.ends_with('/') {
-        dir
-    } else {
-        format!("{dir}/")
-    };
-    let name = String::from_utf8_lossy(s.cur().current_name().unwrap_or_default());
-    tx.set_text(s.ui.header, format_args!("{dir}{name}"))?;
-    let span = TextSpan::new(0..dir.len())
-        .color(Paint::Role(ColorRole::AccentText))
-        .weight(700.0);
-    tx.set_text_spans(s.ui.header, &[span])
+/// The header: the path of the entry under the cursor, its folders as links in the accent
+/// color.
+pub fn draw_header(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    crate::crumbs::draw(s, tx)
 }
 
 /// The status line: the mode, a message or the entry's details, the keys pending, and where
@@ -1531,7 +1557,7 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     } else if tasks {
         "TASKS"
     } else {
-        ""
+        crate::chooser::badge(s, tx).unwrap_or("")
     };
     tx.set_text(s.ui.status_mode, badge)?;
     tx.set_hidden(s.ui.status_mode, badge.is_empty())?;
@@ -1546,6 +1572,8 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         }
         // The selected task, at a glance and for screen readers.
         (None, _) if tasks => (crate::tasks::selected_text(s), ColorRole::Text),
+        // What a drop here would do.
+        _ if crate::dnd::hint(s).is_some() => (s.dnd.hint.clone(), ColorRole::Text),
         (Some((m, error)), _) => (
             m.clone(),
             if *error {
@@ -1654,6 +1682,7 @@ fn fill_row(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, col: Col) ->
         Some(icons) => icons.painter(&s.db, mime, px),
         None => None,
     };
+    crate::dnd::fill_row(s, tx, row, fresh, col, index)?;
     let Some(f) = s.folder(col) else {
         return Ok(());
     };

@@ -108,6 +108,7 @@ pub fn close(s: &mut Strider, tx: &mut Txn<'_, Strider>, i: usize) -> Result<()>
     save(s);
     s.tabs.remove(i);
     s.hover = None;
+    s.close_hover = None;
     let active = if i < s.active || s.active >= s.tabs.len() {
         s.active - 1
     } else {
@@ -199,12 +200,25 @@ pub fn draw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         app::on(tx, tab, PointerEnter, move |s: &mut Strider, tx, _| {
             hover(s, tx, Some(i))
         })?;
+        app::on(tx, x, PointerEnter, move |s: &mut Strider, tx, _| {
+            s.close_hover = Some(i);
+            style(s, tx, i)
+        })?;
+        app::on(tx, x, PointerLeave, move |s: &mut Strider, tx, _| {
+            if s.close_hover == Some(i) {
+                s.close_hover = None;
+                style(s, tx, i)?;
+            }
+            Ok(())
+        })?;
         app::on(tx, tab, PointerLeave, move |s: &mut Strider, tx, _| {
             if s.hover == Some(i) {
                 hover(s, tx, None)?;
             }
             Ok(())
         })?;
+        // Files dragged onto a tab go to its folder.
+        crate::dnd::bind(tx, tab, crate::dnd::Target::Tab(i))?;
         s.tab_nodes.push((tab, text, x));
         style(s, tx, i)?;
     }
@@ -221,7 +235,7 @@ fn hover(s: &mut Strider, tx: &mut Txn<'_, Strider>, i: Option<usize>) -> Result
 
 /// A tab's look: the active one on the accent, a hovered one raised, and the close button on
 /// the active and hovered ones.
-fn style(s: &Strider, tx: &mut Txn<'_, Strider>, i: usize) -> Result<()> {
+pub fn style(s: &Strider, tx: &mut Txn<'_, Strider>, i: usize) -> Result<()> {
     let Some(&(tab, text, x)) = s.tab_nodes.get(i) else {
         return Ok(());
     };
@@ -242,5 +256,22 @@ fn style(s: &Strider, tx: &mut Txn<'_, Strider>, i: usize) -> Result<()> {
         } else {
             Paint::Faded(fg, 0.0)
         },
-    )
+    )?;
+    // The close button under the pointer, a shade darker than its tab.
+    let pressed = if on {
+        ColorRole::AccentFillPressed
+    } else {
+        ColorRole::ComponentPressed
+    };
+    let close_hover = (on || hover) && s.close_hover == Some(i);
+    tx.set_background(
+        x,
+        if close_hover {
+            Paint::Role(pressed)
+        } else {
+            Paint::TRANSPARENT
+        },
+    )?;
+    tx.set_radius(x, 4.0)?;
+    crate::dnd::tab_look(s, tx, tab, i)
 }

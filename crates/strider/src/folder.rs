@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use keywork::desktop::mime::MimeDb;
 use strider_core::model::{self, Kind, Listing, ReadError};
@@ -72,6 +72,16 @@ pub struct Folder {
     pub marks: BTreeSet<u32>,
     /// Only names that match this show, in smart case; empty shows every name.
     pub filter: String,
+    /// A file chooser's type filter, set by the chooser window showing this folder.
+    pub chooser: Option<Arc<ChooserTypes>>,
+}
+
+/// A file chooser's type filter on a folder: the chooser that set it, the filter, and the
+/// MIME database that names each type's supertypes ("image/png" is an "image/*").
+pub struct ChooserTypes {
+    pub owner: u64,
+    pub filter: model::TypeFilter,
+    pub db: Arc<MimeDb>,
 }
 
 impl Folder {
@@ -90,6 +100,7 @@ impl Folder {
             want: None,
             marks: BTreeSet::new(),
             filter: String::new(),
+            chooser: None,
         }
     }
 
@@ -131,13 +142,21 @@ impl Folder {
             self.sorted = model::sort(&self.listing, options.sort, |_| ());
             self.sorted_by = Some(options.sort);
         }
+        let chooser = self.chooser.clone();
+        let types = &self.types;
         self.order = model::filter(
             &self.listing,
             &self.sorted,
             &self.filter,
             options.show_hidden,
-            None,
-            |_| std::iter::empty(),
+            chooser.as_deref().map(|c| &c.filter),
+            |i| {
+                let mut names = Vec::new();
+                if let (Some(c), Some(&mime)) = (chooser.as_deref(), types.get(i as usize)) {
+                    c.db.supertypes(mime, &mut names);
+                }
+                names
+            },
         );
         let found = focus
             .and_then(|name| self.position_of(name))

@@ -34,6 +34,7 @@ enum Action {
     KeepBoth,
     Merge,
     Apply,
+    Overwrite,
 }
 
 /// What a dialog is for.
@@ -46,6 +47,8 @@ enum Purpose {
         all: NodeId<Flex>,
     },
     Properties(Box<Properties>),
+    /// A file chooser saving over files that exist.
+    Overwrite,
 }
 
 struct Properties {
@@ -350,6 +353,59 @@ pub fn confirm_empty_trash(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result
         Action::EmptyTrash,
     )?;
     present(s, tx, Purpose::EmptyTrash, scrim, buttons)
+}
+
+// Saving over files -----------------------------------------------------------------------
+
+/// The file chooser saving over files that exist (`names`, in `folder`).
+pub fn confirm_overwrite(
+    s: &mut Strider,
+    tx: &mut Txn<'_, Strider>,
+    names: &[String],
+    folder: &std::path::Path,
+) -> Result<()> {
+    let title = match names {
+        [one] => format!("Replace “{one}”?"),
+        _ => format!("Replace {} files?", names.len()),
+    };
+    let (it, s1, they) = if names.len() == 1 {
+        ("It", "s", "it")
+    } else {
+        ("They", "", "they")
+    };
+    let text = format!(
+        "{it} exist{s1} in {}; saving replaces what {they} hold{s1}.",
+        s.short_path(folder)
+    );
+    let (scrim, card) = begin(s, tx, &title, &text)?;
+    if names.len() > 1 {
+        let mut list: Vec<String> = names.iter().take(6).cloned().collect();
+        if names.len() > 6 {
+            list.push(format!("and {} more", names.len() - 6));
+        }
+        lines(tx, card, &list.join("\n"))?;
+    }
+    let actions = widgets::dialog_actions(tx, card)?;
+    let mut buttons = Vec::new();
+    button(
+        tx,
+        actions,
+        &mut buttons,
+        "Cancel",
+        'c',
+        Variant::Outline,
+        Action::Cancel,
+    )?;
+    button(
+        tx,
+        actions,
+        &mut buttons,
+        "Replace",
+        'r',
+        Variant::Danger,
+        Action::Overwrite,
+    )?;
+    present(s, tx, Purpose::Overwrite, scrim, buttons)
 }
 
 // Conflicts ----------------------------------------------------------------------------------
@@ -768,6 +824,10 @@ fn act(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Action) -> Result<()>
             tasks::answer(s, tx, r, all)
         }
         Action::Apply => apply_properties(s, tx),
+        Action::Overwrite => {
+            dismiss(s, tx)?;
+            crate::chooser::overwrite_confirmed(s, tx)
+        }
     }
 }
 
@@ -778,7 +838,12 @@ fn cancel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         return Ok(());
     };
     let (delete, conflict) = (d.is_delete(), d.is_conflict());
+    let overwrite = matches!(d.purpose, Purpose::Overwrite);
     dismiss(s, tx)?;
+    // Back to the name, to type another.
+    if overwrite {
+        return crate::chooser::keep_editing(s, tx);
+    }
     if delete {
         s.notify("Not deleted", false);
     }

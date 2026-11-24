@@ -283,22 +283,6 @@ pub fn status(s: &Strider) -> Option<String> {
     Some(core::status(d, space))
 }
 
-/// The header's folder part, in Drives or on a drive: "Drives/", or "Drives/LABEL/sub/".
-pub fn header(s: &Strider) -> Option<String> {
-    let path = &s.cur().path;
-    if is_drives(path) {
-        return Some("Drives/".into());
-    }
-    let d = core::drive_of(&s.drives.list, path, &s.home)?;
-    let rest = path.strip_prefix(&d.mount_point).ok()?;
-    let mut out = format!("Drives/{}/", d.label);
-    for part in rest.iter() {
-        out += &part.to_string_lossy();
-        out.push('/');
-    }
-    Some(out)
-}
-
 /// The preview of the drive under the cursor in Drives: a mounted one's folder, and the size
 /// of one that is not. False when the cursor is on no drive.
 pub fn preview(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<bool> {
@@ -1187,7 +1171,7 @@ mod tests {
             h.state().parent_path.as_deref(),
             Some(Path::new(DRIVES_PATH))
         );
-        assert_eq!(header(h.state()).as_deref(), Some("Drives/STICK/"));
+        assert_eq!(crate::crumbs::text(h.state()), "Drives/STICK/");
 
         typ(&mut h, "h");
         assert_eq!(h.state().cwd, Path::new(DRIVES_PATH));

@@ -2,6 +2,8 @@
 //! data; events come in, its effects (`*Fx` enums) go out, and it does no I/O. The app
 //! carries out the effects and draws what the snapshots say.
 
+pub mod chooser;
+pub mod dnd;
 pub mod driver;
 pub mod drives;
 pub mod folder;

@@ -279,6 +279,17 @@ fn redraw_here(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Resul
     Ok(())
 }
 
+impl Cache {
+    /// Forgets what the watcher saw change and has not told yet, as if it came later.
+    pub fn drop_changes(&mut self) {
+        if let Some(w) = &mut self.watcher {
+            let _ = w.read(Instant::ZERO);
+            w.fire(Instant::ZERO + Duration::from_secs(3600));
+            w.take_changes(|_, _| {});
+        }
+    }
+}
+
 /// Follows the watcher's descriptor on the loop, once the app runs.
 pub fn start_watching(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     let Some(w) = &s.cache.watcher else {

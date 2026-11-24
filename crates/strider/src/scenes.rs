@@ -88,17 +88,12 @@ pub fn fixture(name: &str) -> PathBuf {
     home
 }
 
-/// The app on the sample home, started in `start` under it, with times in UTC.
+/// The app on the sample home, started in `start` under it, with times in UTC. Home, for
+/// `~`, is the folder above the start, as the Zig build's test harness made it.
 fn sample(name: &str, start: &str) -> Result<(App<Strider>, Strider)> {
-    let home = fixture(name);
-    crate::app_in(
-        home.join(start),
-        home,
-        Config::default(),
-        Zone::utc(),
-        true,
-        None,
-    )
+    let start = fixture(name).join(start);
+    let home = start.parent().map(Path::to_path_buf).unwrap_or_default();
+    crate::app_in(start, home, Config::default(), Zone::utc(), true, None)
 }
 
 /// The app on the sample home, with the Omarchy theme `colors` active in it, as
@@ -163,6 +158,8 @@ pub fn add(app: &mut App<Strider>) {
     add_previews(app);
     add_operations(app);
     add_drives(app);
+    add_pointer(app);
+    add_choosers(app);
     // The README's first view: into src, onto main.zig, its text colored.
     app.scene_app("columns", || {
         let (mut app, mut s) = sample("columns", "work")?;
@@ -629,12 +626,18 @@ fn add_operations(app: &mut App<Strider>) {
                 fs::copy(home.join("work").join(f), &to)?;
                 File::open(&to)?.set_times(FileTimes::new().set_modified(at).set_accessed(at))?;
             }
-            Ok(())
+            // docs's time in the status line, the same however long ago its files came.
+            File::open(home.join("work/docs"))?
+                .set_times(FileTimes::new().set_modified(at).set_accessed(at))
         })?;
         let window = s.window;
         app.update(window, |tx| {
             press(&mut s, tx, "ggjlggjvjdhp")?;
-            wait_jobs(&mut s, tx)
+            wait_jobs(&mut s, tx)?;
+            // As the Zig build's golden has it, before the watcher shows guide.md moved:
+            // what it saw of the move so far is dropped, so the scene is the same every time.
+            s.cache.drop_changes();
+            Ok(())
         })?;
         Ok((app, s))
     });
@@ -663,6 +666,246 @@ fn add_operations(app: &mut App<Strider>) {
             press(&mut s, tx, "hfaslpwpx")?;
             wait_jobs(&mut s, tx)
         })?;
+        Ok((app, s))
+    });
+}
+
+/// The Zig build's chooser tests' home: `home` and `work` side by side, pictures, text
+/// files, and a folder in `work`, every one modified at the same time.
+pub fn chooser_fixture(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("strider-chooser-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    for d in ["home", "work", "work/src"] {
+        fs::create_dir_all(root.join(d)).expect("the chooser fixture");
+    }
+    let files = [
+        ("work/photo.png", 30),
+        ("work/scan.jpg", 30),
+        ("work/notes.txt", 3),
+        ("work/report.txt", 3),
+        ("work/build.zig", 3),
+    ];
+    for (f, size) in files {
+        fs::write(root.join(f), vec![0u8; size]).expect("the chooser fixture");
+    }
+    let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_791_900_300);
+    for p in ["home", "work", "work/src"]
+        .into_iter()
+        .chain(files.iter().map(|f| f.0))
+    {
+        let f = File::open(root.join(p)).expect("the chooser fixture");
+        f.set_times(FileTimes::new().set_modified(at).set_accessed(at))
+            .expect("the chooser fixture");
+    }
+    root
+}
+
+/// Firefox's Save Page As, as the Zig build's tests made it: its four filters and a
+/// suggested name, in `work`.
+pub fn firefox_save(root: &Path) -> crate::chooser::Request {
+    use crate::chooser::{Filter, Kind, Request};
+    let mut r = Request::new(Kind::Save);
+    r.folder = Some(root.join("work"));
+    r.current_name = "New Tab.html".into();
+    for (name, glob) in [
+        ("Web Page, complete", "*.html"),
+        ("Web Page, HTML only", "*.htm"),
+        ("Text Files", "*.txt"),
+        ("All Files", "*"),
+    ] {
+        r.filters.push(Filter {
+            name: name.into(),
+            rules: vec![(0, glob.into())],
+            types: strider_core::model::TypeFilter {
+                globs: vec![glob.into()],
+                mimes: Vec::new(),
+            },
+        });
+    }
+    r
+}
+
+/// The Zig build's chooser goldens: a chooser window for a request, with keys pressed in it.
+fn add_choosers(app: &mut App<Strider>) {
+    use crate::chooser::{Choice, Filter, Kind, Request};
+    type Make = fn(&Path) -> Request;
+    let open: Make = |root| {
+        let mut r = Request::new(Kind::Open);
+        r.folder = Some(root.join("work"));
+        r
+    };
+    let picture: Make = |root| {
+        let mut r = Request::new(Kind::Open);
+        r.folder = Some(root.join("work"));
+        r.title = "Insert a picture".into();
+        r.accept_label = "Insert".into();
+        r
+    };
+    let filters: Make = |root| {
+        let mut r = Request::new(Kind::Open);
+        r.folder = Some(root.join("work"));
+        let filter = |name: &str, rules: &[(u32, &str)]| Filter {
+            name: name.into(),
+            rules: rules.iter().map(|(k, p)| (*k, (*p).to_owned())).collect(),
+            types: strider_core::model::TypeFilter {
+                globs: rules
+                    .iter()
+                    .filter(|r| r.0 == 0)
+                    .map(|r| r.1.to_lowercase())
+                    .collect(),
+                mimes: rules
+                    .iter()
+                    .filter(|r| r.0 == 1)
+                    .map(|r| r.1.to_owned())
+                    .collect(),
+            },
+        };
+        r.filters = vec![
+            filter("Images", &[(0, "*.PNG"), (1, "image/jpeg")]),
+            filter("Text", &[(0, "*.txt")]),
+        ];
+        r.choices = vec![
+            Choice {
+                id: "size".into(),
+                label: "Size".into(),
+                options: vec![
+                    ("small".into(), "Small".into()),
+                    ("large".into(), "Large".into()),
+                ],
+                initial: "large".into(),
+            },
+            Choice {
+                id: "link".into(),
+                label: "Link instead of copying".into(),
+                options: Vec::new(),
+                initial: "false".into(),
+            },
+        ];
+        r
+    };
+    let save: Make = |root| {
+        let mut r = Request::new(Kind::Save);
+        r.folder = Some(root.join("work"));
+        r.title = "Save the report".into();
+        r.current_name = "report.txt".into();
+        r
+    };
+    let save_as: Make = |root| {
+        let mut r = firefox_save(root);
+        r.title = "Save As".into();
+        r
+    };
+    let scenes: [(&str, Make, &str); 7] = [
+        ("chooser-open", picture, "fph"),
+        ("chooser-filters", filters, ""),
+        ("chooser-save", save, ""),
+        ("chooser-normal", firefox_save, "<Esc>"),
+        ("chooser-open-insert", open, "i"),
+        ("chooser-narrow", save_as, ""),
+        ("chooser-half", save_as, ""),
+    ];
+    for (name, make, keys) in scenes {
+        app.scene_app(name, move || {
+            let root = chooser_fixture(name);
+            let (mut app, mut s) = crate::base(
+                root.clone(),
+                Config::default(),
+                Zone::utc(),
+                true,
+                None,
+                None,
+            )?;
+            let window = crate::chooser::open_in(&mut app, &mut s, make(&root))?;
+            // Once the window has laid out and taken its focus, as a user's keys come.
+            let header = s.ui.header;
+            app.update(window, |tx| {
+                let mut pressed = false;
+                app::on(tx, header, Resize, move |s: &mut Strider, tx, _| {
+                    if std::mem::replace(&mut pressed, true) {
+                        return Ok(());
+                    }
+                    press(s, tx, keys)
+                })
+            })?;
+            Ok((app, s))
+        });
+    }
+}
+
+/// The Zig build's goldens of the pointer, the narrow window, and the status line's error:
+/// a drag over a folder and its card, a header link and a tab's close button under the
+/// pointer, each as its test left the window, with the pointer's state set as it would be.
+fn add_pointer(app: &mut App<Strider>) {
+    use crate::dnd::{self, Action, Target};
+    // build.zig dragged onto docs in the current column: docs outlined, the hint.
+    fn over_docs(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+        press(s, tx, "fbu")?;
+        dnd::start(s, tx, Point::new(200.0, 175.0))?;
+        dnd::hide_card(s, tx)?;
+        let pos = s.cur().position_of(b"docs").ok_or(Error::Other("docs"))?;
+        let docs = s.cwd.join("docs");
+        dnd::hover(s, tx, Target::Row(app::Col::Current, pos), docs)?;
+        Ok(())
+    }
+    app.scene_app("drag-over-folder", || {
+        let (mut app, mut s) = sample_prepared("drag-over-folder", "work", |_| Ok(()))?;
+        let window = s.window;
+        app.update(window, |tx| over_docs(&mut s, tx))?;
+        Ok((app, s))
+    });
+    // The card alone, with what a drop on docs does: `--keywork-size 148x28`.
+    app.scene_app("drag-icon", || {
+        let (mut app, mut s) = sample_prepared("drag-icon", "work", |_| Ok(()))?;
+        let window = s.window;
+        app.update(window, |tx| {
+            over_docs(&mut s, tx)?;
+            dnd::show_card(&mut s, tx, Some(Action::Move))?;
+            let card = s.ui.dnd.card;
+            let root = tx.root();
+            let others: Vec<_> = tx.children(root)?.filter(|&n| n != card.any()).collect();
+            for n in others {
+                tx.set_hidden(n, true)?;
+            }
+            tx.update_style(card, |st| {
+                st.position = keywork::tree::Position::Absolute(keywork::tree::Anchors {
+                    left: Some(0.0),
+                    top: Some(0.0),
+                    ..Default::default()
+                });
+            })
+        })?;
+        Ok((app, s))
+    });
+    // The path reads "~/src/"; the pointer on "~".
+    app.scene_app("crumb-hover", || {
+        let (mut app, mut s) = sample("crumb-hover", "work/src")?;
+        let window = s.window;
+        app.update(window, |tx| crate::crumbs::hover(&mut s, tx, 0, true))?;
+        Ok((app, s))
+    });
+    // Three tabs, the second active; the pointer on the third's close button.
+    app.scene_app("tab-close-hover", || {
+        let (mut app, mut s) = sample("tab-close-hover", "work")?;
+        let window = s.window;
+        app.update(window, |tx| {
+            press(&mut s, tx, "gnfsrlgnhfdoclgT")?;
+            s.hover = Some(2);
+            s.close_hover = Some(2);
+            crate::tabs::style(&s, tx, 2)
+        })?;
+        Ok((app, s))
+    });
+    // `--keywork-size 600x560`: the parent column gives way first.
+    app.scene_app("narrow", || {
+        let (mut app, mut s) = sample("narrow", "work/src")?;
+        let window = s.window;
+        app.update(window, |tx| press(&mut s, tx, "hl"))?;
+        Ok((app, s))
+    });
+    app.scene_app("status-error", || {
+        let (mut app, mut s) = sample("status-error", "work")?;
+        let window = s.window;
+        app.update(window, |tx| press(&mut s, tx, "/zzz<CR>"))?;
         Ok((app, s))
     });
 }

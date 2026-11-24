@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Strider File Chooser
+Comment=The desktop's file chooser, in Miller columns
+Icon=dev.rockorager.Strider
+Exec=@PREFIX@/bin/strider --service
+NoDisplay=true
+Terminal=false

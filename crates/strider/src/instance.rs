@@ -119,7 +119,7 @@ fn activate(
 
 /// Shows these folders and files, a file in its folder under the cursor: a tab each in the
 /// window used last, or a new window for the first. Returns the window that shows them.
-fn show_paths(
+pub fn show_paths(
     s: &mut Strider,
     cx: &mut Cx<'_, Strider>,
     paths: &[PathBuf],
