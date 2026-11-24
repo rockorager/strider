@@ -54,8 +54,11 @@ pub fn build_handle(
     let line = tx.flex(node, Flex::row().height(Dim::Fill))?;
     side(tx, sides[1])?;
     tx.set_cursor(node, Some(CursorShape::EwResize))?;
-    tx.on(node, PointerDown, move |s: &mut Strider, tx, ev| {
-        match ev.data {
+    app::on(
+        tx,
+        node,
+        PointerDown,
+        move |s: &mut Strider, tx, ev| match ev.data {
             EventData::Pointer {
                 button, position, ..
             } if button == BTN_LEFT => {
@@ -67,9 +70,9 @@ pub fn build_handle(
                 style(s, tx, which)
             }
             _ => Err(keywork::Error::Pass),
-        }
-    })?;
-    tx.on(node, PointerMove, move |s: &mut Strider, tx, ev| {
+        },
+    )?;
+    app::on(tx, node, PointerMove, move |s: &mut Strider, tx, ev| {
         let (Some(d), EventData::Pointer { position, .. }) = (s.drag, ev.data) else {
             return Err(keywork::Error::Pass);
         };
@@ -88,7 +91,7 @@ pub fn build_handle(
         set(s, tx, w, false)
     })?;
     for kind in [PointerUp, PointerCancel] {
-        tx.on(node, kind, move |s: &mut Strider, tx, _| {
+        app::on(tx, node, kind, move |s: &mut Strider, tx, _| {
             if s.drag.take().is_none() {
                 return Err(keywork::Error::Pass);
             }
@@ -99,11 +102,11 @@ pub fn build_handle(
             style(s, tx, which)
         })?;
     }
-    tx.on(node, PointerEnter, move |s: &mut Strider, tx, _| {
+    app::on(tx, node, PointerEnter, move |s: &mut Strider, tx, _| {
         s.handle_hover = Some(which);
         style(s, tx, which)
     })?;
-    tx.on(node, PointerLeave, move |s: &mut Strider, tx, _| {
+    app::on(tx, node, PointerLeave, move |s: &mut Strider, tx, _| {
         if s.handle_hover == Some(which) {
             s.handle_hover = None;
         }
@@ -162,6 +165,12 @@ fn set(s: &mut Strider, tx: &mut Txn<'_, Strider>, mut w: [f32; 2], persist: boo
     if persist {
         save(s, Some(shares));
     }
+    relayout(s, tx)
+}
+
+/// Every window's columns laid out again: they share the widths chosen.
+fn relayout(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    app::others(tx, |s, tx| app::layout(s, tx));
     app::layout(s, tx)
 }
 
@@ -186,5 +195,5 @@ pub fn resize(s: &mut Strider, tx: &mut Txn<'_, Strider>, parent: bool, delta: f
 pub fn reset(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     s.widths = None;
     save(s, None);
-    app::layout(s, tx)
+    relayout(s, tx)
 }

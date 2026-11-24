@@ -36,17 +36,22 @@ fn save(s: &mut Strider) {
         history: s.history.clone(),
         history_pos: s.history_pos,
     };
-    s.tabs[s.active] = t;
+    let active = s.active;
+    s.tabs[active] = t;
 }
 
-/// The folders other tabs show, which the cache keeps.
-fn pin(s: &mut Strider) {
+/// The folders other tabs show, in every window, which the cache keeps.
+pub fn pin(s: &mut Strider) {
     s.cache.pinned = s
-        .tabs
+        .wins
         .iter()
-        .enumerate()
-        .filter(|&(i, _)| i != s.active)
-        .map(|(_, t)| t.cwd.clone())
+        .flat_map(|w| {
+            w.tabs
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != w.active)
+                .map(|(_, t)| t.cwd.clone())
+        })
         .collect();
 }
 
@@ -167,8 +172,11 @@ pub fn draw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
             st.shrink = 0.0;
         })?;
         tx.set_label(x, format!("Close {name}"))?;
-        tx.on(x, PointerDown, move |s: &mut Strider, tx, ev| {
-            match ev.data {
+        app::on(
+            tx,
+            x,
+            PointerDown,
+            move |s: &mut Strider, tx, ev| match ev.data {
                 EventData::Pointer { button, .. }
                     if button == BTN_MIDDLE
                         || button == BTN_LEFT && (s.active == i || s.hover == Some(i)) =>
@@ -176,19 +184,22 @@ pub fn draw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
                     close(s, tx, i)
                 }
                 _ => Err(keywork::Error::Pass),
-            }
-        })?;
-        tx.on(tab, PointerDown, move |s: &mut Strider, tx, ev| {
-            match ev.data {
+            },
+        )?;
+        app::on(
+            tx,
+            tab,
+            PointerDown,
+            move |s: &mut Strider, tx, ev| match ev.data {
                 EventData::Pointer { button, .. } if button == BTN_MIDDLE => close(s, tx, i),
                 EventData::Pointer { button, .. } if button == BTN_LEFT => select(s, tx, i),
                 _ => Ok(()),
-            }
-        })?;
-        tx.on(tab, PointerEnter, move |s: &mut Strider, tx, _| {
+            },
+        )?;
+        app::on(tx, tab, PointerEnter, move |s: &mut Strider, tx, _| {
             hover(s, tx, Some(i))
         })?;
-        tx.on(tab, PointerLeave, move |s: &mut Strider, tx, _| {
+        app::on(tx, tab, PointerLeave, move |s: &mut Strider, tx, _| {
             if s.hover == Some(i) {
                 hover(s, tx, None)?;
             }

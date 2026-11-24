@@ -89,6 +89,8 @@ struct Udisks {
 /// An operation on a drive, from the command that started it to its last step.
 struct Job {
     id: u64,
+    /// The window that started it, which hears how it went and goes where it mounted.
+    window: Option<WindowId>,
     chart: Driver<Chart, Timer>,
     label: String,
     /// Unlock and mount: the device; unmount: the file system's block.
@@ -135,6 +137,28 @@ pub fn set_list(s: &mut Strider, tx: &mut Txn<'_, Strider>, list: Vec<Drive>) ->
     if s.cache.get(&drives).is_some() {
         crate::cache::invalidate(s, tx, &drives)?;
     }
+    app::others(tx, drives_changed);
+    drives_changed(s, tx)
+}
+
+/// New drives from a callback, told in the first window, which tells the others; without a
+/// window they are kept, and Drives is read anew when one shows it.
+fn new_list(s: &mut Strider, cx: &mut Cx<'_, Strider>, list: Vec<Drive>) -> Result<()> {
+    match s.wins.first().map(|w| w.window) {
+        Some(first) => app::in_window(s, cx, Some(first), |s, tx| set_list(s, tx, list)),
+        None => {
+            if list != s.drives.list {
+                s.drives.list = list;
+                s.cache.dirs.remove(Path::new(DRIVES_PATH));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// The drives changed: this window's folder on a drive that came or went has its parent and
+/// header named anew.
+fn drives_changed(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let up = parent_of(s, &s.cwd).map(|(p, _)| p);
     if up != s.parent_path {
         let cwd = s.cwd.clone();
@@ -145,9 +169,14 @@ pub fn set_list(s: &mut Strider, tx: &mut Txn<'_, Strider>, list: Vec<Drive>) ->
 }
 
 /// The drives in the mount table, while UDisks2 does not run.
-fn from_mount_table(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+fn from_mount_table(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
+    let list = mount_table(s);
+    new_list(s, cx, list)
+}
+
+fn mount_table(s: &mut Strider) -> Vec<Drive> {
     let Some(w) = &s.drives.mounts else {
-        return set_list(s, tx, Vec::new());
+        return Vec::new();
     };
     let mounts: Vec<core::Mount> = w
         .mounts()
@@ -159,14 +188,22 @@ fn from_mount_table(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         })
         .collect();
     s.drives.volumes.clear();
-    set_list(s, tx, core::from_mounts(&mounts))
+    core::from_mounts(&mounts)
 }
 
 /// UDisks2's objects, as the drives they make.
+#[cfg(test)]
 fn from_objects(s: &mut Strider, tx: &mut Txn<'_, Strider>, objects: &[Object]) -> Result<()> {
     let (list, volumes) = core::from_udisks(objects);
     s.drives.volumes = volumes;
     set_list(s, tx, list)
+}
+
+/// UDisks2's objects, from a callback.
+fn objects_came(s: &mut Strider, cx: &mut Cx<'_, Strider>, objects: &[Object]) -> Result<()> {
+    let (list, volumes) = core::from_udisks(objects);
+    s.drives.volumes = volumes;
+    new_list(s, cx, list)
 }
 
 /// What reads the Drives folder when `path` is it: the drives as they are now, and where
@@ -452,8 +489,15 @@ fn unmount(s: &mut Strider, tx: &mut Txn<'_, Strider>, d: &Drive, eject: bool) -
     start(s, tx, d, &v, plan, None)
 }
 
-/// A drive is about to be unmounted: tabs on it go to Drives, the cursor on it.
+/// A drive is about to be unmounted: tabs on it, in every window, go to Drives, the cursor
+/// on it.
 fn leave_mount(s: &mut Strider, tx: &mut Txn<'_, Strider>, d: &Drive) -> Result<()> {
+    let other = d.clone();
+    app::others(tx, move |s, tx| leave_mount_here(s, tx, &other));
+    leave_mount_here(s, tx, d)
+}
+
+fn leave_mount_here(s: &mut Strider, tx: &mut Txn<'_, Strider>, d: &Drive) -> Result<()> {
     let drives = PathBuf::from(DRIVES_PATH);
     let active = s.active;
     for (i, t) in s.tabs.iter_mut().enumerate() {
@@ -531,6 +575,7 @@ fn start(
     let id = s.drives.next_job;
     s.drives.jobs.push(Job {
         id,
+        window: tx.window(),
         chart: Driver::new(Chart::machine(), ()),
         label: d.label.clone(),
         target: v.block.clone(),
@@ -557,8 +602,7 @@ impl Scheduler<Timer> for JobClock<'_, '_> {
     fn schedule(&mut self, delay: Duration, token: TimerToken) -> Timer {
         let id = self.id;
         self.tx.after(delay, move |s: &mut Strider, cx| {
-            let window = s.window;
-            cx.update(window, |tx| {
+            app::back(s, cx, |s, tx| {
                 let Some(j) = s.drives.jobs.iter_mut().find(|j| j.id == id) else {
                     return Ok(());
                 };
@@ -646,8 +690,7 @@ fn call(s: &mut Strider, tx: &mut Txn<'_, Strider>, id: u64, step: Step) -> Resu
     if let Some(fake) = &mut s.drives.fake {
         let result = fake.call(&path, member, passphrase.as_deref());
         tx.after(Duration::ZERO, move |s: &mut Strider, cx| {
-            let window = s.window;
-            cx.update(window, |tx| {
+            app::back(s, cx, |s, tx| {
                 let objects = s.drives.fake.as_ref().map(|f| f.objects());
                 if let Some(objects) = objects {
                     from_objects(s, tx, &objects)?;
@@ -719,13 +762,11 @@ pub fn start_watching(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
                 .as_mut()
                 .is_some_and(|w| w.refresh().unwrap_or(false));
             if changed && !s.drives.udisks.present {
-                let window = s.window;
-                cx.update(window, |tx| from_mount_table(s, tx))?;
+                from_mount_table(s, cx)?;
             }
             Ok(())
         })?;
-        let window = s.window;
-        cx.update(window, |tx| from_mount_table(s, tx))?;
+        from_mount_table(s, cx)?;
     }
     let Ok(mut bus) = connect() else {
         return Ok(());
@@ -785,7 +826,6 @@ fn fetch(s: &mut Strider) {
 }
 
 fn on_bus(s: &mut Strider, cx: &mut Cx<'_, Strider>, event: BusEvent) -> Result<()> {
-    let window = s.window;
     match event {
         BusEvent::Reply { call, result } if s.drives.udisks.fetch == Some(call) => {
             s.drives.udisks.fetch = None;
@@ -797,12 +837,12 @@ fn on_bus(s: &mut Strider, cx: &mut Cx<'_, Strider>, event: BusEvent) -> Result<
                 Some(all) => {
                     s.drives.udisks.present = true;
                     let objects = parse_objects(&all);
-                    cx.update(window, |tx| from_objects(s, tx, &objects))
+                    objects_came(s, cx, &objects)
                 }
                 // UDisks2 does not run: the mount table's drives.
                 None => {
                     s.drives.udisks.present = false;
-                    cx.update(window, |tx| from_mount_table(s, tx))
+                    from_mount_table(s, cx)
                 }
             }
         }
@@ -817,14 +857,23 @@ fn on_bus(s: &mut Strider, cx: &mut Cx<'_, Strider>, event: BusEvent) -> Result<
                 Err(BusError::Remote { name, message }) => Err((name, message)),
                 Err(e) => Err((keywork::dbus::error_names::FAILED.to_owned(), e.to_string())),
             };
-            cx.update(window, |tx| answer(s, tx, id, result))
+            // In the window that started the job, or the one used last.
+            let window = s
+                .drives
+                .jobs
+                .iter()
+                .find(|j| j.id == id)
+                .and_then(|j| j.window)
+                .filter(|w| s.wins.iter().any(|x| x.window == *w))
+                .or_else(|| s.last_window());
+            app::in_window(s, cx, window, |s, tx| answer(s, tx, id, result))
         }
         BusEvent::Signal { message, .. } => {
             if message.member.as_deref() == Some("NameOwnerChanged") {
                 let owner = message.body.get(2).and_then(Value::as_str).unwrap_or("");
                 if owner.is_empty() {
                     s.drives.udisks.present = false;
-                    return cx.update(window, |tx| from_mount_table(s, tx));
+                    return from_mount_table(s, cx);
                 }
             }
             fetch(s);
@@ -832,7 +881,7 @@ fn on_bus(s: &mut Strider, cx: &mut Cx<'_, Strider>, event: BusEvent) -> Result<
         }
         BusEvent::Disconnected(_) => {
             s.drives.udisks.present = false;
-            cx.update(window, |tx| from_mount_table(s, tx))
+            from_mount_table(s, cx)
         }
         _ => Ok(()),
     }

@@ -1,4 +1,9 @@
 //! Strider: a keyboard-driven file manager for Linux on Wayland.
+//!
+//!     strider [FOLDER or FILE ...] [--new-window] [--hidden] [--dark | --light]
+//!
+//! One instance serves every window: a second launch hands its folders to the first and
+//! exits. A file on the command line is shown under the cursor in its folder.
 
 mod app;
 mod bookmarks;
@@ -8,6 +13,7 @@ mod commands;
 mod dialogs;
 mod drives;
 mod folder;
+mod instance;
 mod menu;
 mod opening;
 mod ops;
@@ -23,103 +29,65 @@ mod theme;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use keywork::Launch;
 use keywork::desktop::basedir::BaseDirs;
 use keywork::desktop::localtime::Zone;
 use keywork::desktop::mime::MimeDb;
 use keywork::icons::MimeIcons;
 use keywork::prelude::*;
+use keywork::theme::Appearance;
 use strider_core::config::Config;
 use strider_core::keys::Keymap;
-use strider_machines::driver::Driver;
-use strider_machines::keymap::{self, KeyEv};
-use strider_machines::mode;
 
 use app::{Col, Strider};
 
-/// Builds the window on `start`, with `home` for `~` and the configuration given, without
-/// running it.
-pub fn app_in(
-    start: PathBuf,
+/// The app and its state, with `home` for `~`, the configuration given, and no window yet,
+/// without running it; `scheme` is light or dark instead of the desktop's.
+pub fn base(
     home: PathBuf,
     config: Config,
     zone: Zone,
     sync_reads: bool,
     state_dir: Option<PathBuf>,
+    scheme: Option<Appearance>,
 ) -> Result<(App<Strider>, Strider)> {
     let mut app = App::<Strider>::new();
     // Names, sizes, and dates line up in a monospace face, as Fontconfig resolves the alias,
     // live, rather than in the desktop's sans-serif; colors are the desktop's or Omarchy's.
-    let look = theme::Follow::new(&home);
+    let mut look = theme::Follow::new(&home);
+    look.scheme = scheme;
     theme::follow(&mut app, &look);
-    let window = app.open_window(
-        WindowDesc::new("Strider")
-            .app_id("dev.rockorager.Strider")
-            .size(1000, 560),
-    )?;
-    let ui = app.update(window, app::build)?;
     let mut keymap = Keymap::defaults();
     let problems = keymap.apply(&config);
     let db = Arc::new(MimeDb::load(&BaseDirs::from_env()));
-    let mut keys = Driver::new(keymap::Keymap::machine(), ());
-    keys.send(
-        KeyEv::SetDelay(std::time::Duration::from_millis(u64::from(
-            config.options.which_key_delay,
-        ))),
-        plusthree::host::NoTimers,
-    );
     let mut state = Strider {
-        window,
-        ui,
         options: config.options,
         keymap,
-        keys,
-        mode: Driver::new(mode::Mode::machine(), ()),
         home,
         zone,
         db,
         apps: None,
         icons: None,
         cache: cache::Cache::new(),
-        cwd: start.clone(),
-        parent_path: None,
-        preview: preview::Preview::None,
-        preview_generation: 0,
-        previews: preview::Jobs::default(),
         sync_reads,
-        history: vec![start.clone()],
-        history_pos: 0,
-        anchor: 0,
-        message: problems
-            .first()
-            .map(|p| (format!("config.json: {p}"), true)),
-        width: 0.0,
-        parent_fit: 0.0,
-        prompt_origin: 0,
-        prompt_entry: None,
-        last_search: String::new(),
-        last_search_back: false,
         lines: state_dir
             .as_deref()
             .map(strider_core::state::load_history)
             .unwrap_or_default(),
-        line_pos: 0,
-        probe: 0,
-        look,
-        picker: picker::Picker::default(),
-        tabs: vec![tabs::Tab::new(start.clone())],
-        active: 0,
-        hover: None,
-        tab_nodes: Vec::new(),
         widths: None,
-        drag: None,
-        handle_hover: None,
         zoxide: picker::find_zoxide(),
         zoxide_last: PathBuf::new(),
         bookmarks: Vec::new(),
         drives: drives::Drives::default(),
         log: Vec::new(),
         ops: tasks::Ops::default(),
+        look,
         state_dir,
+        wins: Vec::new(),
+        cur: 0,
+        inputs: 0,
+        config_message: problems.first().map(|p| format!("config.json: {p}")),
+        launch: instance::Launch::default(),
     };
     for p in &problems {
         state.log_message(&format!("config.json: {p}"), true);
@@ -132,34 +100,58 @@ pub fn app_in(
             state.log_message(&m, true);
         }
     }
-    // A start that is no folder leaves an empty current folder, which says why.
-    state.cache.entry(&start);
-    app.update(window, |tx| app::cd(&mut state, tx, start, None, false))?;
     app.on_icon_theme(load_icons);
     app.on_start(cache::start_watching);
     app.on_quit(tasks::quit);
+    instance::install(&mut app);
     scenes::add(&mut app);
     Ok((app, state))
 }
 
+/// Builds the app with its window on `start`, with `home` for `~` and the configuration
+/// given, without running it.
+pub fn app_in(
+    start: PathBuf,
+    home: PathBuf,
+    config: Config,
+    zone: Zone,
+    sync_reads: bool,
+    state_dir: Option<PathBuf>,
+) -> Result<(App<Strider>, Strider)> {
+    let (mut app, mut state) = base(home, config, zone, sync_reads, state_dir, None)?;
+    let window = app.open_window(app::window_desc())?;
+    let ui = app.update(window, app::build)?;
+    app::adopt(&mut state, window, ui, &start);
+    app.update(window, |tx| app::show_start(&mut state, tx, start, None))?;
+    Ok((app, state))
+}
+
 /// Loads the desktop's icon theme, when it is first known and whenever it changes, and draws
-/// the rows again with its icons.
+/// the rows again with its icons, in every window.
 fn load_icons(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
+    // Without a window, the first to open loads it.
+    let Some(window) = s.wins.first().map(|w| w.window) else {
+        return Ok(());
+    };
     let proxy = cx.proxy();
     let pool = cx.pool().clone();
-    cx.load_icon_theme(s.window, move |s: &mut Strider, tx, theme| {
+    cx.load_icon_theme(window, move |s: &mut Strider, tx, theme| {
         s.icons = Some(MimeIcons::new(theme, pool, move || {
             let _ = proxy.post(receive_icons);
         }));
-        refresh_rows(s, tx)
+        app::others(tx, refresh_rows);
+        if s.here(tx) {
+            refresh_rows(s, tx)
+        } else {
+            Ok(())
+        }
     });
     Ok(())
 }
 
 fn receive_icons(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     if s.icons.as_mut().is_some_and(MimeIcons::receive) {
-        let window = s.window;
-        cx.update(window, |tx| refresh_rows(s, tx))?;
+        app::each(s, cx, refresh_rows)?;
     }
     Ok(())
 }
@@ -171,40 +163,109 @@ fn refresh_rows(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     Ok(())
 }
 
+const USAGE: &str = "usage: strider [FOLDER or FILE ...] [options]
+
+  --new-window      open a new window even if one is open
+  --hidden          show hidden files
+  --dark, --light   choose the style instead of following the desktop
+  --service         started by D-Bus activation
+  --version         print the version
+
+Keys: g? or F1 lists them; : opens the command line.
+";
+
+/// What the command line asks for.
+#[derive(Debug, Default, PartialEq)]
+struct Args {
+    paths: Vec<String>,
+    new_window: bool,
+    service: bool,
+    hidden: bool,
+    scheme: Option<Appearance>,
+}
+
+/// Reads the command line, past the program's name: what it asks for, or what to print and
+/// the status to exit with. Keywork's own flags, and the values of those that take one, are
+/// left to Keywork.
+fn parse_args(args: impl IntoIterator<Item = String>) -> std::result::Result<Args, (String, i32)> {
+    let mut out = Args::default();
+    let mut args = args.into_iter();
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--hidden" => out.hidden = true,
+            "--dark" => out.scheme = Some(Appearance::Dark),
+            "--light" => out.scheme = Some(Appearance::Light),
+            // Keywork lays out left to right only.
+            "--rtl" => eprintln!("strider: --rtl is not supported; laying out left to right"),
+            "--new-window" => out.new_window = true,
+            "--service" | "--gapplication-service" => out.service = true,
+            "--version" => {
+                return Err((format!("strider {}\n", env!("CARGO_PKG_VERSION")), 0));
+            }
+            "--help" | "-h" => return Err((USAGE.to_owned(), 0)),
+            _ if a.starts_with("--keywork-") => {
+                if !a.contains('=') && a != "--keywork-list-scenes" {
+                    args.next();
+                }
+            }
+            _ if a.starts_with("--") => {
+                return Err((format!("strider: unknown option {a}\n{USAGE}"), 2));
+            }
+            _ => out.paths.push(a),
+        }
+    }
+    Ok(out)
+}
+
 fn main() -> Result<()> {
+    let args = match parse_args(std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err((text, status)) => {
+            if status == 0 {
+                print!("{text}");
+            } else {
+                eprint!("{text}");
+            }
+            std::process::exit(status);
+        }
+    };
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/".into()));
     let config_home =
         std::env::var_os("XDG_CONFIG_HOME").map_or_else(|| home.join(".config"), PathBuf::from);
-    let (config, problems) = match std::fs::read_to_string(config_home.join("strider/config.json"))
-    {
-        Ok(text) => strider_core::config::parse(&text, &home),
-        Err(_) => (Config::default(), Vec::new()),
-    };
+    let (mut config, problems) =
+        match std::fs::read_to_string(config_home.join("strider/config.json")) {
+            Ok(text) => strider_core::config::parse(&text, &home),
+            Err(_) => (Config::default(), Vec::new()),
+        };
     for p in &problems {
         eprintln!("strider: config.json: {p}");
     }
-    // Keywork's own flags, and the values of those that take one, are not the folder.
-    let mut args = std::env::args().skip(1);
-    let mut folder = None;
-    while let Some(a) = args.next() {
-        if a.starts_with("--keywork-") {
-            if !a.contains('=') && a != "--keywork-list-scenes" {
-                args.next();
-            }
-        } else if !a.starts_with("--") {
-            folder = Some(a);
-            break;
-        }
+    if args.hidden {
+        config.options.show_hidden = true;
     }
-    let start = folder
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| home.clone());
-    let start = std::path::absolute(&start).unwrap_or(start);
     let state_dir = std::env::var_os("XDG_STATE_HOME")
         .map_or_else(|| home.join(".local/state"), PathBuf::from)
         .join("strider");
-    let (mut app, state) = app_in(start, home, config, Zone::local(), false, Some(state_dir))?;
+    let (mut app, mut state) = base(
+        home,
+        config,
+        Zone::local(),
+        false,
+        Some(state_dir),
+        args.scheme,
+    )?;
+    state.launch.new_window = args.new_window;
+    state.launch.service = args.service;
+    // Settled before any window maps: a second launch hands its folders over and exits.
+    let uris = instance::uris(&args.paths);
+    match app.launch(instance::APP_ID, uris.clone()) {
+        Ok(Launch::First) => {}
+        Ok(Launch::Forwarded) => return Ok(()),
+        Err(e) => {
+            eprintln!("strider: the session bus: {e}; this instance serves no other");
+            instance::alone(&mut app, uris);
+        }
+    }
     app.on_start(drives::start_watching);
     app.run(state)
 }
@@ -212,6 +273,8 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
+
+    use strider_machines::mode;
 
     use super::*;
     use strider_machines::keymap::keymap::states;
@@ -336,7 +399,14 @@ mod tests {
     /// prompt as typed text, which a key event without text does not carry.
     fn typ(h: &mut keywork::app::Headless<Strider>, window: WindowId, text: &str) {
         for c in text.chars() {
-            if h.state().prompt().is_some() && !c.is_control() {
+            // The window's own prompt, not the one handlers last acted on.
+            let open = h
+                .state()
+                .wins
+                .iter()
+                .find(|w| w.window == window)
+                .is_some_and(|w| w.mode.matches(mode::mode::states::line::OPEN));
+            if open && !c.is_control() {
                 h.perform(window, &keywork::app::tooling::Action::Type(c.to_string()))
                     .unwrap();
                 h.settle().unwrap();
@@ -966,7 +1036,7 @@ esac
     }
 
     fn dialog_is(h: &H, f: fn(&dialogs::Dialog) -> bool) -> bool {
-        h.state().ops.dialog.as_ref().is_some_and(f)
+        h.state().wops.dialog.as_ref().is_some_and(f)
     }
 
     fn mode_of(p: &std::path::Path) -> u32 {
@@ -1018,7 +1088,7 @@ esac
         wait_ops(&mut h);
         assert!(dialog_is(&h, dialogs::Dialog::is_conflict));
         typ(&mut h, window, "ak");
-        assert!(h.state().ops.dialog.is_none());
+        assert!(h.state().wops.dialog.is_none());
         wait_ops(&mut h);
         assert!(work.join("guide.md").exists());
         assert!(work.join("photo (2).png").exists());
@@ -1038,7 +1108,7 @@ esac
         typ(&mut h, window, "fgudD");
         assert!(dialog_is(&h, dialogs::Dialog::is_delete));
         typ(&mut h, window, "jc");
-        assert!(h.state().ops.dialog.is_none());
+        assert!(h.state().wops.dialog.is_none());
         assert_eq!(message(&h), "Not deleted");
         assert_eq!(hovered(&h), "guide.md");
         typ(&mut h, window, "dD\x1b");
@@ -1108,14 +1178,14 @@ esac
         typ(&mut h, window, "dD");
         h.key(window, Keysym::RETURN, Modifiers::NONE).unwrap();
         h.settle().unwrap();
-        assert!(h.state().ops.dialog.is_none());
+        assert!(h.state().wops.dialog.is_none());
         assert_eq!(message(&h), "Not deleted");
         typ(&mut h, window, "dD");
         h.key(window, Keysym::TAB, Modifiers::NONE).unwrap();
         h.settle().unwrap();
         h.key(window, Keysym::RETURN, Modifiers::NONE).unwrap();
         wait_ops(&mut h);
-        assert!(h.state().ops.dialog.is_none() && !work.join("run.sh").exists());
+        assert!(h.state().wops.dialog.is_none() && !work.join("run.sh").exists());
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -1273,7 +1343,7 @@ esac
         assert!(dialog_is(&h, dialogs::Dialog::is_properties));
         let (mode_field, _, boxes) = h
             .state()
-            .ops
+            .wops
             .dialog
             .as_ref()
             .and_then(dialogs::Dialog::property_fields)
@@ -1306,7 +1376,7 @@ esac
         assert_eq!(text(&mut h), "0775");
         h.key(window, Keysym::RETURN, Modifiers::NONE).unwrap();
         wait_ops(&mut h);
-        assert!(h.state().ops.dialog.is_none());
+        assert!(h.state().wops.dialog.is_none());
         assert_eq!(mode_of(&file), 0o775);
         assert_eq!(hovered(&h), "build.zig");
 
@@ -1318,7 +1388,7 @@ esac
         }
         h.key(window, Keysym::ESCAPE, Modifiers::NONE).unwrap();
         h.settle().unwrap();
-        assert!(h.state().ops.dialog.is_none());
+        assert!(h.state().wops.dialog.is_none());
         assert_eq!(mode_of(&file), 0o775);
         h.key(window, Keysym::RETURN, Modifiers::ALT).unwrap();
         h.settle().unwrap();
@@ -1331,5 +1401,344 @@ esac
         wait_ops(&mut h);
         assert_eq!(mode_of(&file), 0o755);
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // --- Windows and activation, as the Zig build's App and main.zig had them ---------------
+
+    use keywork::dbus::{Array, Message, Value};
+
+    /// An `org.freedesktop.Application` call on the instance, as a later launch makes it.
+    fn application_call(member: &str, paths: &[PathBuf]) -> Message {
+        let data = Value::Array(Array::dict(Vec::new()));
+        let body = if member == "Open" {
+            let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+            let uris = instance::uris(&paths).into_iter().map(Value::Str).collect();
+            vec![Value::Array(Array::new("s", uris).unwrap()), data]
+        } else {
+            vec![data]
+        };
+        Message::method_call(
+            Some(instance::APP_ID),
+            "/dev/rockorager/Strider",
+            Some("org.freedesktop.Application"),
+            member,
+        )
+        .unwrap()
+        .with_body(body)
+    }
+
+    /// The app on a sample home with no window yet, launched on a session bus of its own
+    /// with the paths `paths` names under the home, as `main` launches it.
+    fn launched(
+        name: &str,
+        service: bool,
+        paths: impl FnOnce(&std::path::Path) -> Vec<PathBuf>,
+    ) -> (H, PathBuf) {
+        let home = scenes::fixture(name);
+        let (app, mut state) = base(
+            home.clone(),
+            Config::default(),
+            Zone::utc(),
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        state.launch.service = service;
+        let mut h = app.headless_with_bus(state).unwrap();
+        let paths: Vec<String> = paths(&home)
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        let launch = h.launch(instance::APP_ID, instance::uris(&paths));
+        assert_eq!(launch.unwrap(), Launch::First);
+        h.settle().unwrap();
+        (h, home)
+    }
+
+    fn win(h: &H, window: WindowId) -> &app::Win {
+        h.state()
+            .wins
+            .iter()
+            .find(|w| w.window == window)
+            .expect("an open window")
+    }
+
+    // A launch's folders and files open in one window, a file in its folder under the
+    // cursor, the last path active; a later launch's folders become tabs in the window used
+    // last, and a later plain launch opens a window of its own, as in the Zig build. Catches:
+    // activations going nowhere, every Open making a window, the wrong window taking the
+    // tabs, a file opened as a folder.
+    #[test]
+    fn launches_open_windows_and_hand_their_folders_over() {
+        let (mut h, home) = launched("launch", false, |home| {
+            vec![home.join("work/build.zig"), home.join("Music")]
+        });
+        let work = home.join("work");
+        let windows = h.windows();
+        assert_eq!(windows.len(), 1);
+        let first = windows[0];
+        assert_eq!(win(&h, first).tabs.len(), 2);
+        assert_eq!(win(&h, first).cwd, home.join("Music"));
+        assert_eq!(win(&h, first).tabs[0].cwd, work);
+        typ(&mut h, first, ":tab 1\n");
+        assert_eq!(win(&h, first).cwd, work);
+        assert_eq!(h.state().cur().current_name(), Some(&b"build.zig"[..]));
+
+        // A later launch with a folder: a tab in this window.
+        let docs = [home.join("Documents")];
+        h.bus_call(application_call("Open", &docs)).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.windows(), vec![first]);
+        assert_eq!(win(&h, first).tabs.len(), 3);
+        assert_eq!(win(&h, first).cwd, home.join("Documents"));
+
+        // A later plain launch: a window of its own, on the folder the instance runs in.
+        h.bus_call(application_call("Activate", &[])).unwrap();
+        h.settle().unwrap();
+        let windows = h.windows();
+        assert_eq!(windows.len(), 2);
+        let second = windows[1];
+        assert_eq!(win(&h, second).cwd, instance::current_dir(&home));
+        assert_eq!(win(&h, second).tabs.len(), 1);
+
+        // Folders go to the window used last: the first, once it has a key.
+        h.key(first, Keysym::from_char('j'), Modifiers::NONE)
+            .unwrap();
+        h.settle().unwrap();
+        let desktop = [home.join("Desktop")];
+        h.bus_call(application_call("Open", &desktop)).unwrap();
+        h.settle().unwrap();
+        assert_eq!(win(&h, first).tabs.len(), 4);
+        assert_eq!(win(&h, first).cwd, home.join("Desktop"));
+        assert_eq!(win(&h, second).tabs.len(), 1);
+        // Then the second, once it has one.
+        h.key(second, Keysym::from_char('j'), Modifiers::NONE)
+            .unwrap();
+        h.settle().unwrap();
+        h.bus_call(application_call("Open", &desktop)).unwrap();
+        h.settle().unwrap();
+        assert_eq!(win(&h, first).tabs.len(), 4);
+        assert_eq!(win(&h, second).tabs.len(), 2);
+        assert_eq!(win(&h, second).cwd, home.join("Desktop"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // A plain launch opens a window on the folder it runs in; the `new-window` action, as
+    // the desktop entry's, opens one on home. Catches: the first launch showing nothing, the
+    // action unregistered or opening where the last window is.
+    #[test]
+    fn a_plain_launch_and_the_new_window_action() {
+        let (mut h, home) = launched("plain-launch", false, |_| Vec::new());
+        let windows = h.windows();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(win(&h, windows[0]).cwd, instance::current_dir(&home));
+        let call = Message::method_call(
+            Some(instance::APP_ID),
+            "/dev/rockorager/Strider",
+            Some("org.freedesktop.Application"),
+            "ActivateAction",
+        )
+        .unwrap()
+        .with_body(vec![
+            Value::str("new-window"),
+            Value::Array(Array::new("v", Vec::new()).unwrap()),
+            Value::Array(Array::dict(Vec::new())),
+        ]);
+        h.bus_call(call).unwrap();
+        h.settle().unwrap();
+        let windows = h.windows();
+        assert_eq!(windows.len(), 2);
+        assert_eq!(win(&h, windows[1]).cwd, home);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // Each window has its own folder, tabs, keys, and prompt; what they share, the register,
+    // shows in every one. Closing a window's last tab closes only that window, as does the
+    // compositor's close button; the last window's closing quits. Catches: a key acting on
+    // another window, state shared that should not be, the register shown only where it was
+    // taken, `q` quitting the app with windows left, a closed window's state left behind.
+    #[test]
+    fn windows_keep_their_own_state_and_close_alone() {
+        let (mut h, first, home) = ops_app("windows");
+        let work = home.join("work");
+        typ(&mut h, first, ":new-window\n");
+        let windows = h.windows();
+        assert_eq!(windows.len(), 2);
+        let second = windows[1];
+        assert_eq!(win(&h, second).cwd, work);
+
+        // Keys reach the window they are pressed in.
+        typ(&mut h, second, "h");
+        assert_eq!(win(&h, second).cwd, home);
+        assert_eq!(win(&h, first).cwd, work);
+        typ(&mut h, second, "gn");
+        assert_eq!(win(&h, second).tabs.len(), 2);
+        assert_eq!(win(&h, first).tabs.len(), 1);
+        typ(&mut h, first, ":");
+        let open = |h: &H, w| win(h, w).mode.matches(mode::mode::states::line::OPEN);
+        assert!(open(&h, first));
+        assert!(!open(&h, second));
+        typ(&mut h, first, "\x1b");
+
+        // The register is everyone's.
+        typ(&mut h, first, "fbuyy");
+        assert_eq!(h.state().ops.register.len(), 1);
+        let right = win(&h, second).ui.status_right;
+        let text = h.tree(second).unwrap().text_content(right).unwrap();
+        assert!(text.contains("1 copied"), "{text}");
+
+        // q closes the second window's tab, then the window, and only it.
+        typ(&mut h, second, "q");
+        assert_eq!(win(&h, second).tabs.len(), 1);
+        typ(&mut h, second, "q");
+        assert_eq!(h.windows(), vec![first]);
+        assert_eq!(h.state().wins.len(), 1);
+        assert!(!h.quit_requested());
+        typ(&mut h, first, "gg");
+        assert_eq!(h.state().cur().cursor, 0);
+
+        // The compositor's close button too.
+        typ(&mut h, first, ":new-window\n");
+        let third = h.windows()[1];
+        h.request_close(third).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.windows(), vec![first]);
+        assert_eq!(h.state().window_ids(), vec![first]);
+        assert!(!h.quit_requested());
+
+        // :qa closes them all, which quits.
+        typ(&mut h, first, ":new-window\n");
+        assert_eq!(h.windows().len(), 2);
+        typ(&mut h, first, ":qa\n");
+        assert!(h.windows().is_empty());
+        assert!(h.quit_requested());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // A conflict is asked about in the window whose paste found it, not the others; that
+    // window closing cancels it while the app goes on; the last window closing quits, and the
+    // quit cancels the jobs left. Catches: a question in the wrong window or in every one, a
+    // job left waiting on a closed window forever, jobs running on after the quit.
+    #[test]
+    fn jobs_ask_in_their_window_and_stop_with_it() {
+        // A build.zig in docs, for a paste of work's to find there.
+        let (mut h, first, home) = ops_app_with("window-jobs", |home| {
+            std::fs::write(home.join("work/docs/build.zig"), "old").unwrap();
+        });
+        typ(&mut h, first, ":new-window\n");
+        let second = h.windows()[1];
+        typ(&mut h, second, "fbuyyfdoclp");
+        wait_ops(&mut h);
+        assert_eq!(h.state().ops.asks.len(), 1);
+        assert_eq!(h.state().ops.asking, Some(second));
+        let asked = |h: &H, w| {
+            win(h, w).keys.context().question == Some(strider_machines::keymap::Question::Conflict)
+        };
+        assert!(asked(&h, second));
+        assert!(!asked(&h, first));
+        let job = h.state().ops.jobs[0].job.clone();
+        // Keys answer the question now: the close button closes it.
+        h.request_close(second).unwrap();
+        h.settle().unwrap();
+        assert_eq!(h.windows(), vec![first]);
+        for _ in 0..400 {
+            h.settle().unwrap();
+            if h.state().ops.jobs.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            job.state(),
+            ops::State::Ended(strider_machines::operation::End::Cancelled)
+        );
+        assert!(h.state().ops.asks.is_empty());
+        assert!(h.state().ops.recent[0].canceled);
+        assert!(!h.quit_requested());
+
+        typ(&mut h, first, "fbuyyfdoclp");
+        wait_ops(&mut h);
+        assert_eq!(h.state().ops.asking, Some(first));
+        let job = h.state().ops.jobs[0].job.clone();
+        h.request_close(first).unwrap();
+        for _ in 0..400 {
+            h.settle().unwrap();
+            if h.quit_requested() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(h.quit_requested());
+        assert_eq!(
+            job.state(),
+            ops::State::Ended(strider_machines::operation::End::Cancelled)
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // Started by D-Bus activation, the instance shows no window until the call that started
+    // it asks for one, and quits once its last window closes, as the Zig build's did; with no
+    // window asked for, it quits after the idle timeout. Catches: a service exiting before
+    // its call came, a window it was not asked for, a service that never exits.
+    #[test]
+    fn a_service_waits_for_its_activation() {
+        let (mut h, home) = launched("service", true, |_| Vec::new());
+        assert!(h.windows().is_empty());
+        assert!(!h.quit_requested());
+        h.advance(Duration::from_secs(10)).unwrap();
+        assert!(!h.quit_requested());
+        h.bus_call(application_call("Open", &[home.join("work")]))
+            .unwrap();
+        h.settle().unwrap();
+        let windows = h.windows();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(win(&h, windows[0]).cwd, home.join("work"));
+        // Its idle timeout passes with a window open: it stays.
+        h.advance(instance::IDLE_TIMEOUT).unwrap();
+        assert!(!h.quit_requested());
+        h.request_close(windows[0]).unwrap();
+        h.settle().unwrap();
+        assert!(h.quit_requested());
+        let _ = std::fs::remove_dir_all(&home);
+
+        let (mut h, home) = launched("service-idle", true, |_| Vec::new());
+        h.advance(instance::IDLE_TIMEOUT - Duration::from_millis(1))
+            .unwrap();
+        assert!(!h.quit_requested());
+        h.advance(Duration::from_millis(2)).unwrap();
+        assert!(h.quit_requested());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // The command line as main.zig read it, less what init.lua needed: paths, the options,
+    // and Keywork's flags left to Keywork. Catches: a Keywork flag's value taken for a
+    // folder, --version without Cargo's version, an unknown option let through.
+    #[test]
+    fn the_command_line() {
+        let args = |a: &[&str]| parse_args(a.iter().map(|s| (*s).to_owned()));
+        let a = args(&[
+            "--keywork-scene",
+            "columns",
+            "a",
+            "--hidden",
+            "--new-window",
+            "--dark",
+            "--rtl",
+            "b",
+        ])
+        .unwrap();
+        assert_eq!(a.paths, ["a", "b"]);
+        assert!(a.hidden && a.new_window && !a.service);
+        assert_eq!(a.scheme, Some(Appearance::Dark));
+        assert!(args(&["--gapplication-service"]).unwrap().service);
+        assert_eq!(
+            args(&["--version"]),
+            Err((format!("strider {}\n", env!("CARGO_PKG_VERSION")), 0))
+        );
+        assert_eq!(args(&["-h"]), Err((USAGE.to_owned(), 0)));
+        let (text, status) = args(&["--clean"]).unwrap_err();
+        assert_eq!(status, 2);
+        assert!(text.starts_with("strider: unknown option --clean\n"));
     }
 }

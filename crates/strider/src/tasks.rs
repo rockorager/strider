@@ -24,10 +24,12 @@ use crate::ops::{Job, Request, State, Update};
 /// How many finished operations the tasks view keeps.
 pub const MAX_RECENT: usize = 20;
 
-/// A job running, and whether to record it for undo (not when it is an undo itself).
+/// A job running, the window that started it, which answers its questions and shows how it
+/// ended, and whether to record it for undo (not when it is an undo itself).
 pub struct Running {
     pub id: u64,
     pub job: Job,
+    pub window: Option<WindowId>,
     pub undoable: bool,
 }
 
@@ -40,7 +42,7 @@ pub struct Recent {
     pub canceled: bool,
 }
 
-/// What the window keeps for file operations.
+/// What the windows share of file operations.
 #[derive(Default)]
 pub struct Ops {
     /// What yy and dd took, and whether pasting moves them.
@@ -54,19 +56,26 @@ pub struct Ops {
     next_id: u64,
     /// The timer that reads progress while jobs run.
     timer: Option<Timer>,
+    /// Conflicts to ask about, by the job that found each; the first is being asked, in the
+    /// window `asking`.
+    pub asks: VecDeque<(u64, Conflict)>,
+    pub asking: Option<WindowId>,
+    /// Holds the app's exit while cancelled jobs clean up.
+    quit_hold: Option<keywork::QuitHold>,
+}
+
+/// What each window keeps for file operations.
+#[derive(Default)]
+pub struct WinOps {
     /// The tasks view, made the first time it opens, and the row it selects.
     panel: Option<(NodeId<Flex>, NodeId<Flex>)>,
     pub task_cursor: usize,
-    /// Conflicts to ask about, by the job that found each; the first is being asked.
-    pub asks: VecDeque<(u64, Conflict)>,
     /// The visual operator, y or d, that just acted, whose second key finishes it.
     pub visual_op: Option<u32>,
     /// The dialog open over the window.
     pub dialog: Option<crate::dialogs::Dialog>,
     /// The entry the rename prompt renames.
     pub rename_target: Option<PathBuf>,
-    /// Holds the app's exit while cancelled jobs clean up.
-    quit_hold: Option<keywork::QuitHold>,
 }
 
 /// Runs `request` on a thread of its own, its progress in the status line and the tasks view.
@@ -80,38 +89,34 @@ pub fn start(
     let job = Job::start(request, move || {
         let Some(p) = &proxy else { return };
         let p = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let _ = p.post(|s: &mut Strider, cx| {
-            let window = s.window;
-            cx.update(window, |tx| receive(s, tx))
-        });
+        let _ = p.post(receive_all);
     });
     s.ops.next_id += 1;
     let id = s.ops.next_id;
-    s.ops.jobs.push(Running { id, job, undoable });
-    arm(s, tx);
+    s.ops.jobs.push(Running {
+        id,
+        job,
+        window: tx.window(),
+        undoable,
+    });
+    if s.ops.timer.is_none() {
+        s.ops.timer = Some(tx.after(Duration::from_millis(100), tick));
+    }
     update(s, tx)
 }
 
 /// Reads progress every 100 ms while jobs run, as the Zig build did, and takes updates a wake
 /// may not have brought, as before the app runs.
-fn arm(s: &mut Strider, tx: &mut Txn<'_, Strider>) {
-    if s.ops.timer.is_some() {
-        return;
+fn tick(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
+    s.ops.timer = None;
+    receive_all(s, cx)?;
+    if !s.ops.jobs.is_empty() {
+        s.ops.timer = Some(cx.after(Duration::from_millis(100), tick));
     }
-    s.ops.timer = Some(tx.after(Duration::from_millis(100), |s: &mut Strider, cx| {
-        s.ops.timer = None;
-        let window = s.window;
-        cx.update(window, |tx| {
-            receive(s, tx)?;
-            if !s.ops.jobs.is_empty() {
-                arm(s, tx);
-            }
-            update(s, tx)
-        })
-    }));
+    Ok(())
 }
 
-/// Stops every job, as the window closes.
+/// Stops every job.
 pub fn cancel_all(s: &Strider) {
     for r in &s.ops.jobs {
         r.job.cancel();
@@ -128,7 +133,64 @@ pub fn quit(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     Ok(())
 }
 
-/// Takes the jobs' updates: a conflict is asked about, a finished job is done with.
+/// The window a job's questions and end go to: the one that started it, else the one used
+/// last, as in the Zig build.
+fn window_of(s: &Strider, id: u64) -> Option<WindowId> {
+    s.ops
+        .jobs
+        .iter()
+        .find(|r| r.id == id)
+        .and_then(|r| r.window)
+        .filter(|w| s.wins.iter().any(|x| x.window == *w))
+        .or_else(|| s.last_window())
+}
+
+/// Takes every job's updates, each in its window, then draws them in every window.
+fn receive_all(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
+    let jobs: Vec<(u64, Job)> = s.ops.jobs.iter().map(|r| (r.id, r.job.clone())).collect();
+    for (id, job) in jobs {
+        for u in job.receive() {
+            let window = window_of(s, id);
+            match u {
+                Update::Changed => {}
+                Update::Ask(c) => {
+                    s.ops.asks.push_back((id, c));
+                    if s.ops.asks.len() == 1 {
+                        app::in_window(s, cx, window, ask_next)?;
+                    }
+                }
+                Update::Finished(f) if window.is_none() => forget(s, id, &f),
+                Update::Finished(f) => {
+                    app::in_window(s, cx, window, |s, tx| finish(s, tx, id, f))?;
+                }
+            }
+        }
+    }
+    app::each(s, cx, update_here)
+}
+
+/// Window `id` closed: its jobs end in the window used last, and the conflict it was asking
+/// about is cancelled, as in the Zig build.
+pub fn window_closed(s: &mut Strider, cx: &mut Cx<'_, Strider>, id: WindowId) -> Result<()> {
+    for r in &mut s.ops.jobs {
+        if r.window == Some(id) {
+            r.window = None;
+        }
+    }
+    if s.ops.asking != Some(id) {
+        return Ok(());
+    }
+    s.ops.asking = None;
+    if let Some((job, _)) = s.ops.asks.pop_front()
+        && let Some(r) = s.ops.jobs.iter().find(|r| r.id == job)
+    {
+        r.job.answer(Resolution::Cancel, false);
+    }
+    let last = s.last_window();
+    app::in_window(s, cx, last, ask_next)
+}
+
+/// Takes the jobs' updates in this window, as scenes do before the app runs.
 pub fn receive(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let jobs: Vec<(u64, Job)> = s.ops.jobs.iter().map(|r| (r.id, r.job.clone())).collect();
     for (id, job) in jobs {
@@ -148,8 +210,14 @@ pub fn receive(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     update(s, tx)
 }
 
-/// Draws what shows the jobs: the status line, and the tasks view while it is open.
+/// Draws what shows the jobs, in every window: the status line, and the tasks view while it
+/// is open.
 pub fn update(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    app::others(tx, update_here);
+    update_here(s, tx)
+}
+
+fn update_here(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     app::draw_status(s, tx)?;
     refresh(s, tx)
 }
@@ -164,8 +232,10 @@ fn job(s: &Strider, id: u64) -> Option<&Job> {
 /// file, a dialog comparing the two when there are more items, folders included.
 fn ask_next(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let Some((id, c)) = s.ops.asks.front().cloned() else {
+        s.ops.asking = None;
         return Ok(());
     };
+    s.ops.asking = tx.window();
     let Some(request) = job(s, id).map(|j| j.request().clone()) else {
         s.ops.asks.pop_front();
         return ask_next(s, tx);
@@ -244,37 +314,19 @@ fn finish(s: &mut Strider, tx: &mut Txn<'_, Strider>, id: u64, f: Finished) -> R
     if s.ops.jobs.is_empty() {
         s.ops.quit_hold = None;
     }
+    record(s, &r, &f);
     let was_asking = s.ops.asks.front().is_some_and(|(j, _)| *j == id);
     s.ops.asks.retain(|(j, _)| *j != id);
     if was_asking {
-        crate::dialogs::dismiss_conflict(s, tx)?;
-        if s.keys.context().question == Some(Question::Conflict) {
-            let fx = s.keys.send(KeyEv::Reset, Clock { tx });
-            app::apply_key_fx(s, tx, fx)?;
+        // In the window that asked, which may be another.
+        let asking = s.ops.asking;
+        if asking == tx.window() {
+            stop_asking(s, tx)?;
+        } else {
+            tx.defer(move |s, cx| app::in_window(s, cx, asking, stop_asking));
         }
-        ask_next(s, tx)?;
     }
     let (msg, failed) = f.summary();
-    let canceled = f.canceled();
-    if s.ops.recent.len() >= MAX_RECENT {
-        s.ops.recent.pop();
-    }
-    s.ops.recent.insert(
-        0,
-        Recent {
-            title: r.job.request().title(),
-            result: if msg.is_empty() {
-                "Done".into()
-            } else {
-                msg.clone()
-            },
-            failed,
-            canceled,
-        },
-    );
-    if r.undoable && !canceled {
-        s.ops.undo.push_op(f.kind, &f.done);
-    }
     // A cut is pasted once.
     if f.kind == Kind::Move && s.ops.cut {
         crate::register::set(s, tx, Vec::new(), false)?;
@@ -308,6 +360,57 @@ fn finish(s: &mut Strider, tx: &mut Txn<'_, Strider>, id: u64, f: Finished) -> R
     update(s, tx)
 }
 
+/// The conflict being asked about here went with its job: its dialog or question goes, and
+/// the next is asked.
+fn stop_asking(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    crate::dialogs::dismiss_conflict(s, tx)?;
+    if s.keys.context().question == Some(Question::Conflict) {
+        let fx = s.keys.send(KeyEv::Reset, Clock { tx });
+        app::apply_key_fx(s, tx, fx)?;
+    }
+    ask_next(s, tx)
+}
+
+/// Keeps a job that ended for the tasks view, and for undo if it was started as undoable and
+/// not cancelled.
+fn record(s: &mut Strider, r: &Running, f: &Finished) {
+    let (msg, failed) = f.summary();
+    let canceled = f.canceled();
+    if s.ops.recent.len() >= MAX_RECENT {
+        s.ops.recent.pop();
+    }
+    s.ops.recent.insert(
+        0,
+        Recent {
+            title: r.job.request().title(),
+            result: if msg.is_empty() { "Done".into() } else { msg },
+            failed,
+            canceled,
+        },
+    );
+    if r.undoable && !canceled {
+        s.ops.undo.push_op(f.kind, &f.done);
+    }
+}
+
+/// A job ended with no window open to show it: it is recorded, and a cut it pasted leaves
+/// the register.
+fn forget(s: &mut Strider, id: u64, f: &Finished) {
+    let Some(at) = s.ops.jobs.iter().position(|r| r.id == id) else {
+        return;
+    };
+    let r = s.ops.jobs.remove(at);
+    if s.ops.jobs.is_empty() {
+        s.ops.quit_hold = None;
+    }
+    s.ops.asks.retain(|(j, _)| *j != id);
+    record(s, &r, f);
+    if f.kind == Kind::Move && s.ops.cut {
+        s.ops.register.clear();
+        s.ops.cut = false;
+    }
+}
+
 // The status line -----------------------------------------------------------------------------
 
 /// The first job's progress, for the status line's right: "Copying 45%", "Moving: waiting".
@@ -334,7 +437,7 @@ pub fn progress_text(s: &Strider) -> Option<String> {
 
 /// The selected task, for the status line's left while the tasks view is open.
 pub fn selected_text(s: &Strider) -> String {
-    match task_at(s, s.ops.task_cursor) {
+    match task_at(s, s.wops.task_cursor) {
         Some(Task::Running(r)) => format!("{}: {}", r.job.request().title(), r.job.status()),
         Some(Task::Finished(f)) => format!("{}: {}", f.title, f.result),
         None => "No file operations yet".into(),
@@ -369,14 +472,14 @@ pub fn is_open(s: &Strider) -> bool {
 pub fn toggle(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     if is_open(s) {
         app::send_mode(s, tx, ModeEv::CloseTasks)?;
-        if let Some((overlay, card)) = s.ops.panel {
+        if let Some((overlay, card)) = s.wops.panel {
             tx.set_hidden(overlay, true)?;
             clear(tx, card)?;
         }
         return app::draw_status(s, tx);
     }
     app::send_mode(s, tx, ModeEv::OpenTasks)?;
-    s.ops.task_cursor = 0;
+    s.wops.task_cursor = 0;
     let (overlay, _) = panel(s, tx)?;
     tx.set_hidden(overlay, false)?;
     update(s, tx)
@@ -384,7 +487,7 @@ pub fn toggle(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 
 /// The view's card, over the middle of the columns, made the first time.
 fn panel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<(NodeId<Flex>, NodeId<Flex>)> {
-    if let Some(p) = s.ops.panel {
+    if let Some(p) = s.wops.panel {
         return Ok(p);
     }
     let root = tx
@@ -412,7 +515,7 @@ fn panel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<(NodeId<Flex>, No
     tx.set_radius(card, 8.0)?;
     tx.set_label(card, "Tasks")?;
     tx.set_hidden(overlay, true)?;
-    s.ops.panel = Some((overlay, card));
+    s.wops.panel = Some((overlay, card));
     Ok((overlay, card))
 }
 
@@ -444,7 +547,7 @@ fn refresh(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         return Ok(());
     }
     let n = task_count(s);
-    s.ops.task_cursor = s.ops.task_cursor.min(n.saturating_sub(1));
+    s.wops.task_cursor = s.wops.task_cursor.min(n.saturating_sub(1));
     let (_, card) = panel(s, tx)?;
     clear(tx, card)?;
     let head = widgets::label(tx, card, "Tasks", TextKind::Heading)?;
@@ -459,7 +562,7 @@ fn refresh(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         )?;
     }
     for i in 0..n {
-        let selected = i == s.ops.task_cursor;
+        let selected = i == s.wops.task_cursor;
         let task = task_at(s, i).expect("in range");
         let title = match &task {
             Task::Running(r) => r.job.request().title(),
@@ -568,13 +671,13 @@ pub fn move_cursor(s: &mut Strider, tx: &mut Txn<'_, Strider>, delta: isize) -> 
     if n == 0 {
         return Ok(());
     }
-    s.ops.task_cursor = s.ops.task_cursor.saturating_add_signed(delta).min(n - 1);
+    s.wops.task_cursor = s.wops.task_cursor.saturating_add_signed(delta).min(n - 1);
     update(s, tx)
 }
 
 /// The task the view selects; with the view closed, the first running.
 fn selected(s: &Strider) -> usize {
-    if is_open(s) { s.ops.task_cursor } else { 0 }
+    if is_open(s) { s.wops.task_cursor } else { 0 }
 }
 
 /// `task-pause`: pauses the task, or resumes it.

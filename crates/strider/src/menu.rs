@@ -22,7 +22,7 @@ enum Context {
 
 /// Lets a right click on the current column open its menu.
 pub fn bind(tx: &mut Txn<'_, Strider>, list: NodeId<keywork::kind::Box>) -> Result<()> {
-    tx.on(list, ContextMenu, clicked)
+    app::on(tx, list, ContextMenu, clicked)
 }
 
 /// A right click on an entry acts on the selection when the entry is in it, as other file
@@ -127,8 +127,8 @@ fn open(s: &mut Strider, tx: &mut Txn<'_, Strider>, ctx: Context, at: Point) -> 
     };
     let commands = items.commands;
     let menu = menu.on_command(move |s: &mut Strider, tx, i| match commands.get(i) {
-        Some(cmd) => commands::execute(s, tx, &cmd.clone(), None, true),
-        None => Ok(()),
+        Some(cmd) if s.here(tx) => commands::execute(s, tx, &cmd.clone(), None, true),
+        _ => Ok(()),
     });
     let list = s.ui.lists[Col::Current as usize];
     widgets::open_context_menu(tx, list, at, &menu)
@@ -260,7 +260,12 @@ where
         }
         menu.extend(entries);
     }
-    let menu = menu.on_command(chosen);
+    let mut chosen = chosen;
+    let menu = menu.on_command(
+        move |s: &mut Strider, tx, i| {
+            if s.here(tx) { chosen(s, tx, i) } else { Ok(()) }
+        },
+    );
     let at = cursor_point(s, tx)?;
     widgets::open_context_menu(tx, s.ui.lists[Col::Current as usize], at, &menu)
 }

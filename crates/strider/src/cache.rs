@@ -36,11 +36,13 @@ pub struct Cached {
     /// Which read the result belongs to; a cancelled or overtaken read's is dropped.
     generation: u64,
     result: Option<Listed>,
+    /// The window whose transaction a read in flight lands in, which may close before.
+    reading_in: Option<WindowId>,
 }
 
 pub struct Cache {
     pub dirs: HashMap<PathBuf, Cached>,
-    /// The folders columns show.
+    /// The folders columns show, in any window.
     shown: Vec<PathBuf>,
     /// The folders other tabs show, kept for when they show again.
     pub pinned: Vec<PathBuf>,
@@ -102,6 +104,7 @@ impl Cache {
                     last_used: 0,
                     generation: 0,
                     result: None,
+                    reading_in: None,
                 },
             );
         }
@@ -111,7 +114,8 @@ impl Cache {
     }
 }
 
-/// The folders the columns show: the current one, its parent, and a folder under the cursor.
+/// The folders this window's columns show: the current one, its parent, and a folder under
+/// the cursor.
 fn wanted(s: &Strider) -> Vec<PathBuf> {
     let mut v = vec![s.cwd.clone()];
     v.extend(s.parent_path.clone());
@@ -123,7 +127,13 @@ fn wanted(s: &Strider) -> Vec<PathBuf> {
 
 /// Tells each folder whether a column shows it now, which starts the reads that are due.
 pub fn show(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    let now = wanted(s);
+    s.shown = wanted(s);
+    let mut now: Vec<PathBuf> = Vec::new();
+    for p in s.wins.iter().flat_map(|w| &w.shown) {
+        if !now.contains(p) {
+            now.push(p.clone());
+        }
+    }
     let before = std::mem::replace(&mut s.cache.shown, now.clone());
     for path in before.iter().filter(|p| !now.contains(p)) {
         send(s, tx, path, FolderEv::Hide)?;
@@ -190,6 +200,7 @@ fn read(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
         return Ok(());
     };
     c.generation = generation;
+    c.reading_in = tx.window();
     if c.watch.is_none()
         && let Some(w) = &mut s.cache.watcher
     {
@@ -202,20 +213,61 @@ fn read(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
     }
     tx.spawn_blocking(
         move || crate::drives::read(&owned, &db, sort, drives),
-        move |s: &mut Strider, tx, listed| {
+        app::here(move |s: &mut Strider, tx, listed: Listed| {
             let path = listed.listing.path.clone();
             match s.cache.dirs.get_mut(&path) {
-                Some(c) if c.generation == generation => c.result = Some(listed),
+                Some(c) if c.generation == generation => {
+                    c.result = Some(listed);
+                    c.reading_in = None;
+                }
                 _ => return Ok(()),
             }
             send(s, tx, &path, FolderEv::Read)
-        },
+        }),
     );
     Ok(())
 }
 
-/// Draws the columns showing `path` again, after a read of it came in.
+/// Window `gone` closed with reads in flight, whose results it would have taken: they are
+/// read again for the windows left.
+pub fn reread_orphans(s: &mut Strider, tx: &mut Txn<'_, Strider>, gone: WindowId) -> Result<()> {
+    let orphans: Vec<PathBuf> = s
+        .cache
+        .dirs
+        .iter()
+        .filter(|(_, c)| c.generation != 0 && c.reading_in == Some(gone))
+        .map(|(p, _)| p.clone())
+        .collect();
+    for path in &orphans {
+        read(s, tx, path)?;
+    }
+    Ok(())
+}
+
+/// Draws the columns showing `path` again, after a read of it came in: this window's, and
+/// those of the others that show it.
 fn redraw(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
+    let me = tx.window();
+    let others: Vec<WindowId> = s
+        .wins
+        .iter()
+        .filter(|w| Some(w.window) != me && w.shown.iter().any(|p| p == path))
+        .map(|w| w.window)
+        .collect();
+    if !others.is_empty() {
+        let path = path.to_owned();
+        tx.defer(move |s, cx| {
+            for id in others {
+                app::in_window(s, cx, Some(id), |s, tx| redraw_here(s, tx, &path))?;
+            }
+            s.enter(me);
+            Ok(())
+        });
+    }
+    redraw_here(s, tx, path)
+}
+
+fn redraw_here(s: &mut Strider, tx: &mut Txn<'_, Strider>, path: &Path) -> Result<()> {
     if path == s.cwd {
         app::reload_preview(s, tx)?;
         app::draw(s, tx)?;
@@ -262,8 +314,8 @@ fn deliver(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
         .map(|(p, _)| p.clone())
         .collect();
     if !changed.is_empty() {
-        let window = s.window;
-        cx.update(window, |tx| {
+        let first = s.wins.first().map(|w| w.window);
+        app::in_window(s, cx, first, |s, tx| {
             for path in &changed {
                 send(s, tx, path, FolderEv::Changed)?;
             }

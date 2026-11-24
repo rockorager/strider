@@ -445,14 +445,15 @@ pub fn execute(
         }
         "toggle-icons" => {
             s.options.icons = !s.options.icons;
+            app::others(tx, app::draw);
             app::draw(s, tx)
         }
         "preview-down" => crate::preview::scroll(s, tx, 4 * n as i32),
         "preview-up" => crate::preview::scroll(s, tx, -4 * n as i32),
         "toggle-preview" => {
             s.options.preview = !s.options.preview;
-            app::reload_preview(s, tx)?;
-            app::draw(s, tx)
+            app::others(tx, redraw);
+            redraw(s, tx)
         }
         "sort" => {
             let mut words = args.split_whitespace();
@@ -511,7 +512,18 @@ pub fn execute(
             let active = s.active;
             tabs::close(s, tx, active)
         }
-        "quit-all" | "qa" => app::close_window(s, tx),
+        "quit-all" | "qa" => app::close_all(s, tx),
+        "new-window" => {
+            let (cwd, me) = (s.cwd.clone(), tx.window());
+            tx.defer(move |s, cx| match app::open_window(s, cx, cwd, None) {
+                Ok(_) => Ok(()),
+                Err(e) => app::in_window(s, cx, me, |s, tx| {
+                    s.notify(format!("Cannot open a window: {e}"), true);
+                    app::draw_status(s, tx)
+                }),
+            });
+            Ok(())
+        }
         "column-wider" | "column-narrower" => {
             let step = columns::STEP * n as f32;
             let delta = if name == "column-wider" { step } else { -step };
@@ -715,7 +727,7 @@ fn cd(s: &mut Strider, tx: &mut Txn<'_, Strider>, arg: &str) -> Result<()> {
     if s.sync_reads {
         return land(s, tx, look(path));
     }
-    tx.spawn_blocking(move || look(path), land);
+    tx.spawn_blocking(move || look(path), app::here(land));
     Ok(())
 }
 
@@ -738,8 +750,13 @@ fn set(s: &mut Strider, tx: &mut Txn<'_, Strider>, args: &str) -> Result<()> {
     }
 }
 
-/// The window as the options say, after one changed.
+/// Every window as the options say, after one changed.
 pub fn apply_options(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    app::others(tx, options_here);
+    options_here(s, tx)
+}
+
+fn options_here(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let delay = std::time::Duration::from_millis(u64::from(s.options.which_key_delay));
     let fx = s.keys.send(
         strider_machines::keymap::KeyEv::SetDelay(delay),
@@ -747,7 +764,7 @@ pub fn apply_options(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     );
     app::apply_key_fx(s, tx, fx)?;
     app::layout(s, tx)?;
-    rearrange(s, tx)
+    rearrange_here(s, tx)
 }
 
 /// `:map [mode] keys command…` and `:unmap [mode] keys`.
@@ -894,13 +911,25 @@ fn enter(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 }
 
 /// Sorts and filters the folders shown again, the cursors staying on their entries.
+/// Every window in the sort and with the hidden files the options now say.
 fn rearrange(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    app::others(tx, rearrange_here);
+    rearrange_here(s, tx)
+}
+
+fn rearrange_here(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let shown = [Some(s.cwd.clone()), s.parent_path.clone()];
     for path in shown.into_iter().flatten() {
         if let Some(f) = s.cache.get_mut(&path) {
             f.arrange(&s.options, None);
         }
     }
+    app::reload_preview(s, tx)?;
+    app::draw(s, tx)
+}
+
+/// The preview and the columns drawn again.
+fn redraw(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     app::reload_preview(s, tx)?;
     app::draw(s, tx)
 }

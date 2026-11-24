@@ -91,6 +91,11 @@ impl Picker {
         })
     }
 
+    /// Stops the worker reading candidates, as its window closes.
+    pub fn cancel(&self) {
+        self.cancel.store(true, Ordering::Release);
+    }
+
     fn stop(&mut self) {
         self.generation += 1;
         self.cancel.store(true, Ordering::Release);
@@ -117,11 +122,12 @@ pub fn start(s: &mut Strider, tx: &mut Txn<'_, Strider>, kind: Kind, query: &str
     if s.prompt().is_some() {
         app::send_mode(s, tx, strider_machines::mode::ModeEv::Cancel)?;
     }
+    let root = s.cwd.clone();
     let p = &mut s.picker;
     p.stop();
     *p = Picker {
         kind,
-        root: s.cwd.clone(),
+        root,
         generation: p.generation + 1,
         loading: true,
         ..Picker::default()
@@ -154,7 +160,9 @@ fn read(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     std::thread::spawn(move || {
         source(kind, &root, &zoxide, hidden, &cancel, |batch, done| {
             let _ = proxy.post(move |s: &mut Strider, cx| {
-                cx.update(window, |tx| deliver(s, tx, generation, batch, done))
+                app::in_window(s, cx, Some(window), |s, tx| {
+                    deliver(s, tx, generation, batch, done)
+                })
             });
         });
     });
@@ -388,15 +396,17 @@ pub fn jump(s: &mut Strider, tx: &mut Txn<'_, Strider>, args: &str) -> Result<()
             let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
             run(&argv, Duration::from_secs(10), None)
         },
-        |s: &mut Strider, tx, out| match out {
-            Some((0, path)) if !path.trim().is_empty() => {
-                app::cd(s, tx, PathBuf::from(path.trim()), None, true)
-            }
-            _ => {
-                s.notify("zoxide knows no folder for that", true);
-                app::draw_status(s, tx)
-            }
-        },
+        app::here(
+            |s: &mut Strider, tx, out: Option<(i32, String)>| match out {
+                Some((0, path)) if !path.trim().is_empty() => {
+                    app::cd(s, tx, PathBuf::from(path.trim()), None, true)
+                }
+                _ => {
+                    s.notify("zoxide knows no folder for that", true);
+                    app::draw_status(s, tx)
+                }
+            },
+        ),
     );
     Ok(())
 }

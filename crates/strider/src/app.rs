@@ -75,20 +75,13 @@ pub struct Ui {
     pub handles: [crate::columns::Handle; 2],
 }
 
-pub struct Strider {
+/// What each window has of its own, as the Zig build's Window: its tree, tabs, folder and
+/// history, preview, keys and mode, prompt, picker, dialogs, and layout.
+pub struct Win {
     pub window: WindowId,
     pub ui: Ui,
-    pub options: Options,
-    pub keymap: Keymap,
     pub keys: Driver<keymap::Keymap, Timer>,
     pub mode: Driver<mode::Mode, Timer>,
-    pub home: PathBuf,
-    pub zone: Zone,
-    pub db: Arc<MimeDb>,
-    /// The installed applications, read the first time something opens.
-    pub apps: Option<Arc<keywork::desktop::apps::Applications>>,
-    pub icons: Option<MimeIcons>,
-    pub cache: Cache,
     /// The current folder, and its parent, which the columns show from the cache.
     pub cwd: PathBuf,
     pub parent_path: Option<PathBuf>,
@@ -96,9 +89,6 @@ pub struct Strider {
     /// Which preview job's result shows; moving on drops a late one.
     pub preview_generation: u64,
     pub previews: crate::preview::Jobs,
-    /// Read folders and files on the UI thread, so a scene's keys find them read: scenes
-    /// render the same every time.
-    pub sync_reads: bool,
     /// Back and forward through the folders visited.
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
@@ -119,11 +109,8 @@ pub struct Strider {
     /// The last search's text and direction, for `n` and `N`.
     pub last_search: String,
     pub last_search_back: bool,
-    /// Command lines typed, oldest first, and which one Up and Down are on.
-    pub lines: Vec<String>,
+    /// Which of the command lines typed Up and Down are on.
     pub line_pos: usize,
-    /// Where bookmarks, history, and column widths are kept; none in tests and scenes.
-    pub state_dir: Option<PathBuf>,
     /// Which look at a typed path a result belongs to.
     pub probe: u64,
     pub picker: crate::picker::Picker,
@@ -133,11 +120,42 @@ pub struct Strider {
     /// The tab under the pointer, and the tabs' nodes.
     pub hover: Option<usize>,
     pub tab_nodes: Vec<crate::tabs::TabNodes>,
-    /// The parent's and the current column's widths chosen by hand, as shares of the window.
-    pub widths: Option<[f32; 2]>,
     /// A column boundary being dragged, and the handle under the pointer.
     pub drag: Option<crate::columns::Drag>,
     pub handle_hover: Option<usize>,
+    /// The tasks view, the visual operator, the dialog, and the rename target.
+    pub wops: crate::tasks::WinOps,
+    /// The folders its columns show, which the cache keeps read.
+    pub shown: Vec<PathBuf>,
+    /// When input last came to it, by the app's count of inputs, for activations to find
+    /// the window used last.
+    pub last_input: u64,
+}
+
+/// What every window shares, as the Zig build's App: options and the keymap, the MIME and
+/// application databases, icons, the folder cache and its watches, the register, file
+/// operations and undo, bookmarks, the command history, the message log, drives, the theme
+/// followed, and where state is kept. The window a handler acts on is `wins[cur]`, which the
+/// state derefs to; every handler makes its own window that one first ([`Strider::here`]).
+pub struct Strider {
+    pub options: Options,
+    pub keymap: Keymap,
+    pub home: PathBuf,
+    pub zone: Zone,
+    pub db: Arc<MimeDb>,
+    /// The installed applications, read the first time something opens.
+    pub apps: Option<Arc<keywork::desktop::apps::Applications>>,
+    pub icons: Option<MimeIcons>,
+    pub cache: Cache,
+    /// Read folders and files on the UI thread, so a scene's keys find them read: scenes
+    /// render the same every time.
+    pub sync_reads: bool,
+    /// Command lines typed, oldest first.
+    pub lines: Vec<String>,
+    /// Where bookmarks, history, and column widths are kept; none in tests and scenes.
+    pub state_dir: Option<PathBuf>,
+    /// The parent's and the current column's widths chosen by hand, as shares of the window.
+    pub widths: Option<[f32; 2]>,
     /// Where zoxide is, if it is installed, and the folder it last heard of.
     pub zoxide: Option<PathBuf>,
     pub zoxide_last: PathBuf,
@@ -147,16 +165,70 @@ pub struct Strider {
     pub drives: crate::drives::Drives,
     /// Messages shown, oldest first, with when and whether each is an error, for `:messages`.
     pub log: Vec<(i64, bool, String)>,
-    /// The register, file operations, the undo history, the tasks view, and dialogs.
+    /// The register, file operations, and the undo history.
     pub ops: crate::tasks::Ops,
-    /// The colors and font the window wears, followed live.
+    /// The colors and font the windows wear, followed live.
     pub look: crate::theme::Follow,
+    /// The open windows, oldest first, and which one handlers act on.
+    pub wins: Vec<Win>,
+    pub cur: usize,
+    /// Inputs so far, to every window, for [`Win::last_input`].
+    pub inputs: u64,
+    /// A problem with the configuration, which the first window to open says.
+    pub config_message: Option<String>,
+    /// How this process was started, which activations and the last window's closing heed.
+    pub launch: crate::instance::Launch,
+}
+
+impl std::ops::Deref for Strider {
+    type Target = Win;
+
+    fn deref(&self) -> &Win {
+        &self.wins[self.cur]
+    }
+}
+
+impl std::ops::DerefMut for Strider {
+    fn deref_mut(&mut self) -> &mut Win {
+        &mut self.wins[self.cur]
+    }
 }
 
 /// How many messages `:messages` keeps.
 pub const MAX_MESSAGES: usize = 200;
 
 impl Strider {
+    /// Makes window `id` the one handlers act on: false when it is not one of the app's open
+    /// windows, as for a callback that outlived its window.
+    pub fn enter(&mut self, id: Option<WindowId>) -> bool {
+        match self.wins.iter().position(|w| Some(w.window) == id) {
+            Some(i) => {
+                self.cur = i;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Makes the window of `tx` the one handlers act on, as every handler does first.
+    pub fn here(&mut self, tx: &Txn<'_, Strider>) -> bool {
+        self.enter(tx.window())
+    }
+
+    /// The open windows, oldest first.
+    pub fn window_ids(&self) -> Vec<WindowId> {
+        self.wins.iter().map(|w| w.window).collect()
+    }
+
+    /// The window input went to last, for activations.
+    pub fn last_window(&self) -> Option<WindowId> {
+        self.wins
+            .iter()
+            .enumerate()
+            .max_by_key(|&(i, w)| (w.last_input, std::cmp::Reverse(i)))
+            .map(|(_, w)| w.window)
+    }
+
     pub fn visual(&self) -> bool {
         self.mode.matches(mode::mode::states::selection::VISUAL)
     }
@@ -182,7 +254,7 @@ impl Strider {
 
     pub fn cur_mut(&mut self) -> &mut Folder {
         self.cache
-            .get_mut(&self.cwd)
+            .get_mut(&self.wins[self.cur].cwd)
             .expect("the current folder is cached")
     }
 
@@ -253,7 +325,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     let tabs = tx.flex(bar, Flex::row().gap(4.0))?;
 
     let columns = tx.flex(body, Flex::row().width(Dim::Fill).grow(1.0))?;
-    tx.on(columns, Resize, |s: &mut Strider, tx, ev| {
+    on(tx, columns, Resize, |s: &mut Strider, tx, ev| {
         if let EventData::Resize(size) = ev.data
             && size.width != s.width
         {
@@ -306,7 +378,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         )?;
         tx.set_label(list, ["Parent folder", "Folder", "Preview"][col as usize])?;
         widgets::set_type_ahead(tx, list, false)?;
-        tx.on(list, RowNeeded, move |s: &mut Strider, tx, ev| {
+        on(tx, list, RowNeeded, move |s: &mut Strider, tx, ev| {
             fill_row(s, tx, ev, col)
         })?;
         let message = widgets::label(tx, pane, "", TextKind::Muted)?;
@@ -316,10 +388,10 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
             st.text_align = keywork::TextAlign::Center;
         })?;
         messages.push(message);
-        tx.on(list, Changed, move |s: &mut Strider, tx, _| {
+        on(tx, list, Changed, move |s: &mut Strider, tx, _| {
             clicked(s, tx, col)
         })?;
-        tx.on(list, Activate, move |s: &mut Strider, tx, _| {
+        on(tx, list, Activate, move |s: &mut Strider, tx, _| {
             if col == Col::Current {
                 commands::execute(s, tx, "enter", None, false)
             } else {
@@ -343,7 +415,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     )?;
     tx.set_label(preview_lines, "Preview")?;
     widgets::set_type_ahead(tx, preview_lines, false)?;
-    tx.on(preview_lines, RowNeeded, fill_line)?;
+    on(tx, preview_lines, RowNeeded, fill_line)?;
     let preview_image_box = tx.flex(
         preview_pane,
         Flex::column()
@@ -424,7 +496,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         })?;
     }
     tx.set_label(line_editor, "Command")?;
-    tx.on(line_editor, Changed, |s: &mut Strider, tx, _| {
+    on(tx, line_editor, Changed, |s: &mut Strider, tx, _| {
         send_mode(s, tx, ModeEv::Edit)
     })?;
     tx.set_hidden(line, true)?;
@@ -463,7 +535,9 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     tx.set_hidden(which_key, true)?;
 
     // Keys go to the focused current column; the keymap hears them all first.
-    tx.on(tx.root(), KeyCapture, key_down)?;
+    let root = tx.root();
+    on(tx, root, KeyCapture, key_down)?;
+    on(tx, root, Close, close_requested)?;
     let [parent, current, preview] = lists.try_into().expect("three lists");
     tx.focus(current)?;
     Ok(Ui {
@@ -547,6 +621,8 @@ fn key_down(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<()
     else {
         return Err(Error::Pass);
     };
+    s.inputs += 1;
+    s.last_input = s.inputs;
     let Some(key) = key_of(keysym, modifiers) else {
         return Err(Error::Pass);
     };
@@ -556,7 +632,7 @@ fn key_down(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<()
 /// A key, as the keymap writes keys: to the open prompt, or through the keymap to a
 /// command. Fails with [`Error::Pass`] for a key the focused widget should have.
 pub fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()> {
-    if s.ops.dialog.is_some() {
+    if s.wops.dialog.is_some() {
         return crate::dialogs::key(s, tx, key);
     }
     if let Some(p) = s.prompt() {
@@ -565,7 +641,7 @@ pub fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()>
     if s.message.take().is_some() {
         draw_status(s, tx)?;
     }
-    if let Some(op) = s.ops.visual_op.take()
+    if let Some(op) = s.wops.visual_op.take()
         && crate::register::followup(s, tx, op, key)?
     {
         return Ok(());
@@ -587,7 +663,7 @@ pub fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()>
     let fx = s.keys.send(event, Clock { tx });
     apply_key_fx(s, tx, fx)?;
     if operator && !s.visual() {
-        s.ops.visual_op = Some(key.code);
+        s.wops.visual_op = Some(key.code);
     }
     Ok(())
 }
@@ -600,8 +676,7 @@ pub struct Clock<'a, 't> {
 impl Scheduler<Timer> for Clock<'_, '_> {
     fn schedule(&mut self, delay: std::time::Duration, token: TimerToken) -> Timer {
         self.tx.after(delay, move |s: &mut Strider, cx| {
-            let window = s.window;
-            cx.update(window, |tx| {
+            back(s, cx, |s, tx| {
                 let fx = s.keys.fire(token, Clock { tx });
                 apply_key_fx(s, tx, fx)
             })
@@ -812,7 +887,8 @@ pub fn cd(
         s.cache.entry(&p).focus(&name);
     }
     if record {
-        s.history.truncate(s.history_pos + 1);
+        let pos = s.history_pos;
+        s.history.truncate(pos + 1);
         s.history.push(path);
         s.history_pos = s.history.len() - 1;
     }
@@ -862,14 +938,236 @@ pub fn move_cursor(s: &mut Strider, tx: &mut Txn<'_, Strider>, pos: usize) -> Re
     draw_status(s, tx)
 }
 
-/// Closes the window, which is the app's only one.
-pub fn close_window(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    crate::tasks::cancel_all(s);
-    tx.after(std::time::Duration::ZERO, |_, cx| {
-        cx.quit();
+// --- Windows -------------------------------------------------------------------------------
+
+/// What a window opens as: its title, the app id, and the size the Zig build gave it.
+pub fn window_desc() -> WindowDesc {
+    WindowDesc::new("Strider")
+        .app_id(crate::instance::APP_ID)
+        .size(1000, 560)
+}
+
+/// A window's own state, its tree built as `ui`, on `start`.
+pub fn new_win(s: &Strider, window: WindowId, ui: Ui, start: &Path) -> Win {
+    let mut keys = Driver::new(keymap::Keymap::machine(), ());
+    keys.send(
+        KeyEv::SetDelay(std::time::Duration::from_millis(u64::from(
+            s.options.which_key_delay,
+        ))),
+        plusthree::host::NoTimers,
+    );
+    Win {
+        window,
+        ui,
+        keys,
+        mode: Driver::new(mode::Mode::machine(), ()),
+        cwd: start.to_owned(),
+        parent_path: None,
+        preview: Preview::None,
+        preview_generation: 0,
+        previews: crate::preview::Jobs::default(),
+        history: vec![start.to_owned()],
+        history_pos: 0,
+        anchor: 0,
+        message: None,
+        width: 0.0,
+        parent_fit: 0.0,
+        prompt_origin: 0,
+        prompt_entry: None,
+        last_search: String::new(),
+        last_search_back: false,
+        line_pos: 0,
+        probe: 0,
+        picker: crate::picker::Picker::default(),
+        tabs: vec![crate::tabs::Tab::new(start.to_owned())],
+        active: 0,
+        hover: None,
+        tab_nodes: Vec::new(),
+        drag: None,
+        handle_hover: None,
+        wops: crate::tasks::WinOps::default(),
+        shown: Vec::new(),
+        last_input: 0,
+    }
+}
+
+/// Makes window `window`, its tree built as `ui`, one of the app's, on `start`, and the one
+/// handlers act on; the first window to open says what was wrong with the configuration.
+pub fn adopt(s: &mut Strider, window: WindowId, ui: Ui, start: &Path) {
+    let mut w = new_win(s, window, ui, start);
+    w.message = s.config_message.take().map(|m| (m, true));
+    s.wins.push(w);
+    s.cur = s.wins.len() - 1;
+}
+
+/// Shows `start` in a window just adopted, with `select` under the cursor; a start that is
+/// no folder leaves an empty current folder, which says why.
+pub fn show_start(
+    s: &mut Strider,
+    tx: &mut Txn<'_, Strider>,
+    start: PathBuf,
+    select: Option<&[u8]>,
+) -> Result<()> {
+    s.cache.entry(&start);
+    cd(s, tx, start, select, false)
+}
+
+/// Opens another window on `start`, with `select` under the cursor, while the app runs.
+pub fn open_window(
+    s: &mut Strider,
+    cx: &mut Cx<'_, Strider>,
+    start: PathBuf,
+    select: Option<Vec<u8>>,
+) -> Result<WindowId> {
+    let window = cx.open_window(window_desc())?;
+    let ui = cx.update(window, build)?;
+    adopt(s, window, ui, &start);
+    cx.update(window, |tx| show_start(s, tx, start, select.as_deref()))?;
+    crate::instance::window_opened(s, cx);
+    // Before the icon theme came, or with no window to load it in.
+    if s.icons.is_none() {
+        crate::load_icons(s, cx)?;
+    }
+    Ok(window)
+}
+
+/// Closes this window, and only it; the app quits once its last window is gone, unless it
+/// runs as a service.
+pub fn close_window(_s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    let Some(id) = tx.window() else {
+        return Ok(());
+    };
+    tx.defer(move |s, cx| {
+        cx.close_window(id);
+        closed(s, cx, id)
+    });
+    Ok(())
+}
+
+/// `quit-all`: closes every window, which quits.
+pub fn close_all(_s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    tx.defer(move |s, cx| {
+        for id in s.window_ids() {
+            cx.close_window(id);
+            closed(s, cx, id)?;
+        }
         Ok(())
     });
     Ok(())
+}
+
+/// The compositor asked to close the window: it goes, closed as `q` closes it, since work
+/// deferred from a window Keywork closes at once would not run.
+fn close_requested(s: &mut Strider, tx: &mut Txn<'_, Strider>, _ev: &Event) -> Result<()> {
+    close_window(s, tx)
+}
+
+/// Window `id` closed: what it had of its own goes, its preview's and picker's work stops,
+/// a conflict it was asking about is cancelled, and the cache keeps what the other windows
+/// show.
+pub fn closed(s: &mut Strider, cx: &mut Cx<'_, Strider>, id: WindowId) -> Result<()> {
+    let Some(i) = s.wins.iter().position(|w| w.window == id) else {
+        return Ok(());
+    };
+    let w = s.wins.remove(i);
+    w.previews.cancel();
+    w.picker.cancel();
+    s.cur = 0;
+    crate::tabs::pin(s);
+    crate::tasks::window_closed(s, cx, id)?;
+    match s.wins.first().map(|w| w.window) {
+        Some(first) => cx.update(first, |tx| {
+            cache::reread_orphans(s, tx, id)?;
+            cache::show(s, tx)
+        }),
+        None => {
+            crate::instance::last_closed(s, cx);
+            Ok(())
+        }
+    }
+}
+
+/// Adds a handler for `kind` to `node` that acts on the window the event came to.
+pub fn on<K: keywork::tree::Kind>(
+    tx: &mut Txn<'_, Strider>,
+    node: NodeId<K>,
+    kind: EventKind,
+    mut f: impl for<'a> FnMut(&mut Strider, &mut Txn<'a, Strider>, &Event) -> Result<()> + 'static,
+) -> Result<()> {
+    tx.on(node, kind, move |s: &mut Strider, tx, ev| {
+        if s.here(tx) {
+            f(s, tx, ev)
+        } else {
+            Err(Error::Pass)
+        }
+    })
+}
+
+/// What a job's or a callback's `done` runs: `f`, on the window of its transaction, once it
+/// is the one handlers act on; nothing once that window closed.
+pub fn here<T>(
+    f: impl for<'t> FnOnce(&mut Strider, &mut Txn<'t, Strider>, T) -> Result<()> + 'static,
+) -> impl for<'t> FnOnce(&mut Strider, &mut Txn<'t, Strider>, T) -> Result<()> + 'static {
+    move |s: &mut Strider, tx: &mut Txn<'_, Strider>, v: T| {
+        if s.here(tx) { f(s, tx, v) } else { Ok(()) }
+    }
+}
+
+/// Runs `f` in a transaction on window `id`, as the one handlers act on; nothing once it
+/// closed.
+pub fn in_window(
+    s: &mut Strider,
+    cx: &mut Cx<'_, Strider>,
+    id: Option<WindowId>,
+    f: impl FnOnce(&mut Strider, &mut Txn<'_, Strider>) -> Result<()>,
+) -> Result<()> {
+    match id {
+        Some(id) if s.enter(Some(id)) => cx.update(id, |tx| f(s, tx)),
+        _ => Ok(()),
+    }
+}
+
+/// Runs `f` in a transaction on the window whose transaction queued this callback, such as
+/// a timer's, as the one handlers act on; nothing once it closed.
+pub fn back(
+    s: &mut Strider,
+    cx: &mut Cx<'_, Strider>,
+    f: impl FnOnce(&mut Strider, &mut Txn<'_, Strider>) -> Result<()>,
+) -> Result<()> {
+    let id = cx.window();
+    in_window(s, cx, id, f)
+}
+
+/// Runs `f` on every window, each the one handlers act on in turn: what they share changed.
+pub fn each(
+    s: &mut Strider,
+    cx: &mut Cx<'_, Strider>,
+    mut f: impl FnMut(&mut Strider, &mut Txn<'_, Strider>) -> Result<()>,
+) -> Result<()> {
+    let was = s.wins.get(s.cur).map(|w| w.window);
+    for id in s.window_ids() {
+        in_window(s, cx, Some(id), &mut f)?;
+    }
+    s.enter(was);
+    Ok(())
+}
+
+/// Runs `f` on every window but this transaction's once it commits: what they share changed
+/// here.
+pub fn others(
+    tx: &mut Txn<'_, Strider>,
+    mut f: impl FnMut(&mut Strider, &mut Txn<'_, Strider>) -> Result<()> + 'static,
+) {
+    let me = tx.window();
+    tx.defer(move |s, cx| {
+        for id in s.window_ids() {
+            if Some(id) != me {
+                in_window(s, cx, Some(id), &mut f)?;
+            }
+        }
+        s.enter(me);
+        Ok(())
+    });
 }
 
 fn clicked(s: &mut Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {

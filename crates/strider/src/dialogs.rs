@@ -103,7 +103,7 @@ fn begin(
     title: &str,
     description: &str,
 ) -> Result<(NodeId<Flex>, NodeId<Flex>)> {
-    if s.ops.dialog.is_some() {
+    if s.wops.dialog.is_some() {
         dismiss(s, tx)?;
     }
     let root = tx
@@ -181,7 +181,7 @@ fn button(
     if let Some(t) = label_node(tx, b)? {
         underline(tx, t, label, mnemonic)?;
     }
-    tx.on(b, Activate, move |s: &mut Strider, tx, _| {
+    app::on(tx, b, Activate, move |s: &mut Strider, tx, _| {
         act(s, tx, action)
     })?;
     buttons.push((b, mnemonic, action));
@@ -240,7 +240,7 @@ fn present(
     }
     // A dialog is driven from the keyboard: its focus shows from the start.
     tx.set_focus_visible(true)?;
-    s.ops.dialog = Some(Dialog {
+    s.wops.dialog = Some(Dialog {
         purpose,
         scrim,
         buttons,
@@ -250,7 +250,7 @@ fn present(
 
 /// Closes the dialog without acting, the keys back to the folder.
 pub fn dismiss(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    let Some(d) = s.ops.dialog.take() else {
+    let Some(d) = s.wops.dialog.take() else {
         return Ok(());
     };
     tx.set_modal(d.scrim, false)?;
@@ -260,7 +260,7 @@ pub fn dismiss(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 
 /// Closes a conflict's dialog whose job ended without an answer.
 pub fn dismiss_conflict(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    if s.ops.dialog.as_ref().is_some_and(Dialog::is_conflict) {
+    if s.wops.dialog.as_ref().is_some_and(Dialog::is_conflict) {
         dismiss(s, tx)?;
     }
     Ok(())
@@ -471,7 +471,7 @@ pub fn properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, paths: Vec<PathBuf
     if s.sync_reads {
         return land(s, tx, read_facts(paths));
     }
-    tx.spawn_blocking(move || read_facts(paths), land);
+    tx.spawn_blocking(move || read_facts(paths), app::here(land));
     Ok(())
 }
 
@@ -560,7 +560,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
             let bit = 0o400 >> (r * 3 + k);
             let b = checkbox(tx, brow, what, None)?;
             widgets::set_checked(tx, b, f.same_mode && f.mode & bit != 0)?;
-            tx.on(b, Changed, |s: &mut Strider, tx, _| box_changed(s, tx))?;
+            app::on(tx, b, Changed, |s: &mut Strider, tx, _| box_changed(s, tx))?;
             boxes.push(b);
         }
     }
@@ -598,7 +598,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
         Variant::Solid,
         Action::Apply,
     )?;
-    tx.on(mode_field, Changed, |s: &mut Strider, tx, _| {
+    app::on(tx, mode_field, Changed, |s: &mut Strider, tx, _| {
         mode_changed(s, tx)
     })?;
     // Typing goes to the mode, all of it selected.
@@ -617,7 +617,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
 }
 
 fn props(s: &Strider) -> Option<&Properties> {
-    match &s.ops.dialog.as_ref()?.purpose {
+    match &s.wops.dialog.as_ref()?.purpose {
         Purpose::Properties(p) => Some(p),
         _ => None,
     }
@@ -736,7 +736,7 @@ fn name_by(
 // Events -------------------------------------------------------------------------------------
 
 fn act(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Action) -> Result<()> {
-    let Some(d) = &s.ops.dialog else {
+    let Some(d) = &s.wops.dialog else {
         return Ok(());
     };
     match action {
@@ -774,7 +774,7 @@ fn act(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Action) -> Result<()>
 /// Escape or Cancel: nothing happens, but a conflict cancels its operation, as in the status
 /// line.
 fn cancel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    let Some(d) = &s.ops.dialog else {
+    let Some(d) = &s.wops.dialog else {
         return Ok(());
     };
     let (delete, conflict) = (d.is_delete(), d.is_conflict());
@@ -793,7 +793,7 @@ fn cancel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
 /// applies the properties unless a button has focus. Fails with [`Error::Pass`] for the
 /// focused control's keys.
 pub fn key(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()> {
-    let Some(d) = &s.ops.dialog else {
+    let Some(d) = &s.wops.dialog else {
         return Err(Error::Pass);
     };
     let m = key.mods;

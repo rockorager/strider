@@ -341,6 +341,8 @@ pub struct Follow {
     fonts: Vec<WatchId>,
     /// The timer armed for the watcher's next batch, by its deadline.
     armed: Option<(Instant, Timer)>,
+    /// Light or dark as `--light` or `--dark` chose, instead of the desktop's.
+    pub scheme: Option<Appearance>,
 }
 
 impl Follow {
@@ -359,6 +361,19 @@ impl Follow {
             themes: Vec::new(),
             fonts: Vec::new(),
             armed: None,
+            scheme: None,
+        }
+    }
+
+    /// What the windows wear from the theme the desktop's settings make.
+    fn map(&self) -> impl Fn(Theme) -> Theme + use<> {
+        let map = map(self.palette.as_ref(), self.font);
+        let scheme = self.scheme;
+        move |theme| {
+            map(match scheme {
+                Some(a) => theme.appearance(a),
+                None => theme,
+            })
         }
     }
 
@@ -396,14 +411,14 @@ pub fn follow(app: &mut App<Strider>, look: &Follow) {
     if let Some(p) = &look.palette {
         app.desktop_theme(Some(omarchy_theme(p)));
     }
-    app.map_desktop_theme(map(look.palette.as_ref(), look.font));
+    app.map_desktop_theme(look.map());
     app.on_start(start);
 }
 
 /// Dresses the windows in what [`Follow`] holds now.
 fn wear(s: &mut Strider, cx: &mut Cx<'_, Strider>) {
     let look = &s.look;
-    cx.map_desktop_theme(map(look.palette.as_ref(), look.font));
+    cx.map_desktop_theme(look.map());
     cx.set_desktop_theme(Some(match &look.palette {
         Some(p) => omarchy_theme(p),
         None => Theme::default(),
@@ -452,8 +467,9 @@ fn deliver(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
         look.palette = Some(p);
         wear(s, cx);
     }
-    if fonts {
-        cx.spawn_blocking(s.window, monospace, |s: &mut Strider, tx, font| {
+    // On any window's lane: the font is everyone's.
+    if fonts && let Some(window) = s.wins.first().map(|w| w.window) {
+        cx.spawn_blocking(window, monospace, |s: &mut Strider, tx, font| {
             if font.is_some() && font != s.look.font {
                 s.look.font = font;
                 tx.defer(|s, cx| {

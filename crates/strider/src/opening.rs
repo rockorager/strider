@@ -176,7 +176,7 @@ where
     if s.sync_reads {
         return land(s, tx, job());
     }
-    tx.spawn_blocking(job, land);
+    tx.spawn_blocking(job, app::here(land));
     Ok(())
 }
 
@@ -212,14 +212,14 @@ fn launch(
 /// Starts each argument vector detached in `cwd`, once the window has an activation token
 /// for them (or the compositor says it gives none); `name` is for the error.
 fn spawn(tx: &mut Txn<'_, Strider>, argvs: Vec<Vec<OsString>>, cwd: PathBuf, name: String) {
-    tx.activation_token(move |s, tx, token| {
+    tx.activation_token(app::here(move |s, tx, token: Option<String>| {
         for argv in &argvs {
             if spawn_detached(argv, Some(&cwd), token.as_deref()).is_err() {
                 return say(s, tx, format!("Could not start {name}"), true);
             }
         }
         Ok(())
-    });
+    }));
 }
 
 /// Says `text` in the status line.
@@ -684,7 +684,7 @@ pub fn bulk_rename(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
             (true, Some(text)) => apply_bulk(s, tx, &paths, &text),
         }
     };
-    tx.spawn_blocking(edit, land);
+    tx.spawn_blocking(edit, app::here(land));
     Ok(())
 }
 

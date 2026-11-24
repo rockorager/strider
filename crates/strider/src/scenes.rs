@@ -237,7 +237,7 @@ pub fn add(app: &mut App<Strider>) {
         let header = s.ui.header;
         app.update(window, |tx| {
             let mut opened = false;
-            tx.on(header, Resize, move |s: &mut Strider, tx, _| {
+            app::on(tx, header, Resize, move |s: &mut Strider, tx, _| {
                 if std::mem::replace(&mut opened, true) {
                     return Ok(());
                 }
@@ -644,7 +644,7 @@ fn add_operations(app: &mut App<Strider>) {
         let window = s.window;
         app.update(window, |tx| {
             press(&mut s, tx, "fbu<A-CR>")?;
-            if let Some((_, owner, _)) = s.ops.dialog.as_ref().and_then(|d| d.property_fields()) {
+            if let Some((_, owner, _)) = s.wops.dialog.as_ref().and_then(|d| d.property_fields()) {
                 tx.set_text(owner, "tim:users")?;
             }
             Ok(())

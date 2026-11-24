@@ -167,6 +167,12 @@ pub fn set(
 ) -> Result<()> {
     s.ops.register = paths;
     s.ops.cut = cut;
+    app::others(tx, register_shown);
+    register_shown(s, tx)
+}
+
+/// The rows and the status line, as the register changed: every window shows it.
+fn register_shown(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     for col in [Col::Parent, Col::Current, Col::Preview] {
         keywork::widgets::refresh_rows(tx, s.ui.lists[col as usize])?;
     }
@@ -249,23 +255,28 @@ fn paste(s: &mut Strider, tx: &mut Txn<'_, Strider>, replace: bool) -> Result<()
         return paste_register(s, tx, dest, replace);
     };
     let gnome = mime.starts_with("x-special");
-    tx.read_clipboard(mime, move |s: &mut Strider, tx, data| match data {
-        None => paste_register(s, tx, dest, replace),
-        Some(bytes) => {
-            let text = String::from_utf8_lossy(&bytes);
-            let (cut, uris) = if gnome {
-                uri::gnome_copied(&text)
-            } else {
-                (false, &*text)
-            };
-            let paths: Vec<PathBuf> = uri::lines(uris).filter_map(uri::file_path).collect();
-            if paths.is_empty() {
-                return say(s, tx, "Only local files can be pasted here".into(), false);
-            }
-            let kind = if cut { Kind::Move } else { Kind::Copy };
-            transfer(s, tx, kind, paths, dest, replace)
-        }
-    });
+    tx.read_clipboard(
+        mime,
+        app::here(
+            move |s: &mut Strider, tx, data: Option<Vec<u8>>| match data {
+                None => paste_register(s, tx, dest, replace),
+                Some(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    let (cut, uris) = if gnome {
+                        uri::gnome_copied(&text)
+                    } else {
+                        (false, &*text)
+                    };
+                    let paths: Vec<PathBuf> = uri::lines(uris).filter_map(uri::file_path).collect();
+                    if paths.is_empty() {
+                        return say(s, tx, "Only local files can be pasted here".into(), false);
+                    }
+                    let kind = if cut { Kind::Move } else { Kind::Copy };
+                    transfer(s, tx, kind, paths, dest, replace)
+                }
+            },
+        ),
+    );
     Ok(())
 }
 
@@ -457,13 +468,13 @@ fn rename(s: &mut Strider, tx: &mut Txn<'_, Strider>, args: &str, caret: Caret) 
         Caret::End => (stem, stem),
         Caret::Start => (0, 0),
     };
-    s.ops.rename_target = Some(path);
+    s.wops.rename_target = Some(path);
     prompt::start(s, tx, Prompt::Rename, &name, anchor, head)
 }
 
 /// The rename prompt's Enter.
 pub fn finish_rename(s: &mut Strider, tx: &mut Txn<'_, Strider>, name: &str) -> Result<()> {
-    let Some(old) = s.ops.rename_target.take() else {
+    let Some(old) = s.wops.rename_target.take() else {
         return Ok(());
     };
     if name.is_empty() {

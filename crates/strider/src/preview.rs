@@ -135,6 +135,15 @@ pub struct Jobs {
     key: Option<Key>,
 }
 
+impl Jobs {
+    /// Stops the running job's programs, as its window closes.
+    pub fn cancel(&self) {
+        if let Some(c) = &self.cancel {
+            c.store(true, Ordering::Release);
+        }
+    }
+}
+
 impl Default for Jobs {
     fn default() -> Jobs {
         Jobs {
@@ -259,14 +268,14 @@ fn launch(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     }
     tx.spawn_blocking(
         move || load(&req, &cancel),
-        move |s: &mut Strider, tx, preview| {
+        app::here(move |s: &mut Strider, tx, preview| {
             let current = s.preview_generation == generation;
             if current {
                 s.previews.cancel = None;
                 s.previews.result = Some(preview);
             }
             send(s, tx, PreviewEv::Done { current })
-        },
+        }),
     );
     Ok(())
 }
