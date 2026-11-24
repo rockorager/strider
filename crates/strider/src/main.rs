@@ -343,6 +343,13 @@ mod tests {
             1,
             "Escape ended the sequence, and ran nothing"
         );
+        // Inverting marks every shown entry but src; unmarking clears them.
+        typ(&mut h, window, ":invert-marks\n");
+        let f = h.state().cur();
+        assert_eq!(f.marks.len(), f.order.len() - 1);
+        assert!(!f.marks.contains(&f.order[2]));
+        typ(&mut h, window, ":unmark-all\n");
+        assert!(h.state().cur().marks.is_empty());
 
         press(&mut h, 'g');
         assert!(h.state().keys.matches(states::pending::WAITING));

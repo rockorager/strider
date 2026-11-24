@@ -39,8 +39,7 @@ const fn cmd(name: &'static str, desc: &'static str, complete: Complete) -> Comm
     }
 }
 
-/// Every command, as the Zig build had them, for completion and help; those not ported yet
-/// say so when run.
+/// Every command, for completion and help.
 pub const COMMANDS: &[Command] = &[
     cmd("down", "Move down [count]", Complete::None),
     cmd("up", "Move up [count]", Complete::None),
@@ -515,6 +514,20 @@ pub fn execute(
             s.cur_mut().marks = s.cur().order.iter().copied().collect();
             app::draw(s, tx)
         }
+        "unmark-all" => {
+            s.cur_mut().marks.clear();
+            app::draw(s, tx)
+        }
+        "invert-marks" => {
+            let f = s.cur_mut();
+            f.marks = f
+                .order
+                .iter()
+                .copied()
+                .filter(|i| !f.marks.contains(i))
+                .collect();
+            app::draw(s, tx)
+        }
         "quit" | "q" if crate::chooser::cancel(s, tx)? => Ok(()),
         "quit" | "q" => {
             let active = s.active;
@@ -568,17 +581,11 @@ pub fn execute(
         _ if crate::register::NAMES.contains(&name) => {
             crate::register::run(s, tx, name, args, count)
         }
-        _ if by_name(name).is_some() => not_yet(s, tx, name),
         _ => {
             s.notify(format!("Unknown command: {name}"), true);
             app::draw_status(s, tx)
         }
     }
-}
-
-fn not_yet(s: &mut Strider, tx: &mut Txn<'_, Strider>, name: &str) -> Result<()> {
-    s.notify(format!("{name} isn't in the Rust build yet"), true);
-    app::draw_status(s, tx)
 }
 
 /// `:help`: every key and every command, in the preview.
