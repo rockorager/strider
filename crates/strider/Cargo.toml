@@ -9,3 +9,5 @@ license.workspace = true
 [dependencies]
 keywork.workspace = true
 strider-core.workspace = true
+plusthree.workspace = true
+strider-machines.workspace = true

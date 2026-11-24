@@ -11,5 +11,7 @@ license = "MIT"
 [workspace.dependencies]
 # Keywork is pinned by rev until it is on crates.io.
 keywork = { git = "https://tangled.org/rockorager.dev/keywork", rev = "af4469fd" }
+plusthree = "0.1.7"
 serde_json = "1"
 strider-core = { path = "crates/strider-core" }
+strider-machines = { path = "crates/strider-machines" }

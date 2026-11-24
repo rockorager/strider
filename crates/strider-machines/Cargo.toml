@@ -1,0 +1,11 @@
+[package]
+name = "strider-machines"
+description = "Strider's behavior as plusthree statecharts: events in, effects out, no I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+plusthree.workspace = true
+strider-core.workspace = true

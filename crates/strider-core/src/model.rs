@@ -508,13 +508,28 @@ pub fn format_size(size: u64) -> String {
         v /= 1000.0;
         u += 1;
     }
-    format!("{} {}", one_decimal(v), UNITS[u])
+    format!("{} {}", fixed(v, 1), UNITS[u])
 }
 
-/// `v` (finite, not negative) with one digit after the point, rounded as Zig's `{d:.1}`
-/// rounds: half up on the shortest decimal that reads back as `v`, so 1.25 and 1.15 (which
-/// is 1.149999... in binary) both round up, where `{:.1}` gives 1.2 and 1.1.
-fn one_decimal(v: f64) -> String {
+/// "512 B", "1.2 K", "34 M": the short sizes in binary units the columns show.
+pub fn compact_size(size: u64) -> String {
+    if size < 1024 {
+        return format!("{size} B");
+    }
+    const UNITS: [&str; 5] = ["K", "M", "G", "T", "P"];
+    let mut v = size as f64 / 1024.0;
+    let mut u = 0;
+    while v >= 1024.0 && u + 1 < UNITS.len() {
+        v /= 1024.0;
+        u += 1;
+    }
+    format!("{} {}", fixed(v, if v < 10.0 { 1 } else { 0 }), UNITS[u])
+}
+
+/// `v` (finite, not negative) with `places` (0 or 1) digits after the point, rounded as Zig's
+/// `{d:.1}` rounds: half up on the shortest decimal that reads back as `v`, so 1.25 and 1.15
+/// (which is 1.149999... in binary) both round up, where `{:.1}` gives 1.2 and 1.1.
+fn fixed(v: f64, places: usize) -> String {
     let sci = format!("{v:e}");
     let (mantissa, exp) = sci.split_once('e').expect("{:e} has an exponent");
     let exp: i64 = exp.parse().expect("{:e}'s exponent is a number");
@@ -527,11 +542,11 @@ fn one_decimal(v: f64) -> String {
         point = 1;
     }
     let point = point as usize;
-    if digits.len() < point + 2 {
-        digits.resize(point + 2, b'0');
+    if digits.len() < point + places + 1 {
+        digits.resize(point + places + 1, b'0');
     }
-    let round_up = digits[point + 1] >= b'5';
-    digits.truncate(point + 1);
+    let round_up = digits[point + places] >= b'5';
+    digits.truncate(point + places);
     let mut point = point;
     if round_up {
         let mut k = digits.len();
@@ -550,7 +565,9 @@ fn one_decimal(v: f64) -> String {
             }
         }
     }
-    digits.insert(point, b'.');
+    if places > 0 {
+        digits.insert(point, b'.');
+    }
     String::from_utf8(digits).expect("digits are ASCII")
 }
 
@@ -718,6 +735,13 @@ mod tests {
         assert_eq!(format_size(1250), "1.3 kB");
         assert_eq!(format_size(1150), "1.2 kB");
         assert_eq!(format_size(999_950), "1000.0 kB");
+        // The columns' sizes, as the Zig build's golden images show them; 12800 bytes is
+        // 12.5 K, which Zig rounds up and Rust's `{:.0}` rounds to even.
+        assert_eq!(compact_size(1023), "1023 B");
+        assert_eq!(compact_size(2048), "2.0 K");
+        assert_eq!(compact_size(52_000), "51 K");
+        assert_eq!(compact_size(12_800), "13 K");
+        assert_eq!(compact_size(2_400_000), "2.3 M");
         assert_eq!(
             format_time(1_791_900_300 * 1_000_000_000, 0),
             "2026-10-13 14:05"
