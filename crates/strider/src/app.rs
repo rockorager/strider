@@ -53,6 +53,11 @@ pub struct Ui {
     pub which_key: NodeId<Flex>,
     /// What a column shows in place of rows: "Empty", or why it could not be read.
     pub messages: [NodeId<Text>; 3],
+    /// The command line, under the status line while a prompt is open: its label, as `:`,
+    /// and the text.
+    pub line: NodeId<Flex>,
+    pub line_label: NodeId<Text>,
+    pub line_editor: NodeId<keywork::Editor>,
 }
 
 pub struct Strider {
@@ -87,11 +92,34 @@ pub struct Strider {
     pub width: f32,
     /// The width the parent column's names need, for `fit_parent`.
     pub parent_fit: f32,
+    /// Where the cursor was as the prompt opened, for a search to start from and Escape to
+    /// go back to.
+    pub prompt_origin: usize,
+    /// The entry the cursor was on as the prompt opened, which a filter keeps it on
+    /// whenever it shows.
+    pub prompt_entry: Option<Vec<u8>>,
+    /// The last search's text and direction, for `n` and `N`.
+    pub last_search: String,
+    pub last_search_back: bool,
+    /// Command lines typed, oldest first, and which one Up and Down are on.
+    pub lines: Vec<String>,
+    pub line_pos: usize,
+    /// Where bookmarks, history, and column widths are kept; none in tests and scenes.
+    pub state_dir: Option<PathBuf>,
+    /// Which look at a typed path a result belongs to.
+    pub probe: u64,
 }
 
 impl Strider {
     pub fn visual(&self) -> bool {
-        self.mode.matches(mode::mode::states::VISUAL)
+        self.mode.matches(mode::mode::states::selection::VISUAL)
+    }
+
+    /// The prompt the command line is open for.
+    pub fn prompt(&self) -> Option<mode::Prompt> {
+        self.mode
+            .matches(mode::mode::states::line::OPEN)
+            .then(|| self.mode.context().prompt)
     }
 
     /// The current folder, which the cache holds while a column shows it.
@@ -200,7 +228,7 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         })?;
         tx.on(list, Activate, move |s: &mut Strider, tx, _| {
             if col == Col::Current {
-                commands::execute(s, tx, "enter", None)
+                commands::execute(s, tx, "enter", None, false)
             } else {
                 Ok(())
             }
@@ -246,6 +274,31 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
     let status_keys = widgets::label(tx, status, "", TextKind::Small)?;
     let status_right = widgets::label(tx, status, "", TextKind::Small)?;
 
+    let line = tx.flex(
+        body,
+        Flex::row()
+            .width(Dim::Fill)
+            .gap(4.0)
+            .align(keywork::Align::Center)
+            .padding(Insets::new(2.0, 8.0, 4.0, 8.0)),
+    )?;
+    let line_label = widgets::label(tx, line, ":", TextKind::Strong)?;
+    tx.set_color(line_label, Paint::Role(ColorRole::AccentText))?;
+    tx.update_style(line_label, |s| s.shrink = 0.0)?;
+    let line_editor = widgets::text_field(tx, line, "")?;
+    if let Some(field) = tx.parent(line_editor)? {
+        tx.update_style(field, |s| {
+            s.grow = 1.0;
+            s.basis = Some(Dim::Px(0.0));
+            s.min_width = 0.0;
+        })?;
+    }
+    tx.set_label(line_editor, "Command")?;
+    tx.on(line_editor, Changed, |s: &mut Strider, tx, _| {
+        send_mode(s, tx, ModeEv::Edit)
+    })?;
+    tx.set_hidden(line, true)?;
+
     let which_key = widgets::surface(
         tx,
         root,
@@ -277,6 +330,9 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
         status_keys,
         status_right,
         which_key,
+        line,
+        line_label,
+        line_editor,
     })
 }
 
@@ -337,6 +393,15 @@ fn key_down(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<()
     let Some(key) = key_of(keysym, modifiers) else {
         return Err(Error::Pass);
     };
+    press(s, tx, key)
+}
+
+/// A key, as the keymap writes keys: to the open prompt, or through the keymap to a
+/// command. Fails with [`Error::Pass`] for a key the focused widget should have.
+pub fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()> {
+    if let Some(p) = s.prompt() {
+        return crate::prompt::key(s, tx, p, key);
+    }
     if s.message.take().is_some() {
         draw_status(s, tx)?;
     }
@@ -376,7 +441,7 @@ pub fn apply_key_fx(s: &mut Strider, tx: &mut Txn<'_, Strider>, fx: Vec<KeyFx>) 
     let mut pass = false;
     for f in fx {
         match f {
-            KeyFx::Run { cmd, count } => commands::execute(s, tx, &cmd, count)?,
+            KeyFx::Run { cmd, count } => commands::execute(s, tx, &cmd, count, true)?,
             KeyFx::Unbound(seq) => {
                 let mode = if s.visual() { "visual" } else { "normal" };
                 s.notify(
@@ -411,8 +476,15 @@ pub fn send_mode(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: ModeEv) -> Resu
             ModeFx::Changed => {
                 let fx = s.keys.send(KeyEv::Reset, Clock { tx });
                 apply_key_fx(s, tx, fx)?;
+                // New rows clear the list's cursor, which focus would put on the first row.
                 widgets::set_row_count(tx, s.ui.lists[Col::Current as usize], s.cur().len())?;
+                draw_cursor(s, tx, Col::Current)?;
             }
+            ModeFx::OpenLine(p) => crate::prompt::open(s, tx, p)?,
+            ModeFx::CloseLine => crate::prompt::close(s, tx)?,
+            ModeFx::Live(p) => crate::prompt::live(s, tx, p)?,
+            ModeFx::Run(p, text) => crate::prompt::run(s, tx, p, &text)?,
+            ModeFx::Restore(p) => crate::prompt::restore(s, tx, p)?,
         }
     }
     draw_status(s, tx)
@@ -493,7 +565,7 @@ pub fn cd(
         return draw_status(s, tx);
     }
     if s.visual() {
-        send_mode(s, tx, ModeEv::VisualEnd)?;
+        send_mode(s, tx, ModeEv::VisualCancel)?;
     }
     let f = s.cache.entry(&path);
     if let Some(name) = focus {
@@ -701,7 +773,7 @@ pub fn draw_column(s: &Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<(
     draw_cursor(s, tx, col)
 }
 
-fn draw_cursor(s: &Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {
+pub fn draw_cursor(s: &Strider, tx: &mut Txn<'_, Strider>, col: Col) -> Result<()> {
     let list = s.ui.lists[col as usize];
     let message = match s.folder(col) {
         Some(f) => match f.error {
@@ -893,6 +965,9 @@ pub fn draw_status(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     }
     if !s.cur().marks.is_empty() {
         right += &format!("{} marked   ", s.cur().marks.len());
+    }
+    if !s.cur().filter.is_empty() {
+        right += &format!("filter: {}   ", s.cur().filter);
     }
     if s.options.show_hidden {
         right += "hidden   ";

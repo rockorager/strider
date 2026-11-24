@@ -70,6 +70,8 @@ pub struct Folder {
     want: Option<Vec<u8>>,
     /// Marked entries, by listing index.
     pub marks: BTreeSet<u32>,
+    /// Only names that match this show, in smart case; empty shows every name.
+    pub filter: String,
 }
 
 impl Folder {
@@ -87,6 +89,7 @@ impl Folder {
             cursor: 0,
             want: None,
             marks: BTreeSet::new(),
+            filter: String::new(),
         }
     }
 
@@ -118,12 +121,10 @@ impl Folder {
         self.arrange(options, focus.as_deref());
     }
 
-    /// Sorts and filters the entries again, keeping the cursor on `focus`, else on the entry
-    /// it was on, else where it was.
+    /// Sorts and filters the entries again, keeping the cursor on `focus` if it shows, else
+    /// on the entry it was on, else where it was.
     pub fn arrange(&mut self, options: &Options, focus: Option<&[u8]>) {
-        let keep = focus
-            .map(<[u8]>::to_vec)
-            .or_else(|| self.current_name().map(<[u8]>::to_vec));
+        let was = self.current_name().map(<[u8]>::to_vec);
         if self.sorted_by != Some(options.sort) {
             self.sorted = model::sort(&self.listing, options.sort, |_| ());
             self.sorted_by = Some(options.sort);
@@ -131,12 +132,14 @@ impl Folder {
         self.order = model::filter(
             &self.listing,
             &self.sorted,
-            "",
+            &self.filter,
             options.show_hidden,
             None,
             |_| std::iter::empty(),
         );
-        let found = keep.and_then(|name| self.position_of(&name));
+        let found = focus
+            .and_then(|name| self.position_of(name))
+            .or_else(|| was.and_then(|name| self.position_of(&name)));
         self.cursor = found
             .unwrap_or(self.cursor)
             .min(self.order.len().saturating_sub(1));
@@ -154,6 +157,56 @@ impl Folder {
         self.order
             .iter()
             .position(|&i| self.listing.name(&self.listing.entries[i as usize]) == name)
+    }
+
+    /// The first position from `from` whose base name contains `query`, in smart case,
+    /// going backward or forward around the end; `from` itself counts first when
+    /// `include_from`, else last.
+    pub fn find_match(
+        &self,
+        query: &str,
+        from: usize,
+        backward: bool,
+        include_from: bool,
+    ) -> Option<usize> {
+        let n = self.order.len();
+        if n == 0 || query.is_empty() {
+            return None;
+        }
+        let start = from.min(n - 1);
+        let first = usize::from(!include_from);
+        (first..first + n)
+            .map(|k| {
+                if backward {
+                    (start + n - k % n) % n
+                } else {
+                    (start + k) % n
+                }
+            })
+            .find(|&pos| self.base_contains(pos, query))
+    }
+
+    /// How many shown names contain `query`, in smart case.
+    pub fn count_matches(&self, query: &str) -> usize {
+        (0..self.order.len())
+            .filter(|&pos| self.base_contains(pos, query))
+            .count()
+    }
+
+    fn base_contains(&self, pos: usize, query: &str) -> bool {
+        let Some(e) = self.entry(pos) else {
+            return false;
+        };
+        let name = self.listing.base(e);
+        let q = query.as_bytes();
+        if q.is_empty() {
+            return true;
+        }
+        if query.bytes().any(|b| b.is_ascii_uppercase()) {
+            name.windows(q.len()).any(|w| w == q)
+        } else {
+            name.windows(q.len()).any(|w| w.eq_ignore_ascii_case(q))
+        }
     }
 
     pub fn len(&self) -> usize {

@@ -317,6 +317,69 @@ impl Options {
         Ok(())
     }
 
+    /// Sets an option as `:set` takes it: `name value` or `name=value`; a boolean's bare
+    /// name turns it on, `noname` off, and `name!` flips it. Returns the option's name.
+    pub fn set_line<'a>(&mut self, line: &'a str) -> Result<&'a str, (&'a str, SetError)> {
+        let line = line.trim_start_matches([' ', '=']);
+        let end = line.find([' ', '=']).unwrap_or(line.len());
+        let (mut name, rest) = line.split_at(end);
+        let rest = rest.trim_start_matches([' ', '=']).trim_end();
+        let mut value = (!rest.is_empty()).then_some(rest);
+        let boolean = |n: &str| info(n).is_some_and(|i| i.kind == Kind::Boolean);
+        if let Some(n) = name.strip_suffix('!') {
+            name = n;
+            value = None;
+        } else if let Some(n) = name.strip_prefix("no").filter(|n| boolean(n)) {
+            name = n;
+            value = Some("false");
+        } else if value.is_none() && boolean(name) {
+            value = Some("true");
+        }
+        self.set_text(name, value)
+            .map(|()| name)
+            .map_err(|e| (name, e))
+    }
+
+    /// Sets an option from typed text: a boolean (`true`, `on`, `yes`, `1`, or their
+    /// opposites; none flips it), a whole number, a string, a sort's name, three shares
+    /// for `ratio` ("1 3 4", "1,3,4"), or a size for `chooser_size` ("960x640").
+    pub fn set_text(&mut self, name: &str, value: Option<&str>) -> Result<(), SetError> {
+        let info = info(name).ok_or(SetError::UnknownOption)?;
+        let bad = SetError::InvalidValue;
+        match info.kind {
+            Kind::Boolean => {
+                let v = match value {
+                    Some(t) => parse_bool(t).ok_or(bad)?,
+                    None => !*self.bool_mut(name),
+                };
+                *self.bool_mut(name) = v;
+            }
+            Kind::Number => *self.number_mut(name) = value.ok_or(bad)?.parse().map_err(|_| bad)?,
+            Kind::String => *self.string_mut(name) = value.unwrap_or("").to_owned(),
+            Kind::Sort => self.sort.key = value.and_then(SortKey::parse).ok_or(bad)?,
+            Kind::Ratio => {
+                let mut words = value
+                    .ok_or(bad)?
+                    .split([' ', ',', ':', '{', '}'])
+                    .filter(|w| !w.is_empty());
+                let mut r = [0.0; 3];
+                for x in &mut r {
+                    let w: f32 = words.next().ok_or(bad)?.parse().map_err(|_| bad)?;
+                    if w < 0.0 {
+                        return Err(bad);
+                    }
+                    *x = w;
+                }
+                self.ratio = r;
+            }
+            Kind::Size => {
+                self.chooser_size =
+                    crate::state::parse_chooser_size(value.ok_or(bad)?.as_bytes()).ok_or(bad)?;
+            }
+        }
+        Ok(())
+    }
+
     fn bool_mut(&mut self, name: &str) -> &mut bool {
         match name {
             "hidden" => &mut self.show_hidden,
@@ -355,5 +418,71 @@ impl Options {
             "shell" => &mut self.shell,
             _ => unreachable!("{name} is in INFOS as a string"),
         }
+    }
+}
+
+/// A boolean as typed: `true`, `on`, `yes`, or `1`, and their opposites, in any case.
+pub fn parse_bool(t: &str) -> Option<bool> {
+    let is = |words: [&str; 4]| words.iter().any(|w| w.eq_ignore_ascii_case(t));
+    if is(["true", "on", "yes", "1"]) {
+        Some(true)
+    } else if is(["false", "off", "no", "0"]) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // :set's grammar, as vim's: the "no" prefix only for booleans (so "notes" is no
+    // option rather than "tes" turned off), "!" flipping, a bare boolean turning on.
+    #[test]
+    fn set_lines() {
+        let mut o = Options::default();
+        assert_eq!(o.set_line("hidden"), Ok("hidden"));
+        assert!(o.show_hidden);
+        assert_eq!(o.set_line("nohidden"), Ok("hidden"));
+        assert!(!o.show_hidden);
+        o.set_line("hidden!").unwrap();
+        o.set_line("hidden!").unwrap();
+        assert!(!o.show_hidden);
+        o.set_line("icons=OFF").unwrap();
+        assert!(!o.icons);
+        o.set_line("sort mtime").unwrap();
+        assert_eq!(o.sort.key, SortKey::Modified);
+        o.set_line("ratio 1,2 , 5").unwrap();
+        assert_eq!(o.ratio, [1.0, 2.0, 5.0]);
+        o.set_line("chooser_size 960x640").unwrap();
+        assert_eq!(o.chooser_size, [960, 640]);
+        o.set_line("shell fish -c").unwrap();
+        assert_eq!(o.shell, "fish -c");
+        assert_eq!(o.set_line("which_key_delay=0"), Ok("which_key_delay"));
+        assert_eq!(o.which_key_delay, 0);
+
+        let before = o.clone();
+        assert_eq!(o.set_line("notes"), Err(("notes", SetError::UnknownOption)));
+        assert_eq!(
+            o.set_line("noratio"),
+            Err(("noratio", SetError::UnknownOption))
+        );
+        for bad in [
+            "hidden maybe",
+            "scroll_off",
+            "scroll_off -1",
+            "ratio 1 2",
+            "ratio 1 -2 3",
+            "chooser_size 100x640",
+            "sort colour",
+        ] {
+            assert_eq!(
+                o.set_line(bad).map_err(|e| e.1),
+                Err(SetError::InvalidValue),
+                "{bad}"
+            );
+        }
+        assert_eq!(o, before, "a bad value changes nothing");
     }
 }

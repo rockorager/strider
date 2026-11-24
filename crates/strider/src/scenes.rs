@@ -90,23 +90,47 @@ pub fn fixture(name: &str) -> PathBuf {
 /// The app on the sample home, started in `start` under it, with times in UTC.
 fn sample(name: &str, start: &str) -> Result<(App<Strider>, Strider)> {
     let home = fixture(name);
-    crate::app_in(home.join(start), home, Config::default(), Zone::utc(), true)
+    crate::app_in(
+        home.join(start),
+        home,
+        Config::default(),
+        Zone::utc(),
+        true,
+        None,
+    )
 }
 
-/// Presses keys as a user would, through the keymap.
+/// Presses keys as a user would, through the keymap. While a prompt is open, a character
+/// is typed into it, as its text field would take it.
 fn press(s: &mut Strider, tx: &mut Txn<'_, Strider>, spec: &str) -> Result<()> {
-    for key in strider_core::keys::parse(spec).map_err(|_| Error::Other("a scene's keys"))? {
-        let seq = strider_machines::keymap::sequence(&s.keys.context().pending, key);
-        let found = s
-            .keymap
-            .lookup(strider_machines::mode::table(s.visual()), &seq);
-        let ev = strider_machines::keymap::KeyEv::Key {
-            key,
-            exact: found.exact.map(|b| b.cmd.clone()),
-            prefix: found.prefix,
+    // One key at a time, as a sequence is at most eight keys: `<...>` or a character.
+    let mut rest = spec;
+    while let Some(c) = rest.chars().next() {
+        let len = match (c, rest.find('>')) {
+            ('<', Some(end)) => end + 1,
+            _ => c.len_utf8(),
         };
-        let fx = s.keys.send(ev, app::Clock { tx });
-        let _ = app::apply_key_fx(s, tx, fx);
+        let (one, more) = rest.split_at(len);
+        rest = more;
+        let [key] = strider_core::keys::parse(one).map_err(|_| Error::Other("a scene's keys"))?[..]
+        else {
+            return Err(Error::Other("a scene's keys"));
+        };
+        if s.prompt().is_some()
+            && (key.is_char() || key == strider_core::keys::Key::char(u32::from(' ')))
+            && let Some(c) = char::from_u32(key.code)
+        {
+            let editor = s.ui.line_editor;
+            let text = format!("{}{c}", tx.editor_text(editor)?);
+            tx.set_text(editor, &text)?;
+            tx.set_editor_selection(editor, text.len(), text.len())?;
+            app::send_mode(s, tx, strider_machines::mode::ModeEv::Edit)?;
+            continue;
+        }
+        match app::press(s, tx, key) {
+            Err(Error::Pass) => {}
+            r => r?,
+        }
     }
     Ok(())
 }
@@ -129,6 +153,28 @@ pub fn add(app: &mut App<Strider>) {
         let (mut app, mut s) = sample("hidden", "work")?;
         let window = s.window;
         app.update(window, |tx| press(&mut s, tx, "zhG"))?;
+        Ok((app, s))
+    });
+    // :set completes and runs, then a path completes, the line left open.
+    app.scene_app("command-line", || {
+        let (mut app, mut s) = sample("command-line", "work")?;
+        let window = s.window;
+        app.update(window, |tx| {
+            press(&mut s, tx, ":set<Space>hidden<CR>:cd<Space>../Mu<Tab>")
+        })?;
+        Ok((app, s))
+    });
+    // Tab with several commands that start so: as far as they agree, and the list.
+    app.scene_app("completion", || {
+        let (mut app, mut s) = sample("completion", "work")?;
+        let window = s.window;
+        app.update(window, |tx| press(&mut s, tx, ":so<Tab>"))?;
+        Ok((app, s))
+    });
+    app.scene_app("filter", || {
+        let (mut app, mut s) = sample("filter", "work")?;
+        let window = s.window;
+        app.update(window, |tx| press(&mut s, tx, "zfre"))?;
         Ok((app, s))
     });
     app.scene_app("which-key", || {
