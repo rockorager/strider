@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use keywork::prelude::*;
-use keywork::{Activation, QuitHold, Timer};
+use keywork::{Activation, KeepRunning, Timer};
 use strider_core::{model, uri};
 
 use crate::app::{self, Strider};
@@ -20,9 +20,6 @@ pub const APP_ID: &str = "dev.rockorager.Strider";
 /// Zig build's.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Longer than a service runs: its hold on the exit is let go by hand.
-const FOREVER: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
-
 /// How this process was started, which activations and the last window's closing heed.
 #[derive(Default)]
 pub struct Launch {
@@ -30,10 +27,17 @@ pub struct Launch {
     pub new_window: bool,
     /// `--service`: started by D-Bus activation, with no window until asked for one.
     pub service: bool,
-    /// A service's hold on the exit, which Keywork starts once no window is open, and the
-    /// timer that lets it go when no window came.
-    hold: Option<QuitHold>,
+    /// What keeps a service running with no window open until its first window opens, and
+    /// the timer that lets it go when no window came.
+    keep: Option<KeepRunning>,
     idle: Option<Timer>,
+}
+
+/// Runs `app` as a D-Bus activated service: with no window open until a call asks for one,
+/// for as long as the idle timeout after its last activation, or until its windows close.
+pub fn serve(app: &mut App<Strider>, s: &mut Strider) {
+    s.launch.service = true;
+    s.launch.keep = Some(app.keep_running());
 }
 
 /// Gives `app` what activations do, and the `new-window` action (the desktop entry's).
@@ -45,10 +49,7 @@ pub fn install(app: &mut App<Strider>) {
         cx.raise(window, invoked.token.as_deref())
     });
     app.on_start(|s: &mut Strider, cx| {
-        if s.launch.service {
-            s.launch.hold = Some(cx.hold_quit(FOREVER));
-            arm_idle(s, cx);
-        }
+        arm_idle(s, cx);
         Ok(())
     });
 }
@@ -167,45 +168,27 @@ pub fn current_dir(home: &Path) -> PathBuf {
     }
 }
 
-/// A service exits when no window came this long after its last activation.
+/// A service exits when no window came this long after its last activation: the timer drops
+/// what keeps it running.
 fn arm_idle(s: &mut Strider, cx: &mut Cx<'_, Strider>) {
-    if !s.launch.service || s.launch.hold.is_none() {
+    if s.launch.keep.is_none() {
         return;
     }
     if let Some(timer) = s.launch.idle.take() {
         cx.cancel_timer(timer);
     }
-    s.launch.idle = Some(cx.after(IDLE_TIMEOUT, |s: &mut Strider, cx| {
+    s.launch.idle = Some(cx.after(IDLE_TIMEOUT, |s: &mut Strider, _| {
         s.launch.idle = None;
-        if s.wins.is_empty() {
-            let_go(s, cx)?;
-        }
+        s.launch.keep = None;
         Ok(())
     }));
 }
 
-/// A window opened: a service is in use.
+/// A window opened: a service is in use, and quits once its last window closes, as the Zig
+/// build's did.
 pub fn window_opened(s: &mut Strider, cx: &mut Cx<'_, Strider>) {
     if let Some(timer) = s.launch.idle.take() {
         cx.cancel_timer(timer);
     }
-}
-
-/// The last window closed, which quits, as in the Zig build: Keywork quits on its own, and
-/// cancels the jobs in its quit hook; a service lets go of its hold, cancelling them itself,
-/// since its hook ran when it started without a window.
-pub fn last_closed(s: &mut Strider, cx: &mut Cx<'_, Strider>) {
-    if s.launch.hold.is_some() {
-        let _ = let_go(s, cx);
-    }
-}
-
-fn let_go(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
-    crate::tasks::quit(s, cx)?;
-    s.launch.hold = None;
-    if let Some(timer) = s.launch.idle.take() {
-        cx.cancel_timer(timer);
-    }
-    cx.quit();
-    Ok(())
+    s.launch.keep = None;
 }

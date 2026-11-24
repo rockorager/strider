@@ -9,8 +9,7 @@ MISE_VERSION=2026.11.6
 
 # The build links nothing but libc. Keywork loads libfontconfig and
 # libvulkan (Mesa's drivers, lavapipe among them) at run time, and the
-# theme asks fc-match for monospace; DejaVu is a monospace font for the
-# renders. shared-mime-info and desktop-file-utils for types and
+# text is in monospace; DejaVu is a monospace font for the renders. shared-mime-info and desktop-file-utils for types and
 # applications; dbus (with dbus-daemon) for the single instance, the
 # FileManager1 and portal services, and their tests on a private bus; and
 # what previews call: poppler's pdftoppm, libarchive's bsdtar, and ffmpeg.

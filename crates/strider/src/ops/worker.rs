@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, PoisonError};
 
+use keywork::desktop::trash::{Trash, TrashError, TrashItem};
 use rustix::fs::{CWD, Mode, OFlags, RenameFlags};
 use rustix::io::Errno;
 use strider_core::fsops::{self, Conflict, Done, Finished, Kind, OpError, Resolution};
-use strider_core::{model, trash};
+use strider_core::model;
 use strider_machines::operation::{End, OpEv};
 
 use super::{Request, Shared, lock};
@@ -47,11 +48,30 @@ pub(super) fn op_error(e: &io::Error) -> OpError {
     }
 }
 
+/// A trash operation's error as an operation's, about `path`.
+fn trash_fail(e: TrashError, path: &Path) -> Fail {
+    let e = match e {
+        TrashError::Io(e) => op_error(&e),
+        TrashError::CrossDevice => OpError::CrossDevice,
+        TrashError::Exists(_) => OpError::Exists,
+        // No trash it could make on a read-only file system, or the like.
+        _ => OpError::AccessDenied,
+    };
+    Fail(e, path.to_owned())
+}
+
 pub(super) fn run(sh: &Shared) {
     let req = &sh.request;
+    let trash = super::trash_of(&req.home_trash);
+    let items = match req.kind {
+        Kind::Restore => super::trash_items(&trash, &req.sources),
+        _ => Vec::new(),
+    };
     let mut w = Worker {
         sh,
         req,
+        trash,
+        items,
         done: Vec::new(),
         created: Vec::new(),
         skipped: 0,
@@ -86,6 +106,10 @@ pub(super) fn run(sh: &Shared) {
 struct Worker<'a> {
     sh: &'a Shared,
     req: &'a Request,
+    /// The user's trashes, which trashing moves files into.
+    trash: Trash,
+    /// Restore: the trash item each source is, parallel to them.
+    items: Vec<Option<TrashItem>>,
     done: Vec<Done>,
     created: Vec<Vec<u8>>,
     skipped: u32,
@@ -203,7 +227,10 @@ impl Worker<'_> {
             }
             Kind::Trash => self.trash(src),
             Kind::Delete => self.delete_tree(src),
-            Kind::Restore | Kind::MoveBack => self.restore(src, &self.req.targets[index]),
+            Kind::Restore | Kind::MoveBack => {
+                let item = self.items.get(index).cloned().flatten();
+                self.restore(src, &self.req.targets[index], item)
+            }
             // Links named on the command line are followed, as chmod(1) and chown(1) do;
             // links inside folders are not.
             Kind::Chmod | Kind::Chown => self.attr_tree(src, true),
@@ -455,77 +482,18 @@ impl Worker<'_> {
         Ok(())
     }
 
-    /// The freedesktop.org trash: the file moves to Trash/files under a free name, with
-    /// Trash/info/NAME.trashinfo saying where it was and when. Files on other devices go to
-    /// that device's $topdir/.Trash-$uid, as the specification says.
+    /// The freedesktop.org trash, as Keywork keeps it: the file moves to the trash of its
+    /// file system under a free name, with an info file saying where it was and when.
     fn trash(&mut self, src: &Path) -> Res<()> {
-        let (dir, top) =
-            trash_dir_for(&self.req.home_trash, src).map_err(|e| Fail(e, src.to_owned()))?;
-        let files = dir.join("files");
-        let info_dir = dir.join("info");
-        for d in [&files, &info_dir] {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(d)
-                .map_err(|e| fail(d, &e))?;
-        }
-        // Claim a name by creating its info file exclusively, so that two trashes never claim
-        // the same one.
-        let name = model::basename(src);
-        let mut claimed = None;
-        for k in 1..10000 {
-            let target = if k == 1 {
-                model::join(&files, name)
-            } else {
-                fsops::numbered(&files, name, k)
-            };
-            let mut info_name = model::basename(&target).to_vec();
-            info_name.extend_from_slice(b".trashinfo");
-            let info = model::join(&info_dir, &info_name);
-            let opened = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&info);
-            match opened {
-                // A file with no info: leave both alone.
-                Ok(_) if fsops::exists(&target) => {
-                    let _ = fs::remove_file(&info);
-                }
-                Ok(f) => {
-                    claimed = Some((target, info, f));
-                    break;
-                }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-                Err(e) => return Err(fail(&info, &e)),
-            }
-        }
-        let Some((target, info, mut f)) = claimed else {
-            return Err(Fail(OpError::Exists, src.to_owned()));
-        };
-        // Paths in a device's own trash are relative to its top directory.
-        let s = src.as_os_str().as_bytes();
-        let t = top.as_os_str().as_bytes();
-        let recorded = if !t.is_empty() && model::is_within(src, &top) {
-            s.get(t.len() + usize::from(t.len() > 1)..)
-                .unwrap_or_default()
-        } else {
-            s
-        };
-        let _ = f.write_all(&trash::info_body(recorded, &local_now()));
-        drop(f);
-        if let Err(e) = self.move_to(src, &target) {
-            let _ = fs::remove_file(&info);
-            return Err(e);
-        }
-        self.record(src, &target, false);
+        let item = self.trash.trash(src).map_err(|e| trash_fail(e, src))?;
+        add(&self.sh.items_done, 1);
+        self.record(src, &item.file_path(), false);
         Ok(())
     }
 
-    /// Moves a trashed file (in some Trash/files), or for move back any file, to `target`,
-    /// resolving a conflict there; a restore removes the info file.
-    fn restore(&mut self, from: &Path, target: &Path) -> Res<()> {
+    /// Moves a trashed file, `item` of its trash, or for move back any file, to `target`,
+    /// resolving a conflict there; a trashed file leaves the trash with its info file.
+    fn restore(&mut self, from: &Path, target: &Path, item: Option<TrashItem>) -> Res<()> {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -545,14 +513,31 @@ impl Worker<'_> {
                 Resolution::Replace | Resolution::Merge => self.delete_quiet(target)?,
             }
         }
-        self.move_to(from, &to)?;
-        if self.req.kind == Kind::Restore
-            && let Some(info) = trash::info_path_of(from)
-        {
-            let _ = fs::remove_file(info);
+        match item {
+            Some(item) => self.restore_item(&item, &to)?,
+            None => self.move_to(from, &to)?,
         }
         self.record(from, &to, false);
         Ok(())
+    }
+
+    /// Takes `item` out of its trash to `to`; to another file system, by copying it there
+    /// and deleting it from the trash.
+    fn restore_item(&self, item: &TrashItem, to: &Path) -> Res<()> {
+        let from = item.file_path();
+        match item.dir.restore_to(item, to) {
+            Ok(_) => {
+                add(&self.sh.items_done, 1);
+                Ok(())
+            }
+            Err(TrashError::CrossDevice) => {
+                // Count the bytes now that they must be copied, the whole tree's.
+                self.scan_tree(&from, true, true);
+                self.copy_tree(&from, to)?;
+                item.dir.delete(item).map_err(|e| fail(&from, &e))
+            }
+            Err(e) => Err(trash_fail(e, &from)),
+        }
     }
 
     /// chmod or chown on `path`, and below it when recursive.
@@ -592,52 +577,6 @@ impl Worker<'_> {
         }
         Ok(())
     }
-}
-
-/// The trash a file goes to: the home trash if the file is on its device, else
-/// $topdir/.Trash/$uid (if the administrator made it) or $topdir/.Trash-$uid on the file's
-/// device. Also returns that device's top directory ("" for the home trash).
-fn trash_dir_for(home_trash: &Path, src: &Path) -> Result<(PathBuf, PathBuf), OpError> {
-    let dev = |p: &Path| fs::symlink_metadata(p).ok().map(|m| m.dev());
-    let src_dev = dev(src).ok_or(OpError::FileNotFound)?;
-    // The home trash may not exist yet: its nearest existing ancestor.
-    let home_dev = home_trash.ancestors().find_map(dev);
-    if home_dev == Some(src_dev) {
-        return Ok((home_trash.to_owned(), PathBuf::new()));
-    }
-    // The top directory: the highest ancestor on the same device.
-    let mut top = model::parent(src);
-    while top.as_os_str().len() > 1 {
-        let up = model::parent(top);
-        if dev(up) != Some(src_dev) {
-            break;
-        }
-        top = up;
-    }
-    let uid = rustix::process::getuid().as_raw();
-    let t = fsops::trim_slash(top).as_os_str().as_bytes();
-    // $topdir/.Trash must be a sticky folder, not a link.
-    let admin = model::join(Path::new(std::ffi::OsStr::from_bytes(t)), b".Trash");
-    let sticky = fs::symlink_metadata(&admin).is_ok_and(|m| m.is_dir() && m.mode() & 0o1000 != 0);
-    let dir = if sticky {
-        admin.join(uid.to_string())
-    } else {
-        model::join(
-            Path::new(std::ffi::OsStr::from_bytes(t)),
-            format!(".Trash-{uid}").as_bytes(),
-        )
-    };
-    Ok((dir, top.to_owned()))
-}
-
-/// Local time now, as the trash specification writes it (YYYY-MM-DDThh:mm:ss).
-fn local_now() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
-    keywork::desktop::localtime::Zone::local()
-        .to_local(secs)
-        .to_string()
 }
 
 /// The process's umask, read once from /proc: the umask call would change it while reading

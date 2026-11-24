@@ -263,7 +263,9 @@ fn main() -> Result<()> {
     )?;
     lua_notice(&mut state, &config_home);
     state.launch.new_window = args.new_window;
-    state.launch.service = args.service;
+    if args.service {
+        instance::serve(&mut app, &mut state);
+    }
     // Settled before any window maps: a second launch hands its folders over and exits.
     let uris = instance::uris(&args.paths);
     match app.launch(instance::APP_ID, uris.clone()) {
@@ -1464,7 +1466,7 @@ esac
         paths: impl FnOnce(&std::path::Path) -> Vec<PathBuf>,
     ) -> (H, PathBuf) {
         let home = scenes::fixture(name);
-        let (app, mut state) = base(
+        let (mut app, mut state) = base(
             home.clone(),
             Config::default(),
             Zone::utc(),
@@ -1473,7 +1475,9 @@ esac
             None,
         )
         .unwrap();
-        state.launch.service = service;
+        if service {
+            instance::serve(&mut app, &mut state);
+        }
         let mut h = app.headless_with_bus(state).unwrap();
         let paths: Vec<String> = paths(&home)
             .iter()
@@ -1802,8 +1806,8 @@ esac
         (r.x + (r.width / 2.0).min(40.0), r.y + r.height / 2.0)
     }
 
-    /// Presses on `from` and moves past the threshold, the button held: the drag starts.
-    /// Then it is over `to`, as the compositor reports the app's own drag.
+    /// Presses on `from` and moves past the threshold, the button held: the drag starts,
+    /// and the pointer takes it over `to`.
     fn drag(h: &mut H, window: WindowId, from: (f32, f32), to: (f32, f32)) {
         use keywork::input::BTN_LEFT;
         h.pointer_move(window, from.0, from.1).unwrap();
@@ -1814,25 +1818,14 @@ esac
         drag_to(h, window, to);
     }
 
+    /// The pointer takes the drag over `to`.
     fn drag_to(h: &mut H, window: WindowId, to: (f32, f32)) {
-        use keywork::app::dnd::DndActions;
-        let mimes = [dnd::URI_LIST, "text/plain;charset=utf-8"];
-        h.drag_over(
-            window,
-            to.0,
-            to.1,
-            &mimes,
-            DndActions::COPY | DndActions::MOVE,
-        )
-        .unwrap();
+        h.pointer_move(window, to.0, to.1).unwrap();
         h.settle().unwrap();
     }
 
-    /// Drops the app's own drag where it is, and lets go of the button.
-    fn drop_and_release(h: &mut H, window: WindowId, at: (f32, f32)) {
-        use keywork::app::dnd::DndActions;
-        h.drop_data(at.0, at.1, DndActions::MOVE, b"").unwrap();
-        h.settle().unwrap();
+    /// Lets go of the button: the app's drag drops where it is.
+    fn release(h: &mut H, window: WindowId) {
         h.pointer_button(window, keywork::input::BTN_LEFT, false)
             .unwrap();
         h.settle().unwrap();
@@ -1844,12 +1837,13 @@ esac
     }
 
     // As the Zig build's test: a file onto a folder's row in the current column (outlined,
-    // the hint says the move), dropped as a file operation that u undoes; Ctrl copies, even
-    // within one filesystem, the hint following the key; onto a folder in the parent column;
-    // resting on a folder opens it, and a folder in its preview takes the drop; a folder
-    // that opened under a resting drag takes the drop there, the pointer still. Catches:
-    // drops into the folder under the cursor rather than the one under the pointer, the
-    // modifiers or the filesystem ignored, drops left out of undo, folders that never open.
+    // the hint and the card's badge say the move), dropped as a file operation that u
+    // undoes; Ctrl copies, even within one filesystem, the hint and the badge following the
+    // key; onto a folder in the parent column; resting on a folder opens it, and a folder in
+    // its preview takes the drop; a folder that opened under a resting drag takes the drop
+    // there, the pointer still. Catches: drops into the folder under the cursor rather than
+    // the one under the pointer, the modifiers or the filesystem ignored, a card that never
+    // says what a drop does, drops left out of undo, folders that never open.
     #[test]
     fn drag_and_drop_into_folders() {
         let (mut h, window, home) = ops_app_with("dnd-folders", |home| {
@@ -1859,16 +1853,18 @@ esac
         let from = entry_at(&mut h, window, Col::Current, "build.zig");
         let docs = entry_at(&mut h, window, Col::Current, "docs");
         drag(&mut h, window, from, docs);
-        assert!(dnd::dragging(h.state()));
+        assert!(dnd::dragging(h.state()) && h.drag_icon().is_some());
         assert_eq!(hint(&h), "Move “build.zig” to docs");
+        assert_eq!(dnd::badge(h.state()), Some(Some(dnd::Action::Move)));
         let pos = h.state().cur().position_of(b"docs").unwrap();
         assert_eq!(
             h.state().dnd.over,
             Some(dnd::Target::Row(Col::Current, pos))
         );
-        drop_and_release(&mut h, window, docs);
+        release(&mut h, window);
         assert!(work.join("docs/build.zig").exists() && !work.join("build.zig").exists());
         assert!(!dnd::dragging(h.state()) && hint(&h).is_empty());
+        assert!(h.drag_icon().is_none());
         typ(&mut h, window, "u");
         wait_ops(&mut h);
         assert!(work.join("build.zig").exists() && !work.join("docs/build.zig").exists());
@@ -1876,14 +1872,12 @@ esac
         // Ctrl copies; the hint follows the key.
         let from = entry_at(&mut h, window, Col::Current, "README.md");
         drag(&mut h, window, from, docs);
-        h.key_press(window, Keysym(0xffe3), Modifiers::NONE)
-            .unwrap();
+        h.set_modifiers(Modifiers::CTRL);
         h.settle().unwrap();
         assert_eq!(hint(&h), "Copy “README.md” to docs");
-        drop_and_release(&mut h, window, docs);
-        h.key_release(window, Keysym(0xffe3), Modifiers::CTRL)
-            .unwrap();
-        h.settle().unwrap();
+        assert_eq!(dnd::badge(h.state()), Some(Some(dnd::Action::Copy)));
+        release(&mut h, window);
+        h.set_modifiers(Modifiers::NONE);
         assert!(work.join("docs/README.md").exists() && work.join("README.md").exists());
 
         // Onto a folder in the parent column.
@@ -1891,7 +1885,7 @@ esac
         let music = entry_at(&mut h, window, Col::Parent, "Music");
         drag(&mut h, window, from, music);
         assert_eq!(hint(&h), "Move “photo.png” to Music");
-        drop_and_release(&mut h, window, music);
+        release(&mut h, window);
         assert!(home.join("Music/photo.png").exists() && !work.join("photo.png").exists());
 
         // Resting on src opens it; util, under its cursor, is in the preview, and inner there
@@ -1905,7 +1899,7 @@ esac
         let inner = entry_at(&mut h, window, Col::Preview, "inner");
         drag_to(&mut h, window, inner);
         assert_eq!(hint(&h), "Move “run.sh” to inner");
-        drop_and_release(&mut h, window, inner);
+        release(&mut h, window);
         assert!(work.join("src/util/inner/run.sh").exists() && !work.join("run.sh").exists());
 
         // docs opens under a resting drag; the release there, the pointer still, is docs's.
@@ -1916,7 +1910,7 @@ esac
         h.advance(strider_machines::dnd::SPRING).unwrap();
         h.settle().unwrap();
         assert_eq!(h.state().cwd, work.join("docs"));
-        drop_and_release(&mut h, window, docs);
+        release(&mut h, window);
         assert!(work.join("docs/report.pdf").exists() && !work.join("report.pdf").exists());
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -1946,7 +1940,7 @@ esac
         let to = node_at(&mut h, window, home_link);
         drag(&mut h, window, from, to);
         assert_eq!(hint(&h), "Move “App.zig” to ~");
-        drop_and_release(&mut h, window, to);
+        release(&mut h, window);
         assert!(work.join("App.zig").exists() && !work.join("src/App.zig").exists());
 
         // Below the rows, src itself: nothing.
@@ -1957,7 +1951,7 @@ esac
         drag(&mut h, window, from, below);
         assert_eq!(h.state().dnd.over, Some(dnd::Target::Column(Col::Current)));
         assert_eq!(hint(&h), "");
-        drop_and_release(&mut h, window, below);
+        release(&mut h, window);
         assert!(work.join("src/main.zig").exists());
 
         // Onto a tab: its folder.
@@ -1968,7 +1962,7 @@ esac
         let to = node_at(&mut h, window, tab);
         drag(&mut h, window, from, to);
         assert_eq!(hint(&h), "Move “main.zig” to ~");
-        drop_and_release(&mut h, window, to);
+        release(&mut h, window);
         assert!(work.join("main.zig").exists() && !work.join("src/main.zig").exists());
 
         // Escape gives the drag up: the release drops nothing.
@@ -1979,7 +1973,7 @@ esac
         h.key(window, Keysym::ESCAPE, Modifiers::NONE).unwrap();
         h.settle().unwrap();
         assert!(!dnd::dragging(h.state()) && hint(&h).is_empty());
-        drop_and_release(&mut h, window, to);
+        release(&mut h, window);
         assert!(work.join("src/util").exists() && !work.join("util").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -2035,10 +2029,7 @@ esac
             uri(&home.join("Desktop")),
         );
         assert!(work.join("Desktop").is_dir() && !home.join("Desktop").exists());
-        h.key_press(window, Keysym(0xffe3), Modifiers::NONE)
-            .unwrap();
-        h.key_press(window, Keysym(0xffe1), Modifiers::CTRL)
-            .unwrap();
+        h.set_modifiers(Modifiers::CTRL | Modifiers::SHIFT);
         drop(
             &mut h,
             dnd::URI_LIST,
@@ -2046,10 +2037,7 @@ esac
             uri(&home.join("Documents")),
         );
         assert!(work.join("Documents").is_symlink());
-        h.key_release(window, Keysym(0xffe1), Modifiers::CTRL | Modifiers::SHIFT)
-            .unwrap();
-        h.key_release(window, Keysym(0xffe3), Modifiers::CTRL)
-            .unwrap();
+        h.set_modifiers(Modifiers::NONE);
         drop(
             &mut h,
             dnd::URI_LIST,

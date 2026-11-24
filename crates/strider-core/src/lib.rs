@@ -12,6 +12,5 @@ pub mod omarchy;
 pub mod options;
 pub mod rename;
 pub mod state;
-pub mod trash;
 pub mod undo;
 pub mod uri;

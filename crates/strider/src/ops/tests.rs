@@ -314,17 +314,24 @@ fn trashing_on_another_device() {
         return;
     };
     fs::write(other.join("f"), "x").unwrap();
-    let f = run(Request::trash(vec![other.join("f")], t.p("home/Trash")));
+    let home_trash = t.p("home/Trash");
+    let f = run(Request::trash(vec![other.join("f")], home_trash.clone()));
     let uid = rustix::process::getuid().as_raw();
     let dir = Path::new("/dev/shm").join(format!(".Trash-{uid}"));
     let trashed = f.done.first().map(|d| d.to.clone());
-    let info = trashed.as_deref().and_then(trash::info_path_of);
+    let info = trashed.as_deref().map(|p| {
+        let mut name = model::basename(p).to_vec();
+        name.extend_from_slice(b".trashinfo");
+        model::join(&dir.join("info"), &name)
+    });
     let body = info
         .as_deref()
-        .map(fs::read)
+        .map(fs::read_to_string)
         .and_then(Result::ok)
         .unwrap_or_default();
-    let restored = trashed.clone().map(|p| run(restore_request(&[p]).unwrap()));
+    let restored = trashed
+        .clone()
+        .map(|p| run(restore_request(&[p], &home_trash).unwrap()));
     let back = fs::read_to_string(other.join("f")).ok();
     // Only what this test made: the device's trash may hold others' files.
     for p in trashed.into_iter().chain(info) {
@@ -336,9 +343,12 @@ fn trashing_on_another_device() {
     let _ = fs::remove_dir_all(&other);
     assert!(f.error.is_none(), "{f:?}");
     assert_eq!(f.done[0].to.parent(), Some(dir.join("files").as_path()));
-    let recorded = trash::parse_info(&body).path;
+    let recorded = body
+        .lines()
+        .find_map(|l| l.strip_prefix("Path="))
+        .unwrap_or("");
     assert!(
-        !recorded.starts_with(b"/") && recorded.ends_with(b"/f"),
+        !recorded.starts_with('/') && recorded.ends_with("/f"),
         "{body:?}"
     );
     assert!(restored.is_some_and(|r| r.error.is_none()));
@@ -346,8 +356,8 @@ fn trashing_on_another_device() {
 }
 
 // Trashing writes the info file the specification asks for, a second file of the same name
-// gets a free one, the trash lists both with where they were, and restoring puts each back
-// and removes its info file.
+// gets a free one, numbered as GIO numbers it, the trash lists both with where they were, and
+// restoring puts each back and removes its info file.
 #[test]
 fn trash_and_restore() {
     let t = Tmp::new();
@@ -370,49 +380,54 @@ fn trash_and_restore() {
         info.starts_with("[Trash Info]\n") && info.contains(&path),
         "{info}"
     );
-    let date = trash::parse_info(info.as_bytes()).date;
-    assert!(trash::parse_date(date) != 0, "{info}");
+    let date = info.lines().find_map(|l| l.strip_prefix("DeletionDate="));
+    assert!(
+        date.and_then(keywork::desktop::localtime::DateTime::parse)
+            .is_some(),
+        "{info}"
+    );
 
     t.sh("echo again > 'work/a b.txt'");
     let f = run(Request::trash(
         paths(&t, &["work/a b.txt"]),
         home_trash.clone(),
     ));
-    assert_eq!(f.done[0].to, t.p("home/Trash/files/a b (2).txt"));
-    assert!(t.has("home/Trash/info/a b (2).txt.trashinfo"));
+    assert_eq!(f.done[0].to, t.p("home/Trash/files/a b.2.txt"));
+    assert!(t.has("home/Trash/info/a b.2.txt.trashinfo"));
 
-    let (l, info) = trash::list(std::slice::from_ref(&home_trash));
-    let mut originals: Vec<_> = info.items.iter().map(|i| i.original.clone()).collect();
+    // The home trash's: another test may be trashing on another file system meanwhile.
+    let (l, items) = list_trash(&home_trash);
+    let mine: Vec<usize> = (0..items.len())
+        .filter(|&i| items[i].dir.root() == home_trash)
+        .collect();
+    let mut originals: Vec<_> = mine.iter().map(|&i| items[i].original.clone()).collect();
     originals.sort();
     assert_eq!(
         originals,
         paths(&t, &["work/a b.txt", "work/a b.txt", "work/dir"])
     );
     assert_eq!(
-        l.path_of(&l.entries[0]).parent(),
+        l.path_of(&l.entries[mine[0]]).parent(),
         Some(t.p("home/Trash/files").as_path())
     );
 
-    let trashed = paths(
-        &t,
-        &["home/Trash/files/a b (2).txt", "home/Trash/files/dir"],
-    );
-    let f = run(restore_request(&trashed).unwrap());
+    let trashed = paths(&t, &["home/Trash/files/a b.2.txt", "home/Trash/files/dir"]);
+    let f = run(restore_request(&trashed, &home_trash).unwrap());
     assert!(f.error.is_none());
     assert_eq!(t.read("work/a b.txt"), "again\n");
     assert!(t.has("work/dir/x") && !t.has("home/Trash/files/dir"));
     assert!(
-        !t.has("home/Trash/info/a b (2).txt.trashinfo") && !t.has("home/Trash/info/dir.trashinfo")
+        !t.has("home/Trash/info/a b.2.txt.trashinfo") && !t.has("home/Trash/info/dir.trashinfo")
     );
 
     // The other one's place is taken now: keeping both restores it under a free name.
-    let req = restore_request(&paths(&t, &["home/Trash/files/a b.txt"])).unwrap();
+    let req = restore_request(&paths(&t, &["home/Trash/files/a b.txt"]), &home_trash).unwrap();
     let (f, asked) = run_with(req, answering(Resolution::KeepBoth, false));
     assert_eq!(asked.len(), 1);
     assert_eq!(f.done[0].to, t.p("work/a b (2).txt"));
     assert_eq!(t.read("work/a b (2).txt"), "hi\n");
     assert_eq!(
-        restore_request(&paths(&t, &["work/a b.txt"])),
+        restore_request(&paths(&t, &["work/a b.txt"]), &home_trash),
         Err("These items do not say where they came from")
     );
 }

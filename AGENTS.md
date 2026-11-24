@@ -58,7 +58,7 @@ archive keeps `@PREFIX@` for `just fetch` to fill in.
   options and `config.json` (`options.rs`, `config.rs`), the default keys
   and key notation (`keys.rs`), state files (`state.rs`), entries, sorting,
   and MIME types (`model.rs`), fuzzy matching, syntax highlighting,
-  archives, drives, trash, file operations' plans, rename, undo, URIs, and
+  archives, drives, file operations' plans, rename, undo, URIs, and
   Omarchy themes.
 - `crates/strider-machines`: every statechart, as `plusthree::machine!`:
   the mode (`mode.rs`), the keymap's pending keys (`keymap.rs`), a folder's

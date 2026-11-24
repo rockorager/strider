@@ -460,6 +460,15 @@ pub fn build(tx: &mut Txn<'_, Strider>) -> Result<Ui> {
             .min_height(0.0),
     )?;
     tx.set_label(preview_image, "Image preview")?;
+    on(
+        tx,
+        preview_image,
+        EventKind::ImageFailed,
+        |s: &mut Strider, tx, ev| match ev.data {
+            EventData::ImageError(e) => crate::preview::image_failed(s, tx, e),
+            _ => Ok(()),
+        },
+    )?;
     let preview_caption = widgets::label(tx, preview_image_box, "", TextKind::Small)?;
     tx.update_style(preview_caption, |s| s.max_lines = 1)?;
     let preview_info = tx.flex(
@@ -650,7 +659,7 @@ fn key_down(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event) -> Result<()
     };
     s.inputs += 1;
     s.last_input = s.inputs;
-    if crate::dnd::key(s, tx, keysym, modifiers)? {
+    if crate::dnd::key(s, tx, keysym)? {
         return Ok(());
     }
     let Some(key) = key_of(keysym, modifiers) else {
@@ -1118,10 +1127,7 @@ pub fn closed(s: &mut Strider, cx: &mut Cx<'_, Strider>, id: WindowId) -> Result
             cache::reread_orphans(s, tx, id)?;
             cache::show(s, tx)
         }),
-        None => {
-            crate::instance::last_closed(s, cx);
-            Ok(())
-        }
+        None => Ok(()),
     }
 }
 
@@ -1420,14 +1426,8 @@ pub fn draw_preview(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     match p {
         Preview::Folder(_) => draw_column(s, tx, Col::Preview),
         Preview::Text(lines) | Preview::Output { lines, .. } => draw_lines(s, tx, lines),
-        Preview::Image { picture, caption } => {
-            let image = s.ui.preview_image;
-            match picture {
-                crate::preview::Picture::Decoded(i) => {
-                    widgets::set_image(tx, image, Some(i.clone()))?
-                }
-                crate::preview::Picture::File(path) => widgets::load_image(tx, image, path)?,
-            }
+        Preview::Image { path, caption } => {
+            widgets::load_image(tx, s.ui.preview_image, path)?;
             tx.set_text(s.ui.preview_caption, caption)
         }
         Preview::Info(info) => draw_info(s, tx, info),

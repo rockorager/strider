@@ -34,10 +34,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use keywork::desktop::basedir::BaseDirs;
+use keywork::desktop::trash::{Trash, TrashItem};
 use plusthree::host::NoTimers;
 use strider_core::fsops::{Conflict, Finished, Kind, OpError, Resolution};
 use strider_core::undo::{Pair, Reversal, Step};
-use strider_core::{fsops, model, trash};
+use strider_core::{fsops, model};
 use strider_machines::driver::Driver;
 use strider_machines::operation::{End, OpEv, OpFx, Operation, operation::states};
 
@@ -53,7 +55,8 @@ pub struct Request {
     pub dest: PathBuf,
     /// Restore and move back: where each source goes, parallel to `sources`.
     pub targets: Vec<PathBuf>,
-    /// The home trash (`$XDG_DATA_HOME/Trash`), which trashing files on its device uses.
+    /// Trash and restore: the home trash (`$XDG_DATA_HOME/Trash`), which trashing files on
+    /// its device uses, beside each mounted file system's.
     pub home_trash: PathBuf,
     /// chmod: the mode, as chmod(1) takes it, checked with [`fsops::parse_mode`] first.
     pub mode: String,
@@ -103,10 +106,12 @@ impl Request {
         Request::new(Kind::Delete, sources)
     }
 
-    /// Move each trashed file back to its target, removing its info file.
-    pub fn restore(trashed: Vec<PathBuf>, targets: Vec<PathBuf>) -> Request {
+    /// Move each trashed file, in a trash beside the home trash `home_trash`, back to its
+    /// target, out of the trash with its info file.
+    pub fn restore(trashed: Vec<PathBuf>, targets: Vec<PathBuf>, home_trash: PathBuf) -> Request {
         Request {
             targets,
+            home_trash,
             ..Request::new(Kind::Restore, trashed)
         }
     }
@@ -613,7 +618,7 @@ pub fn undo(step: &Step, home_trash: &Path) -> Undo {
             targets,
         } => Undo::Start(match kind {
             Kind::Trash => Request::trash(sources, home_trash.to_owned()),
-            Kind::Restore => Request::restore(sources, targets),
+            Kind::Restore => Request::restore(sources, targets, home_trash.to_owned()),
             _ => Request::move_back(sources, targets),
         }),
     }
@@ -621,101 +626,72 @@ pub fn undo(step: &Step, home_trash: &Path) -> Undo {
 
 // The trash -----------------------------------------------------------------------------------
 
-/// The mount points of real file systems (not /proc, tmpfs, overlays and the like), whose
-/// trashes the trash view lists and emptying the trash empties.
-pub fn mount_points() -> Vec<PathBuf> {
-    let mut mounts = Vec::new();
-    let text = fs::read("/proc/self/mountinfo").unwrap_or_default();
-    if keywork::desktop::mounts::parse_mountinfo(&text, &mut mounts).is_err() {
-        return Vec::new();
+/// The user's trashes: the home trash at `home_trash` (`$XDG_DATA_HOME/Trash`, or the sample
+/// home's in tests and scenes), and each mounted file system's.
+pub fn trash_of(home_trash: &Path) -> Trash {
+    let mut dirs = BaseDirs::from_env();
+    dirs.data_home = model::parent(home_trash).to_owned();
+    Trash::new(&dirs)
+}
+
+/// The items of `trash` that the files `trashed`, each in some trash's `files/`, are,
+/// parallel to them: None for a file no info file speaks for. Reads only the trashes they are
+/// in.
+pub fn trash_items(trash: &Trash, trashed: &[PathBuf]) -> Vec<Option<TrashItem>> {
+    let mut items = Vec::new();
+    for dir in trash.dirs() {
+        let files = dir.files();
+        if trashed.iter().any(|p| model::parent(p) == files) {
+            let _ = dir.list(&mut items);
+        }
     }
-    mounts
-        .into_iter()
-        .filter(|m| is_real(&m.fs_type, &m.mount_point))
-        .map(|m| m.mount_point)
+    trashed
+        .iter()
+        .map(|p| items.iter().find(|i| i.file_path() == *p).cloned())
         .collect()
 }
 
-fn is_real(fs_type: &str, mount_point: &Path) -> bool {
-    const PSEUDO: &[&str] = &[
-        "proc",
-        "sysfs",
-        "devtmpfs",
-        "devpts",
-        "tmpfs",
-        "cgroup",
-        "cgroup2",
-        "securityfs",
-        "pstore",
-        "bpf",
-        "debugfs",
-        "tracefs",
-        "configfs",
-        "fusectl",
-        "mqueue",
-        "hugetlbfs",
-        "autofs",
-        "efivarfs",
-        "binfmt_misc",
-        "nsfs",
-        "overlay",
-        "squashfs",
-        "rpc_pipefs",
-        "ramfs",
-        "selinuxfs",
-        "fuse.portal",
-        "fuse.gvfsd-fuse",
-        "fuse.xdg-document-portal",
-    ];
-    const SYSTEM: &[&str] = &[
-        "/proc",
-        "/sys",
-        "/dev",
-        "/run/user",
-        "/run/credentials",
-        "/snap",
-        "/var/lib/docker",
-    ];
-    !PSEUDO.contains(&fs_type)
-        && !SYSTEM
-            .iter()
-            .any(|p| model::is_within(mount_point, Path::new(p)))
+/// Lists every trash for the trash view: a listing rooted at "/" whose names are the trashed
+/// files' paths without the leading slash (so `path_of` gives where they are now), and the
+/// items, saying where each was and when it was deleted, parallel to its entries. Hidden
+/// files are not hidden in the trash. Blocking: run it on a worker.
+pub fn list_trash(home_trash: &Path) -> (model::Listing, Vec<TrashItem>) {
+    let mut items = Vec::new();
+    // A trash that cannot be read leaves the others listed.
+    for dir in trash_of(home_trash).dirs() {
+        let _ = dir.list(&mut items);
+    }
+    let mut b = model::Builder::new();
+    for item in &items {
+        let path = item.file_path();
+        let mut e = model::stat_entry(&path, item.name.as_bytes());
+        e.hidden = false;
+        b.add(&path.as_os_str().as_bytes()[1..], e);
+    }
+    (b.finish("/"), items)
 }
 
-/// Every trash directory: the home trash, then each real mount point's that exists.
-pub fn trash_dirs(home_trash: &Path) -> Vec<PathBuf> {
-    trash::trash_dirs(
-        home_trash,
-        &mount_points(),
-        rustix::process::getuid().as_raw(),
-    )
-}
-
-/// Lists every trash for the trash view. Blocking: run it on a worker.
-pub fn list_trash(home_trash: &Path) -> (model::Listing, trash::Info) {
-    trash::list(&trash_dirs(home_trash))
-}
-
-/// Restoring trashed files to where they were, leaving out those whose info files do not
-/// say; Err with the status line's message when none do.
-pub fn restore_request(trashed: &[PathBuf]) -> Result<Request, &'static str> {
+/// Restoring trashed files, in the trashes beside `home_trash`, to where they were, leaving
+/// out those whose info files do not say; Err with the status line's message when none do.
+pub fn restore_request(trashed: &[PathBuf], home_trash: &Path) -> Result<Request, &'static str> {
+    let items = trash_items(&trash_of(home_trash), trashed);
     let (sources, targets): (Vec<PathBuf>, Vec<PathBuf>) = trashed
         .iter()
-        .filter_map(|p| Some((p.clone(), trash::original_path(p)?)))
+        .zip(items)
+        .filter_map(|(p, item)| Some((p.clone(), item?.original)))
         .unzip();
     if sources.is_empty() {
         return Err("These items do not say where they came from");
     }
-    Ok(Request::restore(sources, targets))
+    Ok(Request::restore(sources, targets, home_trash.to_owned()))
 }
 
 /// Deleting everything in every trash, files and info files; Err with the status line's
 /// message when there is nothing.
 pub fn empty_trash_request(home_trash: &Path) -> Result<Request, &'static str> {
     let mut items = Vec::new();
-    for dir in trash_dirs(home_trash) {
-        for sub in ["files", "info"] {
-            let d = dir.join(sub);
+    for dir in trash_of(home_trash).dirs() {
+        for d in [dir.files(), dir.info()] {
             let Ok(read) = fs::read_dir(&d) else { continue };
             items.extend(
                 read.flatten()

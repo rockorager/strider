@@ -16,7 +16,6 @@ use std::sync::Arc;
 use keywork::desktop::apps::{AppId, Applications};
 use keywork::desktop::basedir::BaseDirs;
 use keywork::desktop::desktop_entry::{Locale, Target};
-use keywork::desktop::icon::{Icon as ThemeIcon, IconFormat, IconTheme};
 use keywork::desktop::launch::spawn_detached;
 use keywork::desktop::mime::MimeDb;
 use keywork::prelude::*;
@@ -283,7 +282,6 @@ pub fn open_with_menu(
                     .map(|&a| apps.get(a).icon(&locale).unwrap_or_default().to_owned()),
             )
             .collect();
-        let theme = s.icons.as_ref().map(|i| Arc::clone(i.theme()));
         let chosen = move |s: &mut Strider, tx: &mut Txn<'_, Strider>, i: usize| match (folder, i) {
             (true, 0) => open_terminal(s, tx, &paths[0]),
             _ => match list.get(i - usize::from(folder)) {
@@ -291,37 +289,8 @@ pub fn open_with_menu(
                 None => Ok(()),
             },
         };
-        work(
-            s,
-            tx,
-            move || app_icons(theme.as_deref(), &icons),
-            move |s, tx, icons| menu::open_with(s, tx, folder, &names, icons, chosen),
-        )
+        menu::open_with(s, tx, folder, &names, &icons, chosen)
     })
-}
-
-/// The icons the open-with menu shows, by the names applications' entries give: found in
-/// `theme` in their own colors, as the Zig build's menu showed them, or read from the file a
-/// path names; none where there is no such icon. It reads files, so it runs on a worker.
-fn app_icons(theme: Option<&IconTheme>, names: &[String]) -> Vec<Option<ThemeIcon>> {
-    let one = |name: &str| {
-        let path = Path::new(name);
-        let (path, format) = if path.is_absolute() {
-            let format = match path.extension().and_then(|e| e.to_str()) {
-                Some("png") => IconFormat::Png,
-                Some("svg" | "svgz") => IconFormat::Svg,
-                _ => return None,
-            };
-            (path.to_owned(), format)
-        } else {
-            let theme = theme.filter(|_| !name.is_empty())?;
-            // Twice the menu's 16 px, for scale-2 outputs.
-            let file = theme.lookup(&[name], 16, 2)?;
-            (theme.path(file), theme.format(file))
-        };
-        ThemeIcon::load(&path, format).ok()
-    };
-    names.iter().map(|n| one(n)).collect()
 }
 
 /// The applications the open-with menu lists for `mime`: its default first, then those

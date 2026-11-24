@@ -3,9 +3,9 @@
 //! compared, a choice for every later conflict), and properties (the details, permissions as
 //! check boxes and as a mode, the owner). Each is a card over the window, which it dims and
 //! holds the input of, driven from the keyboard: buttons and check boxes carry mnemonics,
-//! underlined, that work as keys (with Alt from a text field); Enter presses the focused
-//! button (Cancel when a dialog opens; Apply in properties from anywhere else); Escape
-//! cancels. Quick one-key questions (a single file's conflict, bookmarks) stay in the status
+//! always underlined, that Keywork takes as keys (with Alt from a text field); Enter presses
+//! the focused button (Cancel when a dialog opens; Apply in properties from anywhere else);
+//! Escape cancels. Quick one-key questions (a single file's conflict, bookmarks) stay in the status
 //! line.
 
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -72,8 +72,8 @@ pub struct Dialog {
     purpose: Purpose,
     /// The scrim that dims the window and holds the card.
     scrim: NodeId<Flex>,
-    /// Buttons, each with its mnemonic and what it does.
-    buttons: Vec<(NodeId<Flex>, char, Action)>,
+    /// Its buttons, Cancel first.
+    buttons: Vec<NodeId<Flex>>,
 }
 
 impl Dialog {
@@ -133,37 +133,18 @@ fn content(tx: &mut Txn<'_, Strider>, card: NodeId<Flex>) -> Result<NodeId<Flex>
     tx.flex(card, Flex::column().gap(6.0).width(Dim::Fill))
 }
 
-/// Underlines `letter`'s first appearance in a label's text node.
-fn underline(tx: &mut Txn<'_, Strider>, text: AnyNodeId, label: &str, letter: char) -> Result<()> {
-    let Some(at) = label
-        .char_indices()
-        .find(|(_, c)| c.to_ascii_lowercase() == letter)
-        .map(|(i, _)| i)
-    else {
-        return Ok(());
-    };
-    let text = tx.downcast::<Text>(text)?;
-    tx.set_text_spans(
-        text,
-        &[TextSpan::new(at..at + letter.len_utf8()).decoration(TextDecoration::UNDERLINE)],
-    )
-}
-
-/// The label's text node of a button or check box: the node after its first.
-fn label_node(tx: &Txn<'_, Strider>, node: NodeId<Flex>) -> Result<Option<AnyNodeId>> {
-    Ok(tx.children(node)?.nth(1))
-}
-
+/// A button labelled `label`, an underscore before its mnemonic, as GTK's use-underline
+/// reads it.
 fn button(
     tx: &mut Txn<'_, Strider>,
     actions: NodeId<Flex>,
-    buttons: &mut Vec<(NodeId<Flex>, char, Action)>,
+    buttons: &mut Vec<NodeId<Flex>>,
     label: &str,
-    mnemonic: char,
     variant: Variant,
     action: Action,
 ) -> Result<()> {
     let b = widgets::button_variant(tx, actions, label, variant)?;
+    widgets::set_use_underline(tx, b, true)?;
     // The buttons that are neither the default nor destructive are plain: the text color on
     // a component's gray, as GTK's are.
     if variant == Variant::Outline {
@@ -181,25 +162,29 @@ fn button(
             },
         )?;
     }
-    if let Some(t) = label_node(tx, b)? {
-        underline(tx, t, label, mnemonic)?;
-    }
     app::on(tx, b, Activate, move |s: &mut Strider, tx, _| {
         act(s, tx, action)
     })?;
-    buttons.push((b, mnemonic, action));
+    buttons.push(b);
     Ok(())
 }
 
-fn checkbox(
-    tx: &mut Txn<'_, Strider>,
-    parent: NodeId<Flex>,
-    label: &str,
-    mnemonic: Option<char>,
-) -> Result<NodeId<Flex>> {
+/// A check box labelled `label`, an underscore before its mnemonic if it has one. Keywork
+/// takes the mnemonic as a key, activating the box, which flips it, but underlines only
+/// buttons' mnemonics: the box's label underlines its own.
+fn checkbox(tx: &mut Txn<'_, Strider>, parent: NodeId<Flex>, label: &str) -> Result<NodeId<Flex>> {
     let b = widgets::checkbox(tx, parent, label)?;
-    if let (Some(m), Some(t)) = (mnemonic, label_node(tx, b)?) {
-        underline(tx, t, label, m)?;
+    let Some(at) = label.find('_') else {
+        return Ok(b);
+    };
+    widgets::set_use_underline(tx, b, true)?;
+    let len = label[at + 1..].chars().next().map_or(0, char::len_utf8);
+    if let Some(text) = tx.children(b)?.nth(1) {
+        let text = tx.downcast::<Text>(text)?;
+        tx.set_text_spans(
+            text,
+            &[TextSpan::new(at..at + len).decoration(TextDecoration::UNDERLINE)],
+        )?;
     }
     Ok(b)
 }
@@ -234,9 +219,9 @@ fn present(
     tx: &mut Txn<'_, Strider>,
     purpose: Purpose,
     scrim: NodeId<Flex>,
-    buttons: Vec<(NodeId<Flex>, char, Action)>,
+    buttons: Vec<NodeId<Flex>>,
 ) -> Result<()> {
-    if let Some(&(first, _, _)) = buttons.first()
+    if let Some(&first) = buttons.first()
         && !matches!(purpose, Purpose::Properties(_))
     {
         tx.focus(first)?;
@@ -308,8 +293,7 @@ pub fn confirm_delete(
         tx,
         actions,
         &mut buttons,
-        "Cancel",
-        'c',
+        "_Cancel",
         Variant::Outline,
         Action::Cancel,
     )?;
@@ -317,8 +301,7 @@ pub fn confirm_delete(
         tx,
         actions,
         &mut buttons,
-        "Delete",
-        'd',
+        "_Delete",
         Variant::Danger,
         Action::Delete,
     )?;
@@ -338,8 +321,7 @@ pub fn confirm_empty_trash(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result
         tx,
         actions,
         &mut buttons,
-        "Cancel",
-        'c',
+        "_Cancel",
         Variant::Outline,
         Action::Cancel,
     )?;
@@ -347,8 +329,7 @@ pub fn confirm_empty_trash(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result
         tx,
         actions,
         &mut buttons,
-        "Empty the trash",
-        'e',
+        "_Empty the trash",
         Variant::Danger,
         Action::EmptyTrash,
     )?;
@@ -391,8 +372,7 @@ pub fn confirm_overwrite(
         tx,
         actions,
         &mut buttons,
-        "Cancel",
-        'c',
+        "_Cancel",
         Variant::Outline,
         Action::Cancel,
     )?;
@@ -400,8 +380,7 @@ pub fn confirm_overwrite(
         tx,
         actions,
         &mut buttons,
-        "Replace",
-        'r',
+        "_Replace",
         Variant::Danger,
         Action::Overwrite,
     )?;
@@ -448,19 +427,18 @@ pub fn conflict(
     );
     let body_node = content(tx, card)?;
     lines(tx, body_node, &body)?;
-    let all = checkbox(tx, body_node, "Do the same for every conflict", Some('a'))?;
+    let all = checkbox(tx, body_node, "Do the s_ame for every conflict")?;
     let actions = widgets::dialog_actions(tx, card)?;
     let mut buttons = Vec::new();
-    let mut add = |tx: &mut Txn<'_, Strider>, label, m, v, a| {
-        button(tx, actions, &mut buttons, label, m, v, a)
-    };
-    add(tx, "Cancel", 'c', Variant::Outline, Action::Cancel)?;
-    add(tx, "Skip", 's', Variant::Outline, Action::Skip)?;
-    add(tx, "Keep both", 'k', Variant::Outline, Action::KeepBoth)?;
+    let mut add =
+        |tx: &mut Txn<'_, Strider>, label, v, a| button(tx, actions, &mut buttons, label, v, a);
+    add(tx, "_Cancel", Variant::Outline, Action::Cancel)?;
+    add(tx, "_Skip", Variant::Outline, Action::Skip)?;
+    add(tx, "_Keep both", Variant::Outline, Action::KeepBoth)?;
     if c.src_dir && c.dst_dir {
-        add(tx, "Merge", 'm', Variant::Outline, Action::Merge)?;
+        add(tx, "_Merge", Variant::Outline, Action::Merge)?;
     }
-    add(tx, "Replace", 'r', Variant::Solid, Action::Replace)?;
+    add(tx, "_Replace", Variant::Solid, Action::Replace)?;
     present(s, tx, Purpose::Conflict { all }, scrim, buttons)
 }
 
@@ -614,7 +592,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
         })?;
         for (k, what) in WHAT.iter().enumerate() {
             let bit = 0o400 >> (r * 3 + k);
-            let b = checkbox(tx, brow, what, None)?;
+            let b = checkbox(tx, brow, what)?;
             widgets::set_checked(tx, b, f.same_mode && f.mode & bit != 0)?;
             app::on(tx, b, Changed, |s: &mut Strider, tx, _| box_changed(s, tx))?;
             boxes.push(b);
@@ -630,7 +608,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
     })?;
     let owner_field = field(tx, orow, &owner0, 200.0, "Owner, user:group")?;
     let recursive = if f.dir {
-        Some(checkbox(tx, card, "Apply to enclosed files", Some('e'))?)
+        Some(checkbox(tx, card, "Apply to _enclosed files")?)
     } else {
         None
     };
@@ -640,8 +618,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
         tx,
         actions,
         &mut buttons,
-        "Cancel",
-        'c',
+        "_Cancel",
         Variant::Outline,
         Action::Cancel,
     )?;
@@ -649,8 +626,7 @@ fn show_properties(s: &mut Strider, tx: &mut Txn<'_, Strider>, f: Facts) -> Resu
         tx,
         actions,
         &mut buttons,
-        "Apply",
-        'a',
+        "_Apply",
         Variant::Solid,
         Action::Apply,
     )?;
@@ -853,56 +829,23 @@ fn cancel(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     app::draw_status(s, tx)
 }
 
-/// A key while a dialog is open, before the focused control has it: Escape cancels, a
-/// mnemonic presses its button or flips its check box (with Alt in a text field), and Enter
-/// applies the properties unless a button has focus. Fails with [`Error::Pass`] for the
-/// focused control's keys.
+/// A key while a dialog is open, before the focused control has it: Escape cancels, and
+/// Enter applies the properties unless a button has focus. Fails with [`Error::Pass`] for
+/// the focused control's keys and for mnemonics, which Keywork takes for the dialog's
+/// buttons and check boxes.
 pub fn key(s: &mut Strider, tx: &mut Txn<'_, Strider>, key: Key) -> Result<()> {
     let Some(d) = &s.wops.dialog else {
         return Err(Error::Pass);
     };
     let m = key.mods;
     let focused = tx.focused();
-    let on_button = d.buttons.iter().any(|(b, _, _)| Some(b.any()) == focused);
-    let in_field = match &d.purpose {
-        Purpose::Properties(p) => {
-            focused == Some(p.mode_field.any()) || focused == Some(p.owner_field.any())
-        }
-        _ => false,
-    };
-    if key.code == keys::sym::ESCAPE && !m.ctrl && !m.alt && !m.super_ {
+    let on_button = d.buttons.iter().any(|b| Some(b.any()) == focused);
+    let plain = !m.ctrl && !m.alt && !m.super_;
+    if key.code == keys::sym::ESCAPE && plain {
         return cancel(s, tx);
     }
-    if key.code == keys::sym::RETURN && !m.ctrl && !m.alt && !m.super_ {
-        if d.is_properties() && !on_button {
-            return apply_properties(s, tx);
-        }
-        return Err(Error::Pass);
+    if key.code == keys::sym::RETURN && plain && d.is_properties() && !on_button {
+        return apply_properties(s, tx);
     }
-    let letter = (key.code < 128)
-        .then(|| char::from_u32(key.code))
-        .flatten()
-        .filter(char::is_ascii_alphabetic)
-        .map(|c| c.to_ascii_lowercase());
-    let plain = key.is_char() && !in_field;
-    let alt = m.alt && !m.ctrl && !m.super_;
-    let Some(letter) = letter.filter(|_| plain || alt) else {
-        return Err(Error::Pass);
-    };
-    if let Some(&(_, _, action)) = d.buttons.iter().find(|(_, c, _)| *c == letter) {
-        return act(s, tx, action);
-    }
-    let flip = match &d.purpose {
-        Purpose::Conflict { all } if letter == 'a' => Some(*all),
-        Purpose::Properties(p) if letter == 'e' => p.recursive,
-        _ => None,
-    };
-    match flip {
-        Some(b) => {
-            let on = widgets::checked(tx, b)?;
-            widgets::set_checked(tx, b, !on)
-        }
-        None if plain => Ok(()),
-        None => Err(Error::Pass),
-    }
+    Err(Error::Pass)
 }

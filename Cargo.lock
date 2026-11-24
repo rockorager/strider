@@ -122,7 +122,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 [[package]]
 name = "keywork"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "keywork-desktop",
  "keywork-gfx",
@@ -134,7 +134,7 @@ dependencies = [
 [[package]]
 name = "keywork-desktop"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "keywork-gfx",
  "keywork-platform",
@@ -145,7 +145,7 @@ dependencies = [
 [[package]]
 name = "keywork-gfx"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "keywork-platform",
 ]
@@ -153,7 +153,7 @@ dependencies = [
 [[package]]
 name = "keywork-platform"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "keywork-wire",
  "rustix",
@@ -162,12 +162,12 @@ dependencies = [
 [[package]]
 name = "keywork-svg"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 
 [[package]]
 name = "keywork-text"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "brotli-decompressor",
  "harfrust",
@@ -180,7 +180,7 @@ dependencies = [
 [[package]]
 name = "keywork-wire"
 version = "0.2.0"
-source = "git+https://tangled.org/rockorager.dev/keywork?rev=af4469fd#af4469fd1a299c51c1710dfe6752c42b6de91cb3"
+source = "git+https://tangled.org/rockorager.dev/keywork?rev=cd0baf64#cd0baf648bb3fd915f7cbcc90acafe0074eb6e6f"
 dependencies = [
  "rustix",
 ]

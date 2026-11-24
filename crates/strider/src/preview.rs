@@ -1,6 +1,6 @@
 //! The preview column: what is under the cursor, as soon as the cursor is on it. Folders show
-//! their entries from the cache; text files their start with syntax coloring; images decode
-//! at the size shown; archives list their entries; PDFs show their first page (poppler's
+//! their entries from the cache; text files their start with syntax coloring; images load
+//! at the size shown, in Keywork's image widget; archives list their entries; PDFs show their first page (poppler's
 //! pdftoppm, else MuPDF's mutool) and videos a frame (ffmpegthumbnailer, else ffmpeg); binary
 //! files show their start in hex; and other files their details.
 //!
@@ -25,8 +25,8 @@ use keywork::desktop::basedir::BaseDirs;
 use keywork::desktop::desktop_entry::Locale;
 use keywork::desktop::mime::{MimeDb, read_comment};
 use keywork::desktop::thumbnail::{ThumbnailCache, ThumbnailSize};
-use keywork::image::{DecodeError, DecodeOptions, Image, decode_image, image_size};
 use keywork::prelude::*;
+use keywork::widgets::ImageError;
 use plusthree::host::NoTimers;
 use strider_core::archive;
 use strider_core::highlight::{self, Class, Span};
@@ -47,9 +47,10 @@ pub enum Preview {
         title: String,
         lines: Lines,
     },
-    /// An image, a PDF's page, or a video's frame, with the file's name, size, and date.
+    /// An image file, a PDF's page, or a video's frame, as a file the image widget loads,
+    /// with the previewed file's name, size, and date.
     Image {
-        picture: Picture,
+        path: PathBuf,
         caption: String,
     },
     Info(Info),
@@ -96,12 +97,6 @@ impl Lines {
         }
         Lines { text, lines, spans }
     }
-}
-
-pub enum Picture {
-    Decoded(Arc<Image>),
-    /// An SVG document, which Keywork draws at the size it shows.
-    File(PathBuf),
 }
 
 /// The details card: a title, lines of a key and a value, and a note under them.
@@ -319,10 +314,8 @@ struct Request {
     syntax: bool,
     /// The time zone's offset at the file's time, in seconds.
     tz: i64,
-    /// The box an image shows in, in logical pixels, and the window's scale.
+    /// The width of the box a PDF's page or a video's frame shows in, in logical pixels.
     width: f32,
-    height: f32,
-    scale: f32,
     /// `$XDG_CACHE_HOME`: the shared thumbnails and the pages Strider renders.
     cache_home: PathBuf,
 }
@@ -338,11 +331,10 @@ impl Request {
 }
 
 fn request(s: &Strider, tx: &Txn<'_, Strider>, path: PathBuf, e: Entry) -> Request {
-    // The preview's box less the image's padding and caption; before the first layout, a
-    // guess.
-    let (width, height) = match tx.rect(s.ui.panes[Col::Preview as usize]) {
-        Ok(r) if r.width >= 16.0 => ((r.width - 16.0).max(16.0), (r.height - 40.0).max(16.0)),
-        _ => (480.0, 480.0),
+    // The preview's box less the image's padding; before the first layout, a guess.
+    let width = match tx.rect(s.ui.panes[Col::Preview as usize]) {
+        Ok(r) if r.width >= 16.0 => (r.width - 16.0).max(16.0),
+        _ => 480.0,
     };
     // Scenes and tests keep renders out of the user's cache.
     let cache_home = match s.state_dir {
@@ -359,8 +351,6 @@ fn request(s: &Strider, tx: &Txn<'_, Strider>, path: PathBuf, e: Entry) -> Reque
         syntax: s.options.syntax,
         tz: i64::from(s.zone.offset_at(e.mtime.div_euclid(1_000_000_000))),
         width,
-        height,
-        scale: tx.scale(),
         cache_home,
     }
 }
@@ -408,12 +398,8 @@ fn load(req: &Request, cancel: &AtomicBool) -> Preview {
     if !texty
         && images
         && let Some(thumb) = cached_thumbnail(req)
-        && let Ok(picture) = decode(req, &thumb)
     {
-        return Preview::Image {
-            picture,
-            caption: caption(req),
-        };
+        return image(req, &thumb);
     }
     if video && images {
         return match renderer(&[Renderer::Ffmpegthumbnailer, Renderer::Ffmpeg]) {
@@ -546,43 +532,32 @@ fn caption(req: &Request) -> String {
 
 // --- Images ----------------------------------------------------------------------------------
 
+/// The image at `path`, which the image widget decodes at the size it shows; one it cannot
+/// show becomes a card saying why, through [`image_failed`].
 fn image(req: &Request, path: &Path) -> Preview {
-    match decode(req, path) {
-        Ok(picture) => Preview::Image {
-            picture,
-            caption: caption(req),
-        },
-        Err(msg) => failed(req, msg),
+    Preview::Image {
+        path: path.to_owned(),
+        caption: caption(req),
     }
 }
 
-/// The image at `path`, decoded no larger than the box it shows in; or why not.
-fn decode(req: &Request, path: &Path) -> std::result::Result<Picture, &'static str> {
-    let svg = path
-        .extension()
-        .is_some_and(|x| x.eq_ignore_ascii_case("svg") || x.eq_ignore_ascii_case("svgz"));
-    if svg {
-        return Ok(Picture::File(path.to_owned()));
-    }
-    let data = fs::read(path).map_err(|_| "This image could not be read")?;
-    let options = DecodeOptions {
-        target: Some((
-            (req.width * req.scale) as u32,
-            (req.height * req.scale) as u32,
-        )),
-        ..DecodeOptions::default()
+/// The image widget could not show the preview's file: a card saying why, in place of the
+/// image, as for a file that shows nothing else.
+pub fn image_failed(s: &mut Strider, tx: &mut Txn<'_, Strider>, error: ImageError) -> Result<()> {
+    let Preview::Image { path, .. } = &s.preview else {
+        return Ok(());
     };
-    match decode_image(&data, &options) {
-        Ok(image) => Ok(Picture::Decoded(Arc::new(image))),
-        Err(DecodeError::Unknown) => Err(UNSUPPORTED),
-        Err(_)
-            if image_size(&data, &options)
-                .is_ok_and(|(w, h)| u64::from(w) * u64::from(h) > options.max_pixels) =>
-        {
-            Err("This image is too large to preview")
-        }
-        Err(_) => Err("This image could not be read"),
-    }
+    let note = match error {
+        ImageError::Unsupported => UNSUPPORTED,
+        ImageError::TooLarge => "This image is too large to preview",
+        _ => "This image could not be read",
+    };
+    s.preview = Preview::Info(Info {
+        title: String::from_utf8_lossy(model::basename(path)).into_owned(),
+        rows: Vec::new(),
+        note: Some(note.into()),
+    });
+    app::draw_preview(s, tx)
 }
 
 /// The largest thumbnail of the file another program saved in the shared cache, if it is

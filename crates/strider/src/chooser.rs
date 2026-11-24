@@ -463,12 +463,18 @@ pub fn open_in(app: &mut App<Strider>, s: &mut Strider, req: Request) -> Result<
 }
 
 /// What a chooser window opens as: the request's title, the chooser's app id, and the size
-/// the user last gave a chooser.
+/// the user last gave a chooser, above the window that asked, modal unless the request says
+/// otherwise. Its least size fits the columns and the bar on a 1366x768 screen, unless
+/// `chooser_size` asks for less, as the Zig build's: Hyprland opens a floating dialog at it.
 fn desc(s: &Strider, req: &Request) -> WindowDesc {
     let [w, h] = size(s);
+    let [least_w, least_h] = s.options.chooser_size;
     WindowDesc::new(req.window_title())
         .app_id(APP_ID)
         .size(w, h)
+        .min_size(least_w.min(800), least_h.min(500))
+        .parent_window(&req.parent_window)
+        .modal(req.modal)
 }
 
 /// Makes `window`, its tree built as `ui`, the app's and `req`'s; returns where it starts
@@ -605,6 +611,15 @@ pub fn build(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     fixed(tx, l)?;
     let field = widgets::text_field(tx, row, req.hint())?;
     tx.set_label(field, name)?;
+    // As tall as the Zig build's field, 24 px, its text the size it is.
+    widgets::set_overrides(
+        tx,
+        field,
+        widgets::Overrides {
+            height: Some(24.0),
+            ..widgets::Overrides::default()
+        },
+    )?;
     if let Some(f) = tx.parent(field)? {
         tx.update_style(f, |st| {
             st.width = Dim::Auto;

@@ -3,13 +3,12 @@
 //! build, in the monospace family Fontconfig resolves.
 //!
 //! Both follow live. One inotify watcher covers each directory an Omarchy theme may be in
-//! and its parent, since `omarchy-theme-set` replaces the theme directory itself, and the
-//! Fontconfig configuration directory with its `conf.d`, which `omarchy-font-set` rewrites.
-//! A change to the theme reads its palette again and dresses the window in it; one to
-//! Fontconfig asks `fc-match` (a new process, so the new configuration) which family
-//! `monospace` is now, since Keywork reads Fontconfig's configuration only once. The icon
-//! theme needs nothing here: Omarchy sets GNOME's `icon-theme`, which Keywork hears through
-//! the settings portal, and `main.rs` loads it again on `on_icon_theme`.
+//! and its parent, since `omarchy-theme-set` replaces the theme directory itself; a change
+//! reads the palette again and dresses the window in it. Keywork follows Fontconfig's
+//! configuration, which `omarchy-font-set` rewrites, itself: text in monospace takes the new
+//! family, and the windows draw again to measure their columns in it. The icon theme needs
+//! nothing here: Omarchy sets GNOME's `icon-theme`, which Keywork hears through the settings
+//! portal, and `main.rs` loads it again on `on_icon_theme`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -18,7 +17,8 @@ use std::time::Duration;
 use keywork::desktop::watch::{DirWatcher, WatchId};
 use keywork::prelude::*;
 use keywork::theme::{
-    Appearance, ColorRole, Paint, Palette as Scale, Seeds, Theme, contrast_ratio,
+    Appearance, ColorRole, DesktopAppearance, Mnemonics, Paint, Palette as Scale, Seeds, Theme,
+    contrast_ratio,
 };
 use keywork::{FontFamily, Instant, Timer};
 use strider_core::omarchy::{Key, Mode, Palette, Rgba, mix, theme_dirs};
@@ -346,18 +346,6 @@ fn keep_paints(paints: Tones) -> &'static [Paint] {
     k
 }
 
-/// A family name kept for the life of the process, as [`FontFamily::Named`] takes one.
-fn keep_name(name: String) -> &'static str {
-    static KEPT: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
-    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(k) = kept.iter().find(|k| **k == name) {
-        return k;
-    }
-    let k: &'static str = name.leak();
-    kept.push(k);
-    k
-}
-
 fn color([r, g, b, a]: Rgba) -> keywork::Color {
     keywork::Color::srgba(r, g, b, a)
 }
@@ -543,46 +531,28 @@ pub fn omarchy_theme(p: &Palette) -> Theme {
     theme
 }
 
-/// Whether `theme` follows a desktop that asks for higher contrast: Keywork hands the map
-/// no reading, but [`Theme::follow_desktop`] makes muted text body text only then.
-fn high_contrast(theme: &Theme) -> bool {
-    theme.roles.light[ColorRole::TextMuted] == Paint::Role(ColorRole::Text)
-}
-
-/// The desktop's accent, if it gives one. Keywork hands the map the nearest of Radix's
-/// scales to it, in place of the default indigo; its step 9 is that color's nearest.
-fn desktop_accent(theme: &Theme) -> Option<keywork::Color> {
-    (!std::ptr::eq(theme.accent, Scale::INDIGO)).then(|| theme.accent.step(Appearance::Light, 9))
-}
-
-/// What the window does to every theme it gets: text in monospace, or the family
-/// Fontconfig names for it since the configuration changed, and Strider's tones. Without an Omarchy theme, siv's palette in the
-/// desktop's light or dark, with its accent. Under an Omarchy theme, its mode, whatever the
+/// What the window does to every theme it gets, as the desktop's settings make it: text in
+/// monospace, and Strider's tones. Without an Omarchy theme, siv's palette in the desktop's
+/// light or dark, with its accent. Under an Omarchy theme, its mode, whatever the
 /// desktop prefers. In higher contrast, siv's high-contrast palette, an Omarchy theme's mode
 /// kept, as siv had it: Omarchy's themes have no high-contrast variant, and theirs would undo
 /// what the user asked for.
-pub fn map(
-    palette: Option<&Palette>,
-    font: Option<&'static str>,
-) -> impl Fn(Theme) -> Theme + use<> {
+pub fn map(palette: Option<&Palette>) -> impl Fn(Theme, &DesktopAppearance) -> Theme + use<> {
     let mode = palette.map(|p| appearance(p.mode));
     let tones: Option<&'static [Paint]> = palette
         .and_then(|p| Ramp::of(p, accent(p)))
         .map(|r| keep_paints(r.tones()));
-    let family = font.map_or(FontFamily::Monospace, FontFamily::Named);
-    move |theme| {
-        let high = high_contrast(&theme);
+    move |theme, desktop| {
+        let high = desktop.high_contrast;
         // An Omarchy theme keeps its own accent, whatever the desktop's.
-        let desktop = if mode.is_none() {
-            desktop_accent(&theme)
-        } else {
-            None
-        };
+        let desktop = desktop.accent.filter(|_| mode.is_none());
         let mut theme = match mode {
             Some(mode) => theme.appearance(mode),
             None => theme,
         };
-        theme.fonts.ui = family;
+        theme.fonts.ui = FontFamily::Monospace;
+        // Buttons' mnemonics always underlined, as the Zig build's dialogs drew them.
+        theme.styles.mnemonics = Mnemonics::Always;
         // The picker's, the tasks', and the which-key popup's cards, in siv's border.
         theme.styles.surface.card.border = Some(ColorRole::Border.paint());
         match tones {
@@ -595,15 +565,10 @@ pub fn map(
 /// What the window wears, and the watcher that keeps it current.
 pub struct Follow {
     home: PathBuf,
-    fontconfig: PathBuf,
     /// The active Omarchy theme's palette, or None without one.
     pub palette: Option<Palette>,
-    /// The family `monospace` resolves to since Fontconfig's configuration changed; None
-    /// before, when Keywork's own resolution of `monospace` holds.
-    font: Option<&'static str>,
     watcher: Option<DirWatcher>,
     themes: Vec<WatchId>,
-    fonts: Vec<WatchId>,
     /// The timer armed for the watcher's next batch, by its deadline.
     armed: Option<(Instant, Timer)>,
     /// Light or dark as `--light` or `--dark` chose, instead of the desktop's.
@@ -613,32 +578,26 @@ pub struct Follow {
 impl Follow {
     /// Reads the Omarchy theme under `home`, if one is active.
     pub fn new(home: &Path) -> Follow {
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| home.join(".config"));
         Follow {
             home: home.to_owned(),
-            fontconfig: config.join("fontconfig"),
             palette: Palette::read(home),
-            font: None,
             watcher: None,
             themes: Vec::new(),
-            fonts: Vec::new(),
             armed: None,
             scheme: None,
         }
     }
 
     /// What the windows wear from the theme the desktop's settings make.
-    fn map(&self) -> impl Fn(Theme) -> Theme + use<> {
-        let map = map(self.palette.as_ref(), self.font);
+    pub fn map(&self) -> impl Fn(Theme, &DesktopAppearance) -> Theme + use<> {
+        let map = map(self.palette.as_ref());
         let scheme = self.scheme;
-        move |theme| {
-            map(match scheme {
+        move |theme, desktop| {
+            let theme = match scheme {
                 Some(a) => theme.appearance(a),
                 None => theme,
-            })
+            };
+            map(theme, desktop)
         }
     }
 
@@ -648,36 +607,28 @@ impl Follow {
         let Some(w) = &mut self.watcher else {
             return;
         };
-        let mut add = |dirs: Vec<PathBuf>| -> Vec<WatchId> {
-            dirs.iter().filter_map(|d| w.add(d).ok()).collect()
-        };
-        let themes = add(theme_dirs(&self.home)
+        let themes = theme_dirs(&self.home)
             .into_iter()
             .flat_map(|d| [d.parent().map(Path::to_owned), Some(d)])
             .flatten()
-            .collect());
-        let fonts = add(vec![
-            self.fontconfig.clone(),
-            self.fontconfig.join("conf.d"),
-        ]);
-        let old = [
-            std::mem::replace(&mut self.themes, themes),
-            std::mem::replace(&mut self.fonts, fonts),
-        ];
-        for id in old.into_iter().flatten() {
+            .filter_map(|d| w.add(&d).ok())
+            .collect();
+        for id in std::mem::replace(&mut self.themes, themes) {
             let _ = w.remove(id);
         }
     }
 }
 
 /// Dresses the app's windows in the Omarchy theme, if one is active, and follows changes to
-/// it and to Fontconfig once the app runs.
+/// it once the app runs, and to Fontconfig's monospace family, which the columns' widths
+/// and the preview's lines are measured in.
 pub fn follow(app: &mut App<Strider>, look: &Follow) {
     if let Some(p) = &look.palette {
         app.desktop_theme(Some(omarchy_theme(p)));
     }
     app.map_desktop_theme(look.map());
     app.on_start(start);
+    app.on_fonts_changed(|s, cx| crate::app::each(s, cx, crate::app::draw));
 }
 
 /// Dresses the windows in what [`Follow`] holds now.
@@ -719,8 +670,7 @@ fn deliver(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     let deadline = w.deadline();
     let look = &mut s.look;
     let theme = ids.iter().any(|id| look.themes.contains(id));
-    let fonts = ids.iter().any(|id| look.fonts.contains(id));
-    if theme || fonts {
+    if theme {
         look.rewatch();
     }
     // Between removing one theme and renaming the next in, there is none: the one worn
@@ -731,19 +681,6 @@ fn deliver(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     {
         look.palette = Some(p);
         wear(s, cx);
-    }
-    // On any window's lane: the font is everyone's.
-    if fonts && let Some(window) = s.wins.first().map(|w| w.window) {
-        cx.spawn_blocking(window, monospace, |s: &mut Strider, tx, font| {
-            if font.is_some() && font != s.look.font {
-                s.look.font = font;
-                tx.defer(|s, cx| {
-                    wear(s, cx);
-                    Ok(())
-                });
-            }
-            Ok(())
-        });
     }
     if s.look.armed.map(|(d, _)| d) != deadline {
         if let Some((_, timer)) = s.look.armed.take() {
@@ -764,26 +701,13 @@ fn deliver(s: &mut Strider, cx: &mut Cx<'_, Strider>) -> Result<()> {
     Ok(())
 }
 
-/// The family Fontconfig's configuration now makes `monospace`, then `monospace` itself for
-/// characters it lacks; None without `fc-match`.
-fn monospace() -> Option<&'static str> {
-    let out = std::process::Command::new("fc-match")
-        .args(["-f", "%{family[0]}", "monospace"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let name = String::from_utf8(out.stdout).ok()?;
-    let name = name.trim();
-    (!name.is_empty()).then(|| keep_name(format!("{name}, monospace")))
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use keywork::Color;
     use keywork::desktop::localtime::Zone;
-    use keywork::theme::{ColorScheme, DesktopAppearance};
+    use keywork::theme::ColorScheme;
     use strider_core::config::Config;
 
     use super::*;
@@ -795,7 +719,7 @@ mod tests {
     /// `map`, as Keywork derives it.
     fn worn(palette: Option<&Palette>, desktop: DesktopAppearance) -> Theme {
         let base = palette.map_or_else(Theme::default, omarchy_theme);
-        map(palette, None)(base.follow_desktop(&desktop))
+        map(palette)(base.follow_desktop(&desktop), &desktop)
     }
 
     fn prefers(color_scheme: ColorScheme) -> DesktopAppearance {
@@ -951,7 +875,11 @@ mod tests {
             },
         );
         let accent = t.color(ColorRole::AccentFill.paint());
-        assert_ne!(accent.to_srgba8(), hex(0x2563eb));
+        assert_eq!(
+            accent.to_srgba8(),
+            hex(0x2f7d4f),
+            "the desktop's own accent"
+        );
         assert_eq!(
             t.color(ColorRole::Selection.paint()).to_srgba8(),
             lerp(Color::WHITE, accent, 0.3).to_srgba8()

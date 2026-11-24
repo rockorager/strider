@@ -3,12 +3,12 @@
 //!
 //! A drag starts from a row of the current column with what commands act on (the visual
 //! range, the marks, or the row), and a card of the file's icon and name ("3 items" for
-//! several) under the pointer. Any folder takes it: a folder's row in any column, a column's
+//! several) under the pointer, which says what the target under it would do with a drop. Any folder takes it: a folder's row in any column, a column's
 //! empty space or a file's row (its folder), a folder of the header path, or a tab (its
 //! folder). The target under the pointer is outlined, the status line says "Move 3 items to
 //! src", and the drop runs as a file operation, so conflicts, progress, and undo work as for
 //! p. Within one filesystem a drop moves, across filesystems it copies; Shift moves, Ctrl
-//! copies, Ctrl+Shift links. The folder the items are in, the items themselves, and folders
+//! copies, Ctrl+Shift links, as the drag's events say they are held. The folder the items are in, the items themselves, and folders
 //! that cannot be written take nothing. Resting on a folder's row or a tab opens it, so a
 //! drop can go deeper; resting near a column's top or bottom scrolls it (the
 //! [`hover`](strider_machines::dnd) statechart). Escape gives the drag up. Files dragged in
@@ -22,7 +22,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use keywork::app::dnd::{DndActions, DragData, DragIcon};
+use keywork::app::dnd::{DndActions, DragData, DragSurface};
 use keywork::input::BTN_LEFT;
 use keywork::prelude::*;
 use keywork::theme::{ColorRole, Paint};
@@ -44,9 +44,6 @@ pub const GNOME_COPIED: &str = "x-special/gnome-copied-files";
 const HOTSPOT: f32 = 14.0;
 /// How near a column's top or bottom a drag scrolls it.
 const EDGE: f32 = 24.0;
-/// How long the card shows in the window before it is the drag's icon, so a frame has drawn
-/// it: Keywork's drag icon of a node is what the last frame drew there.
-const CARD_FRAME: Duration = Duration::from_millis(40);
 
 /// What a drop does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,18 +78,28 @@ pub struct Source {
     /// The folder they are in, and its filesystem.
     dir: PathBuf,
     dev: Option<u64>,
-    /// Escape gave it up: Keywork cannot take the compositor's drag back, so it goes on to
-    /// its end, and the app's windows take nothing of it.
-    cancelled: bool,
+    /// The app's own target under the drag links, which Wayland asks for as a copy.
+    link: bool,
 }
 
-/// What the windows share: the app's drag, and the modifiers last seen held, which pick what
-/// a drop does.
+/// What the windows share: the app's drag, and its card, the drag's icon.
 #[derive(Default)]
 pub struct Dragged {
     pub source: Option<Source>,
-    pub ctrl: bool,
-    pub shift: bool,
+    card: Option<Card>,
+}
+
+/// The card a drag shows: the file's icon and name, and what a drop would do on the accent.
+#[derive(Clone, Copy)]
+pub struct Card {
+    pub card: NodeId<Flex>,
+    icon: NodeId<keywork::Canvas>,
+    label: NodeId<Text>,
+    badge: NodeId<Text>,
+    /// What the badge says, or None for no badge.
+    action: Option<Action>,
+    /// The window it is in: the drag's icon, or a scene's.
+    window: Option<WindowId>,
 }
 
 /// A node that takes drops.
@@ -120,10 +127,6 @@ pub struct Dnd {
     pub hint: String,
     /// Where a column's scrolling is, by row.
     scroll_row: usize,
-    /// The timer that starts the drag once the card is drawn.
-    pending: Option<Timer>,
-    /// The card while it shows, with the action it says.
-    card: Option<Option<Action>>,
 }
 
 impl Dnd {
@@ -137,29 +140,29 @@ impl Dnd {
             takes: false,
             hint: String::new(),
             scroll_row: 0,
-            pending: None,
-            card: None,
         }
     }
 }
 
-/// A window's nodes for drags: a ring over each column, and the card a drag shows.
+/// A window's nodes for drags: a ring over each column.
 #[derive(Clone, Copy)]
 pub struct Nodes {
     rings: [NodeId<Flex>; 3],
-    pub card: NodeId<Flex>,
-    card_icon: NodeId<keywork::Canvas>,
-    card_label: NodeId<Text>,
-    card_badge: NodeId<Text>,
 }
 
-/// Whether the app is dragging, and has not given the drag up.
+/// Whether the app is dragging.
 #[cfg(test)]
 pub fn dragging(s: &Strider) -> bool {
-    s.dragged.source.as_ref().is_some_and(|d| !d.cancelled)
+    s.dragged.source.is_some()
 }
 
-/// The rings, the card, and the columns' handlers, as the window is built.
+/// What the app's drag's card says, if it is dragging.
+#[cfg(test)]
+pub fn badge(s: &Strider) -> Option<Option<Action>> {
+    s.dragged.card.map(|c| c.action)
+}
+
+/// The rings and the columns' handlers, as the window is built.
 pub fn build(
     tx: &mut Txn<'_, Strider>,
     panes: &[NodeId<Stack>],
@@ -200,83 +203,94 @@ pub fn build(
     }
     let current = lists[Col::Current as usize];
     app::on(tx, current, DragStart, move |s: &mut Strider, tx, ev| {
-        let EventData::DragStart {
-            button,
-            position,
-            modifiers,
-            ..
-        } = ev.data
-        else {
+        let EventData::DragStart { button, .. } = ev.data else {
             return Err(Error::Pass);
         };
         if button != BTN_LEFT || widgets::row_item(tx, ev.target)?.is_none() {
             return Err(Error::Pass);
         }
-        s.dragged.ctrl = modifiers.contains(Modifiers::CTRL);
-        s.dragged.shift = modifiers.contains(Modifiers::SHIFT);
-        start(s, tx, position)
+        start(s, tx)
+    })?;
+    // What the target under the drag would do: the card says so.
+    app::on(tx, current, DragAction, |s: &mut Strider, tx, ev| {
+        let EventData::DragAction { action } = ev.data else {
+            return Err(Error::Pass);
+        };
+        let link = s.dragged.source.as_ref().is_some_and(|d| d.link);
+        let badge = if action.contains(DndActions::MOVE) {
+            Some(Action::Move)
+        } else if action.contains(DndActions::COPY) {
+            Some(if link { Action::Link } else { Action::Copy })
+        } else {
+            None
+        };
+        if let Some(card) = &mut s.dragged.card
+            && card.action != badge
+        {
+            card.action = badge;
+            tx.update_drag_icon(fill_card);
+        }
+        Ok(())
     })?;
     app::on(tx, current, DragEnd, |s: &mut Strider, tx, _| end(s, tx))?;
     let root = tx.root();
-    // Without a compositor the drag never starts, and a release ends it.
+    // On a compositor without drag and drop the drag never starts, and a release ends it.
     app::on(tx, root, PointerUp, |s: &mut Strider, tx, _| {
         if s.dragged.source.as_ref().map(|d| d.window) == tx.window() {
             end(s, tx)?;
         }
         Err(Error::Pass)
     })?;
-    app::on(tx, root, KeyUp, |s: &mut Strider, tx, ev| {
-        if let EventData::Key {
-            keysym, modifiers, ..
-        } = ev.data
-        {
-            modifiers_changed(s, tx, keysym, modifiers, false)?;
-        }
-        Err(Error::Pass)
-    })?;
+    Ok(Nodes {
+        rings: rings.try_into().expect("three rings"),
+    })
+}
 
-    // The card: the file's icon and name, and what a drop would do on the accent.
+/// The card, under `parent`: the file's icon and name, and what a drop would do on the
+/// accent, filled for the app's drag.
+pub fn card<P: keywork::tree::Container>(
+    s: &mut Strider,
+    tx: &mut Txn<'_, Strider>,
+    parent: NodeId<P>,
+    action: Option<Action>,
+) -> Result<Card> {
     let card = tx.flex(
-        root,
+        parent,
         Flex::row()
             .gap(6.0)
             .align(keywork::Align::Center)
             .height(Dim::Px(28.0))
-            .padding(Insets::new(0.0, 10.0, 0.0, 8.0))
-            .absolute(keywork::tree::Anchors {
-                left: Some(0.0),
-                top: Some(0.0),
-                ..Default::default()
-            }),
+            .padding(Insets::new(0.0, 10.0, 0.0, 8.0)),
     )?;
     tx.set_background(card, Paint::Role(ColorRole::Surface))?;
     tx.set_radius(card, 6.0)?;
-    tx.set_pass_through(card, true)?;
-    let card_icon = tx.canvas(card, Style::new().size(16.0, 16.0).shrink(0.0))?;
-    let card_label = widgets::label(tx, card, "", TextKind::Body)?;
-    tx.update_style(card_label, |st| {
+    let icon = tx.canvas(card, Style::new().size(16.0, 16.0).shrink(0.0))?;
+    let label = widgets::label(tx, card, "", TextKind::Body)?;
+    tx.update_style(label, |st| {
         st.max_lines = 1;
         st.max_width = 220.0;
         st.min_width = 0.0;
         st.shrink = 1.0;
     })?;
-    let card_badge = widgets::label(tx, card, "", TextKind::Small)?;
-    tx.update_style(card_badge, |st| {
+    let badge = widgets::label(tx, card, "", TextKind::Small)?;
+    tx.update_style(badge, |st| {
         st.font_weight = 700.0;
         st.padding = Insets::new(1.0, 6.0, 1.0, 6.0);
         st.margin = Insets::new(0.0, 0.0, 0.0, 2.0);
         st.shrink = 0.0;
     })?;
-    tx.set_color(card_badge, Paint::Role(ColorRole::OnAccent))?;
-    tx.set_radius(card_badge, 4.0)?;
-    tx.set_hidden(card, true)?;
-    Ok(Nodes {
-        rings: rings.try_into().expect("three rings"),
+    tx.set_color(badge, Paint::Role(ColorRole::OnAccent))?;
+    tx.set_radius(badge, 4.0)?;
+    s.dragged.card = Some(Card {
         card,
-        card_icon,
-        card_label,
-        card_badge,
-    })
+        icon,
+        label,
+        badge,
+        action,
+        window: tx.window(),
+    });
+    fill_card(s, tx)?;
+    Ok(s.dragged.card.expect("the card"))
 }
 
 /// A folder of the header path or a tab, which takes drops into its folder.
@@ -316,12 +330,12 @@ pub fn bind<K: keywork::tree::Kind>(
 
 // Starting -----------------------------------------------------------------------------------
 
-/// Drags the targets from the current column, the pointer at `at`: the card shows there, and
-/// once a frame has drawn it, it is the drag's icon.
-pub fn start(s: &mut Strider, tx: &mut Txn<'_, Strider>, at: Point) -> Result<()> {
+/// Makes the targets of the current column the app's drag, from this window. False when
+/// there are none.
+pub fn hold(s: &mut Strider, tx: &Txn<'_, Strider>) -> bool {
     let paths = app::targets(s);
     let (Some(first), Some(window)) = (paths.first(), tx.window()) else {
-        return Ok(());
+        return false;
     };
     let dir = model::parent(first).to_owned();
     s.dragged.source = Some(Source {
@@ -329,36 +343,18 @@ pub fn start(s: &mut Strider, tx: &mut Txn<'_, Strider>, at: Point) -> Result<()
         dev: dev_of(&dir),
         dir,
         paths,
-        cancelled: false,
+        link: false,
     });
-    show_card(s, tx, None)?;
-    let card = s.ui.dnd.card;
-    tx.update_style(card, |st| {
-        st.position = keywork::tree::Position::Absolute(keywork::tree::Anchors {
-            left: Some(at.x - HOTSPOT),
-            top: Some(at.y - HOTSPOT),
-            ..Default::default()
-        });
-    })?;
-    if let Some(t) = s.dnd.pending.take() {
-        tx.cancel_timer(t);
-    }
-    s.dnd.pending = Some(tx.after(CARD_FRAME, |s: &mut Strider, cx| app::back(s, cx, begin)));
-    Ok(())
+    true
 }
 
-/// The card is drawn: the compositor's drag starts with it as the icon, and it leaves the
-/// window.
-fn begin(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    s.dnd.pending = None;
-    let card = s.ui.dnd.card;
-    hide_card(s, tx)?;
-    let Some(src) = s
-        .dragged
-        .source
-        .as_ref()
-        .filter(|d| !d.cancelled && Some(d.window) == tx.window())
-    else {
+/// Drags the targets from the current column, with the card as the drag's icon, the pointer
+/// on it where the Zig build had it.
+pub fn start(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    if !hold(s, tx) {
+        return Ok(());
+    }
+    let Some(src) = &s.dragged.source else {
         return Ok(());
     };
     let mut list = String::new();
@@ -369,88 +365,49 @@ fn begin(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     let text: Vec<String> = src.paths.iter().map(|p| p.display().to_string()).collect();
     let data = DragData::new(DndActions::COPY | DndActions::MOVE)
         .with(URI_LIST, list)
-        .with("text/plain;charset=utf-8", text.join("\n"))
-        .with_icon(DragIcon::node(card).hotspot(HOTSPOT, HOTSPOT));
-    tx.start_drag(s.ui.lists[Col::Current as usize], data)
+        .with("text/plain;charset=utf-8", text.join("\n"));
+    let surface = DragSurface::new(0, 0).hotspot(HOTSPOT, HOTSPOT);
+    tx.start_drag_with_surface(
+        s.ui.lists[Col::Current as usize],
+        data,
+        surface,
+        |s: &mut Strider, tx, _| {
+            let root = tx.root();
+            card(s, tx, root, None).map(|_| ())
+        },
+    )
 }
 
-/// The drag ended, dropped or not: every window forgets it.
+/// The drag ended, dropped, given up, or not: every window forgets it.
 pub fn end(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    s.dragged.card = None;
     if s.dragged.source.take().is_none() {
         return Ok(());
     }
-    if let Some(t) = s.dnd.pending.take() {
-        tx.cancel_timer(t);
-    }
-    hide_card(s, tx)?;
     app::others(tx, leave);
     leave(s, tx)
 }
 
-/// A key went down or up: the modifiers that pick what a drop does, and Escape, which gives
-/// up this window's drag. True when the key was the drag's.
-pub fn key(
-    s: &mut Strider,
-    tx: &mut Txn<'_, Strider>,
-    keysym: Keysym,
-    modifiers: Modifiers,
-) -> Result<bool> {
-    modifiers_changed(s, tx, keysym, modifiers, true)?;
+/// A key went down: Escape gives up this window's drag. True when the key was the drag's.
+pub fn key(s: &mut Strider, tx: &mut Txn<'_, Strider>, keysym: Keysym) -> Result<bool> {
     let mine = s
         .dragged
         .source
         .as_ref()
-        .is_some_and(|d| !d.cancelled && Some(d.window) == tx.window());
+        .is_some_and(|d| Some(d.window) == tx.window());
     if keysym != Keysym::ESCAPE || !mine {
         return Ok(false);
     }
-    if let Some(d) = &mut s.dragged.source {
-        d.cancelled = true;
-    }
-    if let Some(t) = s.dnd.pending.take() {
-        tx.cancel_timer(t);
-    }
-    hide_card(s, tx)?;
-    app::others(tx, leave);
-    leave(s, tx)?;
+    tx.cancel_drag();
     Ok(true)
-}
-
-fn modifiers_changed(
-    s: &mut Strider,
-    tx: &mut Txn<'_, Strider>,
-    keysym: Keysym,
-    modifiers: Modifiers,
-    down: bool,
-) -> Result<()> {
-    // The key's own modifier is not in the state it comes with yet, or still is.
-    let (mut ctrl, mut shift) = (
-        modifiers.contains(Modifiers::CTRL),
-        modifiers.contains(Modifiers::SHIFT),
-    );
-    match keysym.0 {
-        0xffe1 | 0xffe2 => shift = down,
-        0xffe3 | 0xffe4 => ctrl = down,
-        _ => {}
-    }
-    if (ctrl, shift) == (s.dragged.ctrl, s.dragged.shift) {
-        return Ok(());
-    }
-    s.dragged.ctrl = ctrl;
-    s.dragged.shift = shift;
-    if s.dnd.over.is_some() && s.dnd.takes {
-        set_hint(s, tx, action_for(s))?;
-    }
-    Ok(())
 }
 
 // The card -----------------------------------------------------------------------------------
 
-/// The card for the app's drag: the file's icon and name ("3 items"), with what a drop would
-/// do when `action` says.
-pub fn show_card(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Option<Action>) -> Result<()> {
-    let n = s.ui.dnd;
-    let Some(src) = &s.dragged.source else {
+/// Fills the card for the app's drag: the file's icon and name ("3 items"), with what a drop
+/// would do when its action says.
+fn fill_card(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
+    let (Some(n), Some(src)) = (s.dragged.card, &s.dragged.source) else {
         return Ok(());
     };
     let label = match &src.paths[..] {
@@ -470,7 +427,7 @@ pub fn show_card(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Option<Acti
         _ => "application/octet-stream",
     };
     let px = tx
-        .theme(n.card_icon)
+        .theme(n.icon)
         .map(|t| t.len(t.styles.list.icon) as u32)
         .unwrap_or(16)
         .min(16);
@@ -478,37 +435,33 @@ pub fn show_card(s: &mut Strider, tx: &mut Txn<'_, Strider>, action: Option<Acti
         Some(icons) => icons.painter(&s.db, mime, px),
         None => None,
     };
-    tx.set_painter(n.card_icon, painter)?;
-    tx.set_text(n.card_label, &label)?;
+    tx.set_painter(n.icon, painter)?;
+    tx.set_text(n.label, &label)?;
     let border = tx.theme(n.card)?.color(Paint::Role(ColorRole::Border));
     tx.set_border(n.card, border, 1.0)?;
-    match action {
+    match n.action {
         Some(a) => {
-            tx.set_text(n.card_badge, a.word())?;
+            tx.set_text(n.badge, a.word())?;
             let fill = if a == Action::Move {
                 ColorRole::AccentFill
             } else {
                 ColorRole::Success
             };
-            tx.set_background(n.card_badge, Paint::Role(fill))?;
-            tx.set_hidden(n.card_badge, false)?;
+            tx.set_background(n.badge, Paint::Role(fill))?;
+            tx.set_hidden(n.badge, false)
         }
-        None => tx.set_hidden(n.card_badge, true)?,
+        None => tx.set_hidden(n.badge, true),
     }
-    s.dnd.card = Some(action);
-    tx.set_hidden(n.card, false)
-}
-
-/// The card leaves the window.
-pub fn hide_card(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    s.dnd.card = None;
-    tx.set_hidden(s.ui.dnd.card, true)
 }
 
 /// The icons came, or changed: the card shows its file's.
 pub fn icons_changed(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
-    match s.dnd.card {
-        Some(action) => show_card(s, tx, action),
+    match s.dragged.card {
+        Some(card) if card.window == tx.window() => fill_card(s, tx),
+        Some(_) => {
+            tx.update_drag_icon(fill_card);
+            Ok(())
+        }
         None => Ok(()),
     }
 }
@@ -567,9 +520,6 @@ fn over(
     {
         s.dragged.source = None;
     }
-    if s.dragged.source.as_ref().is_some_and(|d| d.cancelled) {
-        return Err(Error::Pass);
-    }
     let own = s.dragged.source.is_some();
     let mime = if own {
         URI_LIST
@@ -582,7 +532,15 @@ fn over(
             None => return Err(Error::Pass),
         }
     };
-    let action = hover(s, tx, target, dest)?;
+    let EventData::Drag {
+        position,
+        modifiers,
+        ..
+    } = ev.data
+    else {
+        return Err(Error::Pass);
+    };
+    let action = hover(s, tx, target, dest, modifiers)?;
     let Some(action) = action else {
         return Err(Error::Pass);
     };
@@ -593,20 +551,21 @@ fn over(
         DndActions::COPY
     };
     tx.accept_drag(mime, DndActions::COPY | DndActions::MOVE, preferred)?;
-    if let (Target::Row(col, _), EventData::Drag { position, .. }) = (target, ev.data) {
+    if let Target::Row(col, _) = target {
         autoscroll(s, tx, col, position.y)?;
     }
     Ok(())
 }
 
-/// The drag is on `target`, which stands for the folder `dest`: a new target is outlined
-/// when it takes the drop; the hint says what a drop does. What a drop does, or None when
-/// the target takes nothing.
+/// The drag is on `target`, which stands for the folder `dest`, with `modifiers` held: a new
+/// target is outlined when it takes the drop; the hint says what a drop does. What a drop
+/// does, or None when the target takes nothing.
 pub fn hover(
     s: &mut Strider,
     tx: &mut Txn<'_, Strider>,
     target: Target,
     dest: PathBuf,
+    modifiers: Modifiers,
 ) -> Result<Option<Action>> {
     if s.dnd.over != Some(target) {
         s.dnd.over = Some(target);
@@ -620,13 +579,15 @@ pub fn hover(
         let takes = s.dnd.takes;
         send(s, tx, DropEv::Enter { takes, springs })?;
     }
-    if !s.dnd.takes {
-        clear_hint(s, tx)?;
-        return Ok(None);
+    let action = s.dnd.takes.then(|| action_for(s, modifiers));
+    if let Some(src) = &mut s.dragged.source {
+        src.link = action == Some(Action::Link);
     }
-    let action = action_for(s);
-    set_hint(s, tx, action)?;
-    Ok(Some(action))
+    match action {
+        Some(action) => set_hint(s, tx, action)?,
+        None => clear_hint(s, tx)?,
+    }
+    Ok(action)
 }
 
 /// Whether `dest` takes the drag: not the folder the items are in, not one of them or a
@@ -647,11 +608,13 @@ fn takes(s: &Strider, dest: &Path) -> bool {
     .is_ok()
 }
 
-/// Shift moves, Ctrl copies, both link; else a move within one filesystem and a copy
-/// across, and a copy of another application's files.
-fn action_for(s: &Strider) -> Action {
+/// Shift moves, Ctrl copies, both link, as `modifiers` hold them; else a move within one
+/// filesystem and a copy across, and a copy of another application's files.
+fn action_for(s: &Strider, modifiers: Modifiers) -> Action {
     let d = &s.dragged;
-    match (d.ctrl, d.shift) {
+    let ctrl = modifiers.contains(Modifiers::CTRL);
+    let shift = modifiers.contains(Modifiers::SHIFT);
+    match (ctrl, shift) {
         (true, true) => Action::Link,
         (true, false) => Action::Copy,
         (false, true) => Action::Move,
@@ -667,6 +630,9 @@ pub fn leave(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     send(s, tx, DropEv::Leave)?;
     s.dnd.over = None;
     s.dnd.takes = false;
+    if let Some(src) = &mut s.dragged.source {
+        src.link = false;
+    }
     clear_hint(s, tx)
 }
 
@@ -714,21 +680,21 @@ pub fn hint(s: &Strider) -> Option<&str> {
 /// A drop into `dest`: the app's own drag moves, copies, or links its paths; another
 /// application's files are copied, or moved when the drop asks to move.
 fn dropped(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, dest: PathBuf) -> Result<()> {
-    let EventData::Dropped { action, .. } = ev.data else {
+    let EventData::Dropped {
+        action, modifiers, ..
+    } = ev.data
+    else {
         return Ok(());
     };
-    // As it was when the drag came over the target, from the modifiers held.
     s.dnd.dest_dev = dev_of(&dest);
     let ok = takes(s, &dest);
-    let chosen = action_for(s);
+    let chosen = action_for(s, modifiers);
     leave(s, tx)?;
     if !ok {
         return Ok(());
     }
     if let Some(src) = s.dragged.source.take() {
-        if src.cancelled {
-            return Ok(());
-        }
+        s.dragged.card = None;
         app::others(tx, leave);
         let req = Request::transfer(chosen.kind(), src.paths, dest);
         return crate::tasks::start(s, tx, req, true);
@@ -747,7 +713,7 @@ fn dropped(s: &mut Strider, tx: &mut Txn<'_, Strider>, ev: &Event, dest: PathBuf
         s.notify("Only local files can be pasted here", false);
         return app::draw_status(s, tx);
     }
-    let kind = if s.dragged.ctrl && s.dragged.shift {
+    let kind = if modifiers.contains(Modifiers::CTRL | Modifiers::SHIFT) {
         Kind::Link
     } else if action.contains(DndActions::MOVE) {
         Kind::Move

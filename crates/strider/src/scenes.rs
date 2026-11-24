@@ -114,9 +114,11 @@ fn sample_omarchy(name: &str, start: &str, colors: &str) -> Result<(App<Strider>
 }
 
 /// The desktop's theme as the settings portal would make it for `desktop`, for scenes of
-/// the desktop's dark and higher contrast.
-fn desktop(app: &mut App<Strider>, desktop: DesktopAppearance) {
+/// the desktop's dark and higher contrast: Strider's map gets `desktop` as the reading.
+fn desktop(app: &mut App<Strider>, s: &Strider, desktop: DesktopAppearance) {
     app.desktop_theme(Some(Theme::default().follow_desktop(&desktop)));
+    let map = s.look.map();
+    app.map_desktop_theme(move |theme, _| map(theme, &desktop));
 }
 
 /// Presses keys as a user would, through the keymap. While a prompt is open, a character
@@ -276,7 +278,7 @@ pub fn add(app: &mut App<Strider>) {
     for (name, look) in looks {
         app.scene_app(name, move || {
             let (mut app, mut s) = sample(name, "work/src")?;
-            desktop(&mut app, look);
+            desktop(&mut app, &s, look);
             let window = s.window;
             app.update(window, |tx| press(&mut s, tx, "G<Space>v"))?;
             Ok((app, s))
@@ -286,6 +288,7 @@ pub fn add(app: &mut App<Strider>) {
         let (mut app, mut s) = sample("first-row-dark", "work/src")?;
         desktop(
             &mut app,
+            &s,
             DesktopAppearance {
                 color_scheme: ColorScheme::PreferDark,
                 ..Default::default()
@@ -840,11 +843,11 @@ fn add_pointer(app: &mut App<Strider>) {
     // build.zig dragged onto docs in the current column: docs outlined, the hint.
     fn over_docs(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
         press(s, tx, "fbu")?;
-        dnd::start(s, tx, Point::new(200.0, 175.0))?;
-        dnd::hide_card(s, tx)?;
+        dnd::hold(s, tx);
         let pos = s.cur().position_of(b"docs").ok_or(Error::Other("docs"))?;
         let docs = s.cwd.join("docs");
-        dnd::hover(s, tx, Target::Row(app::Col::Current, pos), docs)?;
+        let row = Target::Row(app::Col::Current, pos);
+        dnd::hover(s, tx, row, docs, Modifiers::NONE)?;
         Ok(())
     }
     app.scene_app("drag-over-folder", || {
@@ -861,9 +864,8 @@ fn add_pointer(app: &mut App<Strider>) {
         let window = s.window;
         app.update(window, |tx| {
             over_docs(&mut s, tx)?;
-            dnd::show_card(&mut s, tx, Some(Action::Move))?;
-            let card = s.ui.dnd.card;
             let root = tx.root();
+            let card = dnd::card(&mut s, tx, root, Some(Action::Move))?.card;
             let others: Vec<_> = tx.children(root)?.filter(|&n| n != card.any()).collect();
             for n in others {
                 tx.set_hidden(n, true)?;

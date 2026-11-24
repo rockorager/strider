@@ -3,12 +3,9 @@
 //! to it at its end, so the menu teaches the keymap. Choosing an item runs its command as a
 //! key would. The open-with menu lists applications the same way.
 
-use std::rc::Rc;
-
-use keywork::desktop::icon::Icon as ThemeIcon;
-use keywork::desktop::svg::SymbolicColors;
+use keywork::desktop::icon::IconNames;
 use keywork::prelude::*;
-use keywork::widgets::{self, Icon, Menu, PaintedIcon};
+use keywork::widgets::{self, Icon, Menu};
 use strider_core::config::Mode;
 use strider_core::keys;
 use strider_core::model::Kind;
@@ -267,14 +264,15 @@ fn folder(it: &mut Items<'_>) -> Menu {
 }
 
 /// The open-with menu at the cursor: applications named `names`, numbered from 1, after a
-/// Terminal item for a `folder`, each item with its icon in `icons`, if any. `chosen` hears
-/// the item's index.
+/// Terminal item for a `folder`, each item with the icon its desktop entry names in `icons`,
+/// in its own colors, as the Zig build's menu showed them: from the icon theme, or the file a
+/// path names; none for an entry that names none. `chosen` hears the item's index.
 pub fn open_with<F>(
     s: &mut Strider,
     tx: &mut Txn<'_, Strider>,
     folder: bool,
     names: &[String],
-    icons: Vec<Option<ThemeIcon>>,
+    icons: &[String],
     chosen: F,
 ) -> Result<()>
 where
@@ -282,20 +280,12 @@ where
 {
     let terminal = folder.then(|| "Terminal".to_owned());
     let mut menu = Menu::new();
-    let mut icons = icons.into_iter();
+    let mut icons = icons.iter();
     for (i, name) in terminal.iter().chain(names).enumerate() {
         // An underscore in a name is no mnemonic: the digit is.
         let item = Menu::new().item(i, &name.replace('_', "__"));
-        let item = match icons.next().flatten() {
-            Some(icon) => item.icon(Icon::Painted(PaintedIcon::new(Rc::new(
-                move |b, dst, color| {
-                    let colors = SymbolicColors {
-                        foreground: color,
-                        ..SymbolicColors::default()
-                    };
-                    icon.draw(b, dst, &colors);
-                },
-            )))),
+        let item = match icons.next().filter(|icon| !icon.is_empty()) {
+            Some(icon) => item.icon(Icon::from_theme(&IconNames::app(icon), Icon::Monitor)),
             None => item,
         };
         let item = if i < 9 {

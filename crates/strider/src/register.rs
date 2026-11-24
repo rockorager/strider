@@ -402,7 +402,7 @@ fn restore(s: &mut Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     if paths.is_empty() {
         return Ok(());
     }
-    match ops::restore_request(&paths) {
+    match ops::restore_request(&paths, &home_trash(s)) {
         Ok(req) => tasks::start(s, tx, req, true)?,
         Err(why) => s.notify(why, true),
     }

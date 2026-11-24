@@ -10,7 +10,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Keywork is pinned by rev until it is on crates.io.
-keywork = { git = "https://tangled.org/rockorager.dev/keywork", rev = "af4469fd" }
+keywork = { git = "https://tangled.org/rockorager.dev/keywork", rev = "cd0baf64" }
 libc = "0.2"
 flate2 = "1"
 plusthree = "0.1.7"
