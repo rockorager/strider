@@ -20,7 +20,10 @@ fn main() -> keywork::Result<()> {
         let root = widgets::surface(
             tx,
             tx.root(),
-            Flex::column().padding(16.0).width(Dim::Fill).height(Dim::Fill),
+            Flex::column()
+                .padding(16.0)
+                .width(Dim::Fill)
+                .height(Dim::Fill),
             SurfaceKind::Background,
         )?;
         widgets::label(tx, root, "Strider", TextKind::Body).map(drop)

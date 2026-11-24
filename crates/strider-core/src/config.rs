@@ -32,12 +32,12 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// `n`, `v`, or `t`, as `:map` takes them.
+    /// `n`, `v`, or `t`, or `normal`, `visual`, or `tasks`, as `:map` takes them.
     pub fn parse(t: &str) -> Option<Mode> {
         Some(match t {
-            "n" => Mode::Normal,
-            "v" => Mode::Visual,
-            "t" => Mode::Tasks,
+            "n" | "normal" => Mode::Normal,
+            "v" | "visual" => Mode::Visual,
+            "t" | "tasks" => Mode::Tasks,
             _ => return None,
         })
     }
