@@ -1,0 +1,11 @@
+[package]
+name = "strider"
+description = "A keyboard-driven file manager for Linux on Wayland"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+keywork.workspace = true
+strider-core.workspace = true

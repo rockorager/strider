@@ -1,0 +1,10 @@
+[package]
+name = "strider-core"
+description = "Strider's model and formats: options, the config file, and state files, no I/O beyond files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
