@@ -6,3 +6,5 @@ pub mod driver;
 pub mod folder;
 pub mod keymap;
 pub mod mode;
+pub mod operation;
+pub mod preview;

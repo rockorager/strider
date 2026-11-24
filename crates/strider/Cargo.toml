@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 keywork.workspace = true
+libc.workspace = true
 strider-core.workspace = true
 plusthree.workspace = true
+rustix.workspace = true
 strider-machines.workspace = true
