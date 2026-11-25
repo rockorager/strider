@@ -1426,8 +1426,16 @@ pub fn draw_preview(s: &Strider, tx: &mut Txn<'_, Strider>) -> Result<()> {
     match p {
         Preview::Folder(_) => draw_column(s, tx, Col::Preview),
         Preview::Text(lines) | Preview::Output { lines, .. } => draw_lines(s, tx, lines),
-        Preview::Image { path, caption } => {
-            widgets::load_image(tx, s.ui.preview_image, path)?;
+        Preview::Image { picture, caption } => {
+            // A decoded image replaces the one showing at once; loading would show the
+            // placeholder for a frame or more in between.
+            let image = s.ui.preview_image;
+            match picture {
+                crate::preview::Picture::Decoded(i) => {
+                    widgets::set_image(tx, image, Some(i.clone()))?
+                }
+                crate::preview::Picture::File(path) => widgets::load_image(tx, image, path)?,
+            }
             tx.set_text(s.ui.preview_caption, caption)
         }
         Preview::Info(info) => draw_info(s, tx, info),

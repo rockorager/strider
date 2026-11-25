@@ -1,6 +1,6 @@
 //! The preview column: what is under the cursor, as soon as the cursor is on it. Folders show
-//! their entries from the cache; text files their start with syntax coloring; images load
-//! at the size shown, in Keywork's image widget; archives list their entries; PDFs show their first page (poppler's
+//! their entries from the cache; text files their start with syntax coloring; images decode
+//! at the size shown; archives list their entries; PDFs show their first page (poppler's
 //! pdftoppm, else MuPDF's mutool) and videos a frame (ffmpegthumbnailer, else ffmpeg); binary
 //! files show their start in hex; and other files their details.
 //!
@@ -25,6 +25,7 @@ use keywork::desktop::basedir::BaseDirs;
 use keywork::desktop::desktop_entry::Locale;
 use keywork::desktop::mime::{MimeDb, read_comment};
 use keywork::desktop::thumbnail::{ThumbnailCache, ThumbnailSize};
+use keywork::image::{DecodeError, DecodeOptions, Image, decode_image, image_size};
 use keywork::prelude::*;
 use keywork::widgets::ImageError;
 use plusthree::host::NoTimers;
@@ -47,10 +48,9 @@ pub enum Preview {
         title: String,
         lines: Lines,
     },
-    /// An image file, a PDF's page, or a video's frame, as a file the image widget loads,
-    /// with the previewed file's name, size, and date.
+    /// An image, a PDF's page, or a video's frame, with the file's name, size, and date.
     Image {
-        path: PathBuf,
+        picture: Picture,
         caption: String,
     },
     Info(Info),
@@ -97,6 +97,12 @@ impl Lines {
         }
         Lines { text, lines, spans }
     }
+}
+
+pub enum Picture {
+    Decoded(Arc<Image>),
+    /// An SVG document, which Keywork draws at the size it shows.
+    File(PathBuf),
 }
 
 /// The details card: a title, lines of a key and a value, and a note under them.
@@ -314,8 +320,10 @@ struct Request {
     syntax: bool,
     /// The time zone's offset at the file's time, in seconds.
     tz: i64,
-    /// The width of the box a PDF's page or a video's frame shows in, in logical pixels.
+    /// The box an image shows in, in logical pixels, and the window's scale.
     width: f32,
+    height: f32,
+    scale: f32,
     /// `$XDG_CACHE_HOME`: the shared thumbnails and the pages Strider renders.
     cache_home: PathBuf,
 }
@@ -331,10 +339,11 @@ impl Request {
 }
 
 fn request(s: &Strider, tx: &Txn<'_, Strider>, path: PathBuf, e: Entry) -> Request {
-    // The preview's box less the image's padding; before the first layout, a guess.
-    let width = match tx.rect(s.ui.panes[Col::Preview as usize]) {
-        Ok(r) if r.width >= 16.0 => (r.width - 16.0).max(16.0),
-        _ => 480.0,
+    // The preview's box less the image's padding and caption; before the first layout, a
+    // guess.
+    let (width, height) = match tx.rect(s.ui.panes[Col::Preview as usize]) {
+        Ok(r) if r.width >= 16.0 => ((r.width - 16.0).max(16.0), (r.height - 40.0).max(16.0)),
+        _ => (480.0, 480.0),
     };
     // Scenes and tests keep renders out of the user's cache.
     let cache_home = match s.state_dir {
@@ -351,6 +360,8 @@ fn request(s: &Strider, tx: &Txn<'_, Strider>, path: PathBuf, e: Entry) -> Reque
         syntax: s.options.syntax,
         tz: i64::from(s.zone.offset_at(e.mtime.div_euclid(1_000_000_000))),
         width,
+        height,
+        scale: tx.scale(),
         cache_home,
     }
 }
@@ -398,8 +409,12 @@ fn load(req: &Request, cancel: &AtomicBool) -> Preview {
     if !texty
         && images
         && let Some(thumb) = cached_thumbnail(req)
+        && let Ok(picture) = decode(req, &thumb)
     {
-        return image(req, &thumb);
+        return Preview::Image {
+            picture,
+            caption: caption(req),
+        };
     }
     if video && images {
         return match renderer(&[Renderer::Ffmpegthumbnailer, Renderer::Ffmpeg]) {
@@ -532,19 +547,23 @@ fn caption(req: &Request) -> String {
 
 // --- Images ----------------------------------------------------------------------------------
 
-/// The image at `path`, which the image widget decodes at the size it shows; one it cannot
-/// show becomes a card saying why, through [`image_failed`].
 fn image(req: &Request, path: &Path) -> Preview {
-    Preview::Image {
-        path: path.to_owned(),
-        caption: caption(req),
+    match decode(req, path) {
+        Ok(picture) => Preview::Image {
+            picture,
+            caption: caption(req),
+        },
+        Err(msg) => failed(req, msg),
     }
 }
 
-/// The image widget could not show the preview's file: a card saying why, in place of the
-/// image, as for a file that shows nothing else.
+/// The image widget could not show an SVG preview: a card saying why, in place of the image.
 pub fn image_failed(s: &mut Strider, tx: &mut Txn<'_, Strider>, error: ImageError) -> Result<()> {
-    let Preview::Image { path, .. } = &s.preview else {
+    let Preview::Image {
+        picture: Picture::File(path),
+        ..
+    } = &s.preview
+    else {
         return Ok(());
     };
     let note = match error {
@@ -558,6 +577,35 @@ pub fn image_failed(s: &mut Strider, tx: &mut Txn<'_, Strider>, error: ImageErro
         note: Some(note.into()),
     });
     app::draw_preview(s, tx)
+}
+
+/// The image at `path`, decoded no larger than the box it shows in; or why not.
+fn decode(req: &Request, path: &Path) -> std::result::Result<Picture, &'static str> {
+    let svg = path
+        .extension()
+        .is_some_and(|x| x.eq_ignore_ascii_case("svg") || x.eq_ignore_ascii_case("svgz"));
+    if svg {
+        return Ok(Picture::File(path.to_owned()));
+    }
+    let data = fs::read(path).map_err(|_| "This image could not be read")?;
+    let options = DecodeOptions {
+        target: Some((
+            (req.width * req.scale) as u32,
+            (req.height * req.scale) as u32,
+        )),
+        ..DecodeOptions::default()
+    };
+    match decode_image(&data, &options) {
+        Ok(image) => Ok(Picture::Decoded(Arc::new(image))),
+        Err(DecodeError::Unknown) => Err(UNSUPPORTED),
+        Err(_)
+            if image_size(&data, &options)
+                .is_ok_and(|(w, h)| u64::from(w) * u64::from(h) > options.max_pixels) =>
+        {
+            Err("This image is too large to preview")
+        }
+        Err(_) => Err("This image could not be read"),
+    }
 }
 
 /// The largest thumbnail of the file another program saved in the shared cache, if it is
@@ -986,6 +1034,54 @@ mod tests {
             text.as_deref(),
             Some("pkg/\npkg/b.txt  1 byte\npkg/lib/\npkg/lib/a.txt  5 bytes\n")
         );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    // Going from one image to the next keeps an image in the preview on every frame: the
+    // old one until the new one is decoded, never the image widget's empty placeholder,
+    // which showed as a flash of a lighter box.
+    #[test]
+    fn going_between_images_never_shows_the_placeholder() {
+        let home = crate::scenes::preview_fixture("between-images");
+        let work = home.join("work");
+        std::fs::copy(work.join("photo.png"), work.join("photo2.png")).unwrap();
+        let (app, state) = crate::app_in(
+            work.clone(),
+            home.clone(),
+            strider_core::config::Config::default(),
+            keywork::desktop::localtime::Zone::utc(),
+            false,
+            None,
+        )
+        .unwrap();
+        let window = state.window;
+        let mut h = app.headless(state).unwrap();
+        h.settle().unwrap();
+        while h.state().cur().current_name() != Some(&b"photo.png"[..]) {
+            h.key(window, Keysym::from_char('j'), Modifiers::NONE)
+                .unwrap();
+            h.settle().unwrap();
+        }
+        let shows_image = |h: &mut keywork::app::Headless<Strider>| {
+            h.render(window).unwrap();
+            h.with_cx(|s, cx| {
+                let node = s.ui.preview_image;
+                cx.update(window, |tx| {
+                    keywork::tree::TreeOps::has_image(&*tx, node.any())
+                })
+            })
+            .unwrap()
+        };
+        assert!(shows_image(&mut h));
+        h.key(window, Keysym::from_char('j'), Modifiers::NONE)
+            .unwrap();
+        assert_eq!(h.state().cur().current_name(), Some(&b"photo2.png"[..]));
+        assert!(shows_image(&mut h), "the frame after the key");
+        h.settle().unwrap();
+        assert!(
+            matches!(&h.state().preview, Preview::Image { caption, .. } if caption.starts_with("photo2.png"))
+        );
+        assert!(shows_image(&mut h), "once the new image is in");
         let _ = std::fs::remove_dir_all(&home);
     }
 
