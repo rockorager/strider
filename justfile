@@ -210,8 +210,9 @@ release version="":
     (cd "$src" && just ci)
     # For x86-64-v3 (AVX2, 2013 on), not this machine's CPU: an orb's has
     # AVX-512, which laptops such as Lunar Lake lack, and strider built
-    # for it dies there at its first such instruction.
-    (cd "$src" && RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked -p strider)
+    # for it dies there at its first such instruction. STRIDER_RELEASE
+    # keeps the commit's hash out of its version, as its tag comes later.
+    (cd "$src" && STRIDER_RELEASE=1 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --locked -p strider)
     # The desktop and D-Bus service files name the program by its absolute
     # path: @PREFIX@ in the archive, for `just fetch` to fill in.
     stage "$tmp/root" @PREFIX@ "$src"

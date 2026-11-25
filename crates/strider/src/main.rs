@@ -207,7 +207,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> std::result::Result<Arg
             "--new-window" => out.new_window = true,
             "--service" | "--gapplication-service" => out.service = true,
             "--version" => {
-                return Err((format!("strider {}\n", env!("CARGO_PKG_VERSION")), 0));
+                return Err((format!("strider {}\n", env!("STRIDER_VERSION")), 0));
             }
             "--help" | "-h" => return Err((USAGE.to_owned(), 0)),
             _ if a.starts_with("--keywork-") => {
@@ -1767,7 +1767,7 @@ esac
         assert!(args(&["--gapplication-service"]).unwrap().service);
         assert_eq!(
             args(&["--version"]),
-            Err((format!("strider {}\n", env!("CARGO_PKG_VERSION")), 0))
+            Err((format!("strider {}\n", env!("STRIDER_VERSION")), 0))
         );
         assert_eq!(args(&["-h"]), Err((USAGE.to_owned(), 0)));
         let (text, status) = args(&["--clean"]).unwrap_err();
