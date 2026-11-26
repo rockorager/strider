@@ -277,7 +277,40 @@ fn main() -> Result<()> {
         }
     }
     app.on_start(drives::start_watching);
-    app.run(state)
+    let headless = app.is_headless();
+    if let Err(e) = app.run(state) {
+        match wayland_problem().filter(|_| !headless) {
+            Some(why) => eprintln!("strider: no Wayland compositor to connect to: {why}"),
+            None => eprintln!("strider: {e}"),
+        }
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// Why no compositor answers where Keywork looks for one, if none does: the socket
+/// `$WAYLAND_DISPLAY` (default `wayland-0`) in `$XDG_RUNTIME_DIR`, unless `WAYLAND_SOCKET`
+/// hands one over. Asked once a run has failed, to say which of the three is wrong.
+fn wayland_problem() -> Option<String> {
+    if std::env::var_os("WAYLAND_SOCKET").is_some() {
+        return None;
+    }
+    let display = std::env::var_os("WAYLAND_DISPLAY");
+    let name = display.clone().unwrap_or_else(|| "wayland-0".into());
+    let path = if std::path::Path::new(&name).is_absolute() {
+        PathBuf::from(name)
+    } else {
+        let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") else {
+            return Some("XDG_RUNTIME_DIR is not set".into());
+        };
+        PathBuf::from(dir).join(name)
+    };
+    let e = std::os::unix::net::UnixStream::connect(&path).err()?;
+    let hint = match display {
+        Some(_) => "WAYLAND_DISPLAY names a compositor that is not running here",
+        None => "WAYLAND_DISPLAY is not set, as in a shell started outside the Wayland session",
+    };
+    Some(format!("{}: {e}; {hint}", path.display()))
 }
 
 /// What the Zig build read, `init.lua`, left without the `config.json` that replaces it: said
